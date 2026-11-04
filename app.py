@@ -151,14 +151,16 @@ def ensure_schema() -> None:
             return
         schema = (BASE_DIR / "schema.sql").read_text(encoding="utf-8")
         generated_bootstrap = None
+        synced_bootstrap = None
         with get_pool().connection() as conn:
             conn.execute(schema)
             row = conn.execute("SELECT COUNT(*) AS count FROM users").fetchone()
+            username = os.getenv("INITIAL_TECHADMIN_USERNAME", "techadmin").strip().lower() or "techadmin"
+            if not re.fullmatch(r"[a-z0-9_.-]{3,40}", username):
+                username = "techadmin"
+            configured_password = os.getenv("INITIAL_TECHADMIN_PASSWORD", "").strip()
             if row["count"] == 0:
-                username = os.getenv("INITIAL_TECHADMIN_USERNAME", "techadmin").strip().lower() or "techadmin"
-                if not re.fullmatch(r"[a-z0-9_.-]{3,40}", username):
-                    username = "techadmin"
-                password = os.getenv("INITIAL_TECHADMIN_PASSWORD", "").strip()
+                password = configured_password
                 if len(password) < 8:
                     password = secrets.token_urlsafe(15)
                     generated_bootstrap = (username, password)
@@ -173,6 +175,25 @@ def ensure_schema() -> None:
                 ).fetchone()
                 if not inserted:
                     generated_bootstrap = None
+            elif len(configured_password) >= 8:
+                # First-login recovery: an incorrectly configured initial password can be
+                # corrected on the next deploy, but never overwrite a password after the
+                # techadmin has logged in successfully for the first time.
+                bootstrap_user = conn.execute(
+                    """SELECT id, password_hash, last_login_at FROM users
+                       WHERE username=%s AND role='techadmin' AND is_active""",
+                    (username,),
+                ).fetchone()
+                if (
+                    bootstrap_user
+                    and bootstrap_user["last_login_at"] is None
+                    and not check_password_hash(bootstrap_user["password_hash"], configured_password)
+                ):
+                    conn.execute(
+                        "UPDATE users SET password_hash=%s, updated_at=NOW() WHERE id=%s",
+                        (generate_password_hash(configured_password, method="scrypt"), bootstrap_user["id"]),
+                    )
+                    synced_bootstrap = username
         if generated_bootstrap:
             username, password = generated_bootstrap
             app.logger.warning(
@@ -180,6 +201,11 @@ def ensure_schema() -> None:
                 "Kirgach parolni darhol almashtiring.",
                 username,
                 password,
+            )
+        elif synced_bootstrap:
+            app.logger.warning(
+                "AIRITOM FIRST LOGIN RECOVERY | username=%s | ENV paroli sinxronlandi.",
+                synced_bootstrap,
             )
         _schema_ready = True
 
