@@ -64,6 +64,12 @@ from freezone import POINTS, register_zone
 ALLOWED_ROLES = {"operator", "admin", "techadmin", *POINTS}
 ADMIN_ROLES = {"admin", "techadmin"}
 MUTATING_METHODS = {"POST", "PUT", "PATCH", "DELETE"}
+TARIFFS = {
+    "weighing": ("weighing_price", "weighing_enabled", "Tarozi o'lchovi"),
+    "entry": ("entry_service_price", "entry_service_enabled", "Hududga kirish xizmati"),
+    "reload": ("reload_service_price", "reload_service_enabled", "Qayta yuklash xizmati"),
+    "zone_daily": ("zone_daily_rate", "zone_daily_enabled", "Parkovka va Free Zone kunlik haqi"),
+}
 
 
 app = Flask(__name__)
@@ -144,47 +150,37 @@ def ensure_schema() -> None:
         if _schema_ready:
             return
         schema = (BASE_DIR / "schema.sql").read_text(encoding="utf-8")
+        generated_bootstrap = None
         with get_pool().connection() as conn:
             conn.execute(schema)
             row = conn.execute("SELECT COUNT(*) AS count FROM users").fetchone()
             if row["count"] == 0:
-                username = os.getenv("INITIAL_TECHADMIN_USERNAME", "techadmin").strip().lower()
-                password = os.getenv("INITIAL_TECHADMIN_PASSWORD", "")
-                if len(username) < 3 or len(password) < 8:
-                    raise RuntimeError(
-                        "Birinchi foydalanuvchi uchun INITIAL_TECHADMIN_USERNAME va "
-                        "kamida 8 belgili INITIAL_TECHADMIN_PASSWORD kiriting"
-                    )
-                conn.execute(
+                username = os.getenv("INITIAL_TECHADMIN_USERNAME", "techadmin").strip().lower() or "techadmin"
+                if not re.fullmatch(r"[a-z0-9_.-]{3,40}", username):
+                    username = "techadmin"
+                password = os.getenv("INITIAL_TECHADMIN_PASSWORD", "").strip()
+                if len(password) < 8:
+                    password = secrets.token_urlsafe(15)
+                    generated_bootstrap = (username, password)
+                inserted = conn.execute(
                     """
                     INSERT INTO users (username, password_hash, role)
                     VALUES (%s, %s, 'techadmin')
                     ON CONFLICT (username) DO NOTHING
+                    RETURNING id
                     """,
                     (username, generate_password_hash(password, method="scrypt")),
-                )
-            initial_price = str(max(0, int(os.getenv("INITIAL_PRICE", "30000"))))
-            conn.execute(
-                """
-                INSERT INTO settings (key, value)
-                VALUES ('weighing_price', %s)
-                ON CONFLICT (key) DO NOTHING
-                """,
-                (initial_price,),
+                ).fetchone()
+                if not inserted:
+                    generated_bootstrap = None
+        if generated_bootstrap:
+            username, password = generated_bootstrap
+            app.logger.warning(
+                "AIRITOM FIRST LOGIN | username=%s | temporary_password=%s | "
+                "Kirgach parolni darhol almashtiring.",
+                username,
+                password,
             )
-            for key, env_name in (
-                ("entry_service_price", "INITIAL_ENTRY_PRICE"),
-                ("reload_service_price", "INITIAL_RELOAD_PRICE"),
-            ):
-                value = str(max(0, int(os.getenv(env_name, "30000"))))
-                conn.execute(
-                    """
-                    INSERT INTO settings (key, value)
-                    VALUES (%s, %s)
-                    ON CONFLICT (key) DO NOTHING
-                    """,
-                    (key, value),
-                )
         _schema_ready = True
 
 
@@ -326,20 +322,7 @@ def clean_plate(value: str, strict: bool = True) -> tuple[str, str]:
     return plate, search
 
 
-def get_current_price(conn=None) -> int:
-    def query(active_conn) -> int:
-        row = active_conn.execute(
-            "SELECT value FROM settings WHERE key = 'weighing_price'"
-        ).fetchone()
-        return max(0, int(row["value"])) if row else 30000
-
-    if conn is not None:
-        return query(conn)
-    with get_pool().connection() as active_conn:
-        return query(active_conn)
-
-
-def get_service_prices(conn=None) -> dict[str, int]:
+def get_service_prices(conn=None) -> dict:
     defaults = {
         "weighing": 30000,
         "entry": 30000,
@@ -347,18 +330,15 @@ def get_service_prices(conn=None) -> dict[str, int]:
     }
 
     def query(active_conn) -> dict[str, int]:
-        rows = active_conn.execute(
-            """
-            SELECT key, value FROM settings
-            WHERE key IN ('weighing_price', 'entry_service_price', 'reload_service_price')
-            """
-        ).fetchall()
-        values = {row["key"]: max(0, int(row["value"])) for row in rows}
-        return {
-            "weighing": values.get("weighing_price", defaults["weighing"]),
-            "entry": values.get("entry_service_price", defaults["entry"]),
-            "reload": values.get("reload_service_price", defaults["reload"]),
-        }
+        keys = [key for price_key, enabled_key, _ in TARIFFS.values() for key in (price_key, enabled_key)]
+        rows = active_conn.execute("SELECT key, value FROM settings WHERE key = ANY(%s)", (keys,)).fetchall()
+        values = {row["key"]: row["value"] for row in rows}
+        result = {}
+        for code, (price_key, enabled_key, _label) in TARIFFS.items():
+            fallback = defaults.get(code, 30000)
+            result[code] = max(0, int(values.get(price_key, fallback)))
+            result[f"{code}_enabled"] = values.get(enabled_key, "true").lower() == "true"
+        return result
 
     if conn is not None:
         return query(conn)
@@ -629,7 +609,11 @@ def index():
 @app.get("/admin")
 @roles_required("admin", "techadmin")
 def admin_page():
-    default_tab = "monitor" if g.user["role"] == "techadmin" else "dashboard"
+    allowed_tabs = {"monitor", "users", "reports", "analytics", "search", "history", "transfer", "tech"}
+    requested_tab = request.args.get("tab", "")
+    default_tab = requested_tab if g.user["role"] == "techadmin" and requested_tab in allowed_tabs else (
+        "monitor" if g.user["role"] == "techadmin" else "dashboard"
+    )
     return render_template(
         "admin.html",
         user=g.user,
@@ -714,6 +698,9 @@ def api_today_stats():
         current_price=service_prices["weighing"],
         entry_price=service_prices["entry"],
         reload_price=service_prices["reload"],
+        weighing_enabled=service_prices["weighing_enabled"],
+        entry_enabled=service_prices["entry_enabled"],
+        reload_enabled=service_prices["reload_enabled"],
         personal={item["payment_method"]: int(item["amount"]) for item in personal},
         last_receipt=last,
     )
@@ -811,7 +798,7 @@ def create_weighing():
                     abort(409)
                 return jsonify(success=True, weighing=serialize_weighing(existing), service_prices=get_service_prices(conn))
         service_prices = get_service_prices(conn)
-        price = service_prices["weighing"]
+        price = service_prices["weighing"] if service_prices["weighing_enabled"] else 0
         public_token = secrets.token_urlsafe(24)
         seq_row = conn.execute(
             """
@@ -882,15 +869,6 @@ def pay_weighing(weighing_id: int):
         return jsonify(success=False, message="Vazn 1–1 000 000 kg oralig'ida bo'lishi kerak"), 400
     entry_service = data.get("entry_service") is True
     reload_service = data.get("reload_service") is True
-    try:
-        entry_fee_requested = int(data.get("entry_fee")) if entry_service else 0
-        reload_fee_requested = int(data.get("reload_fee")) if reload_service else 0
-    except (TypeError, ValueError):
-        return jsonify(success=False, message="Qo'shimcha xizmat summasini to'g'ri kiriting"), 400
-    if entry_service and not 1 <= entry_fee_requested <= 1_000_000_000:
-        return jsonify(success=False, message="Hududga kirish to'lovi 1–1 000 000 000 so'm bo'lishi kerak"), 400
-    if reload_service and not 1 <= reload_fee_requested <= 1_000_000_000:
-        return jsonify(success=False, message="Qayta yuklash to'lovi 1–1 000 000 000 so'm bo'lishi kerak"), 400
     with get_pool().connection() as conn:
         row = conn.execute(
             """
@@ -908,14 +886,18 @@ def pay_weighing(weighing_id: int):
             return jsonify(success=False, message="Bekor qilingan yozuvni to'lab bo'lmaydi"), 409
         if row["status"] == "pending":
             service_prices = get_service_prices(conn)
+            if entry_service and not service_prices["entry_enabled"]:
+                return jsonify(success=False, message="Hududga kirish tarifi techadmin tomonidan o'chirilgan"), 409
+            if reload_service and not service_prices["reload_enabled"]:
+                return jsonify(success=False, message="Qayta yuklash tarifi techadmin tomonidan o'chirilgan"), 409
             weighing_fee_value = row.get("weighing_fee")
             weighing_fee = int(
                 weighing_fee_value
                 if weighing_fee_value is not None
                 else (row.get("price") or service_prices["weighing"])
             )
-            entry_fee = entry_fee_requested
-            reload_fee = reload_fee_requested
+            entry_fee = service_prices["entry"] if entry_service else 0
+            reload_fee = service_prices["reload"] if reload_service else 0
             total = weighing_fee + entry_fee + reload_fee
             row = conn.execute(
                 """
@@ -1643,41 +1625,81 @@ def import_sqlite():
                 pass
 
 
-@app.get("/api/admin/settings/price")
+@app.get("/api/admin/settings/tariffs")
 @roles_required("admin", "techadmin")
-def get_price_setting():
-    prices = get_service_prices()
+def list_tariffs():
+    with get_pool().connection() as conn:
+        values = get_service_prices(conn)
+        history = conn.execute(
+            """SELECT h.*, u.username FROM tariff_history h
+               LEFT JOIN users u ON u.id=h.changed_by
+               ORDER BY h.changed_at DESC LIMIT 50"""
+        ).fetchall()
+    tariffs = [
+        {
+            "code": code,
+            "label": label,
+            "amount": values[code],
+            "enabled": values[f"{code}_enabled"],
+            "can_apply_existing": code in {"weighing", "zone_daily"},
+        }
+        for code, (_price_key, _enabled_key, label) in TARIFFS.items()
+    ]
     return jsonify(
         success=True,
-        price=prices["weighing"],
-        entry_price=prices["entry"],
-        reload_price=prices["reload"],
+        tariffs=tariffs,
+        history=[
+            {
+                "id": row["id"], "code": row["code"], "label": TARIFFS.get(row["code"], (None, None, row["code"]))[2],
+                "amount": row["amount"], "enabled": row["enabled"],
+                "applied_to_existing": row["applied_to_existing"], "affected_rows": row["affected_rows"],
+                "username": row["username"] or "—",
+                "changed_at": localize(row["changed_at"]).strftime("%d.%m.%Y %H:%M"),
+            }
+            for row in history
+        ],
     )
 
 
-@app.put("/api/admin/settings/price")
+@app.put("/api/admin/settings/tariffs/<code>")
 @roles_required("techadmin")
-def update_price_setting():
+def update_tariff(code: str):
+    if code not in TARIFFS:
+        return jsonify(success=False, message="Tarif topilmadi"), 404
     data = request.get_json(silent=True) or {}
+    try:
+        amount = int(data.get("amount"))
+    except (TypeError, ValueError):
+        return jsonify(success=False, message="Tarif summasi noto'g'ri"), 400
+    enabled = data.get("enabled") is True
+    apply_existing = data.get("apply_existing") is True and code in {"weighing", "zone_daily"}
+    if amount < 0 or amount > 1_000_000_000 or (enabled and amount < 1):
+        return jsonify(success=False, message="Faol tarif 1–1 000 000 000 so'm oralig'ida bo'lishi kerak"), 400
+    price_key, enabled_key, _label = TARIFFS[code]
+    effective_amount = amount if enabled else 0
+    affected = 0
     with get_pool().connection() as conn:
-        try:
-            price = int(data.get("price"))
-        except (TypeError, ValueError):
-            return jsonify(success=False, message="Tarozi narxi noto'g'ri"), 400
-        if price < 0 or price > 1_000_000_000:
-            return jsonify(success=False, message="Narx ruxsat etilgan oraliqda emas"), 400
+        for key, value in ((price_key, str(amount)), (enabled_key, "true" if enabled else "false")):
+            conn.execute(
+                """INSERT INTO settings(key,value,updated_at,updated_by) VALUES(%s,%s,NOW(),%s)
+                   ON CONFLICT(key) DO UPDATE SET value=EXCLUDED.value,updated_at=NOW(),updated_by=EXCLUDED.updated_by""",
+                (key, value, g.user["id"]),
+            )
+        if apply_existing and code == "zone_daily":
+            affected = conn.execute(
+                "UPDATE zone_visits SET daily_rate=%s WHERE location<>'closed'", (effective_amount,)
+            ).rowcount
+        elif apply_existing and code == "weighing":
+            affected = conn.execute(
+                "UPDATE weighings SET weighing_fee=%s,price=%s,updated_at=NOW() WHERE status='pending'",
+                (effective_amount, effective_amount),
+            ).rowcount
         conn.execute(
-            """
-            INSERT INTO settings (key, value, updated_at, updated_by)
-            VALUES ('weighing_price', %s, NOW(), %s)
-            ON CONFLICT (key) DO UPDATE SET
-                value = EXCLUDED.value,
-                updated_at = NOW(),
-                updated_by = EXCLUDED.updated_by
-            """,
-            (str(price), g.user["id"]),
+            """INSERT INTO tariff_history(code,amount,enabled,applied_to_existing,affected_rows,changed_by)
+               VALUES(%s,%s,%s,%s,%s,%s)""",
+            (code, amount, enabled, apply_existing, max(0, affected), g.user["id"]),
         )
-    return jsonify(success=True, price=price)
+    return jsonify(success=True, code=code, amount=amount, enabled=enabled, affected_rows=max(0, affected))
 
 
 @app.get("/api/admin/users")
@@ -1976,9 +1998,13 @@ def create_sqlite_backup(include_users: bool = True) -> str:
                 for table, columns in (
                     ("zone_visits", "id plate plate_key purpose location started daily_rate"),
                     ("zone_events", "id request_key visit_id occurred point action location operator_name days previous_paid amount method"),
+                    ("tariff_history", "id code amount enabled applied_to_existing affected_rows changed_by changed_at"),
                 ):
                     names = columns.split()
-                    numeric = {"id","visit_id","daily_rate","days","previous_paid","amount"}
+                    numeric = {
+                        "id", "visit_id", "daily_rate", "days", "previous_paid", "amount",
+                        "enabled", "applied_to_existing", "affected_rows", "changed_by",
+                    }
                     definition = ",".join(name + (" INTEGER" if name in numeric else " TEXT") for name in names)
                     backup.execute(f"CREATE TABLE {table} ({definition}, PRIMARY KEY(id))")
                     with conn.cursor(name=f"snapshot_{table}") as cursor:
@@ -2099,17 +2125,20 @@ def clear_operational_data():
             """
             SELECT
                 (SELECT COUNT(*) FROM weighings) AS weighings,
-                (SELECT COUNT(*) FROM import_batches) AS imports
+                (SELECT COUNT(*) FROM import_batches) AS imports,
+                (SELECT COUNT(*) FROM zone_visits) AS zone_visits
             """
         ).fetchone()
         conn.execute(
-            "TRUNCATE TABLE print_attempts, weighings, import_batches, daily_sequences RESTART IDENTITY"
+            """TRUNCATE TABLE zone_events, zone_visits, print_attempts, weighings,
+               import_batches, daily_sequences RESTART IDENTITY"""
         )
     return jsonify(
         success=True,
         deleted_weighings=counts["weighings"],
         deleted_imports=counts["imports"],
-        message="Barcha tarozi va pul operatsiyalari tozalandi",
+        deleted_zone_visits=counts["zone_visits"],
+        message="Barcha tarozi, Free Zone tashriflari va pul operatsiyalari tozalandi",
     )
 
 

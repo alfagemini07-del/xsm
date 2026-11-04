@@ -13,7 +13,7 @@ class CheckpointFlow(unittest.TestCase):
         ensure_schema()
         clients={}
         with get_pool().connection() as db:
-            for role in ("parkovka_tashqi","ayritom","kpp2","admin","operator"):
+            for role in ("parkovka_tashqi","ayritom","kpp2","admin","operator","techadmin"):
                 uid=db.execute("INSERT INTO users(username,role,password_hash) VALUES (%s,%s,'test') RETURNING id",
                                ("ci_"+role,role)).fetchone()["id"]
                 client=app.test_client()
@@ -36,6 +36,12 @@ class CheckpointFlow(unittest.TestCase):
 
         self.assertEqual(clients["parkovka_tashqi"].get("/api/backup/download").status_code,403)
         self.assertEqual(clients["operator"].get("/zone").status_code,403)
+        tariff=clients["techadmin"].put("/api/admin/settings/tariffs/entry",
+            json={"amount":45000,"enabled":True,"apply_existing":False},headers={"X-CSRF-Token":"test"})
+        self.assertEqual(tariff.status_code,200,tariff.data)
+        disabled=clients["techadmin"].put("/api/admin/settings/tariffs/reload",
+            json={"amount":30000,"enabled":False},headers={"X-CSRF-Token":"test"})
+        self.assertEqual(disabled.status_code,200,disabled.data)
         self.assertEqual(post("kpp2","/zone/quote",action="in",plate="01 A 111 AA").status_code,400)
         move("parkovka_tashqi","in","01 A 111 AA",30000)
         move("parkovka_tashqi","out","01 A 111 AA",0)
@@ -53,12 +59,13 @@ class CheckpointFlow(unittest.TestCase):
                             headers={"X-CSRF-Token":"test"})
         self.assertEqual(weighing.status_code,200)
         wid=weighing.json["weighing"]["id"]
-        payment=scale.post(f"/api/weighings/{wid}/pay",json={"weight_kg":12500,"payment_method":"card"},
+        payment=scale.post(f"/api/weighings/{wid}/pay",json={"weight_kg":12500,"payment_method":"card","entry_service":True,"entry_fee":1},
                            headers={"X-CSRF-Token":"test"})
         self.assertEqual(payment.status_code,200)
+        self.assertEqual(payment.json["receipt"]["entry_fee"],45000)
         self.assertEqual(clients["admin"].get("/zone").status_code,200)
         export=clients["admin"].get("/zone/report.xlsx?period=year")
         self.assertEqual(export.status_code,200)
         book=load_workbook(io.BytesIO(export.data),read_only=True)
         self.assertEqual(book["Operatsiyalar"].max_row,10)
-        self.assertEqual(sum(row[-1] for row in list(book["Operatsiyalar"].values)[1:]),150000)
+        self.assertEqual(sum(row[-1] for row in list(book["Operatsiyalar"].values)[1:]),195000)

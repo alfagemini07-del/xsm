@@ -4,14 +4,14 @@
 
 1. Yetkazilgan ZIP ichidagi fayllarni ochib, GitHub repository **ildiziga** yuklang. Shu darajada `app.py`, `freezone.py`, `schema.sql`, `requirements.txt` va `render.yaml` ko‘rinishi kerak. `templates/`, `static/` va test uchun `.github/` papkalarini ichidagi fayllari bilan saqlang.
 2. Mavjud tarozi tarixini davom ettirish uchun shu bazaning PostgreSQL zaxirasini oling va uning `DATABASE_URL` manzilini ishlating. Yangi o‘rnatishda bo‘sh PostgreSQL baza ishlatish mumkin.
-3. Render → New → Blueprint orqali repository’ni ulang. `DATABASE_URL`ga Supabase pooler manzilini, `INITIAL_TECHADMIN_PASSWORD`ga birinchi texnik administrator parolini kiriting. Blueprint yangi servis uchun `SECRET_KEY` yaratadi. Mavjud servisda amaldagi kalitni saqlang. `/health` birinchi ishga tushishda sxemani qo‘llaydi. Avvaldan foydalanuvchilar bo‘lsa, mavjud texnik administrator bilan kiring.
-4. Techadmin bilan **Tarozi va boshqaruv → Foydalanuvchilar** orqali har xodimga alohida login bering. `parkovka_tashqi` tashqi parkovka, `kpp2` O‘zbekiston darvozasi, `ayritom` post tomondagi darvoza, `operator` tarozi uchun. `admin` umumiy hisobotlarni ko‘radi. Techadmin yangi tashriflar tarifini umumiy panel pastida sozlaydi.
+3. Render → New → Blueprint orqali repository’ni ulang. `DATABASE_URL`ga Supabase pooler manzilini kiriting. `INITIAL_TECHADMIN_PASSWORD` ixtiyoriy: kamida 8 belgili qiymat bersangiz birinchi parol shu bo‘ladi; bo‘sh qolsa dastur xavfsiz tasodifiy vaqtinchalik parol yaratib, Render logida `AIRITOM FIRST LOGIN` qatorida bir marta ko‘rsatadi. Blueprint yangi servis uchun `SECRET_KEY` yaratadi. Mavjud servisda amaldagi kalitni saqlang. `/health` birinchi ishga tushishda sxemani qo‘llaydi. Avvaldan foydalanuvchilar bo‘lsa, mavjud texnik administrator bilan kiring.
+4. Techadmin bilan **Tarozi va boshqaruv → Foydalanuvchilar** orqali har xodimga alohida login bering. `parkovka_tashqi` tashqi parkovka, `kpp2` O‘zbekiston darvozasi, `ayritom` post tomondagi darvoza, `operator` tarozi uchun. `admin` umumiy hisobotlarni ko‘radi. Barcha narxlar **Sozlamalar → Markaziy tariflar** bo‘limida boshqariladi.
 5. GitHub Actions’dagi **Airitom checks** vaqtinchalik PostgreSQL bazada kirish, ruxsatlar, navbatni ko‘chirish, to‘lov, qayta yuborish va Excel eksportini tekshiradi. Render’da quyidagi Gunicorn start buyrug‘i Blueprint ichida berilgan.
 
 ## Hisoblash va harakat tartibi
 
 - Bir raqamga bir vaqtda bitta ochiq tashrif. Tashrif IDsi o‘zgarmas navbat raqami. Xodimlar ro‘yxatni kelish tartibida ko‘radi, KPP2 kiritilayotgan raqam uchun aynan Free Zone navbatini tekshiradi.
-- Ish kuni **Asia/Tashkent kalendar sanasi** bilan hisoblanadi. Kirish kuni birinchi kun. Masalan, 23:55 da kirib ertasi 00:05 da chiqilsa ikki kun. Boshlang‘ich tarif 30 000 so‘m. Tarif o‘zgarsa, ochiq tashrif avvalgi tarifini saqlaydi.
+- Ish kuni **Asia/Tashkent kalendar sanasi** bilan hisoblanadi. Kirish kuni birinchi kun. Masalan, 23:55 da kirib ertasi 00:05 da chiqilsa ikki kun. Dastur ichidagi boshlang‘ich tarif 30 000 so‘m. Tarif o‘zgarsa, ochiq tashrif avvalgi tarifini saqlaydi. Techadmin istasa yangi summani ochiq tashriflarga ham bir amal bilan qo‘llaydi.
 - Bojxona navbati: parkovkada bir kunlik to‘lov → parkovkadan chiqishda qolgan qarz → tashrif yopiladi. Free Zone navbati: parkovkada bir kunlik to‘lov → KPP2 orqali hududga o‘tish → ikki darvozadan birida yakuniy hisob. Parkovka xodimi chiqishni alohida qayd etsa, mashina KPP2 yo‘lida ko‘rinadi. KPP2 parkovkadan bevosita o‘tishni ham qayd eta oladi. O‘tishda qayta kirish to‘lovi olinmaydi.
 - Ayritom tomondan hududga bevosita kirishda bir kunlik to‘lov olinadi. Hududdan chiqishda barcha qamrab olingan kunlar summasidan shu tashrifning oldingi to‘lovlari ayriladi. Qarz bo‘lmasa, chiqish 0 so‘mlik chek bilan qayd etiladi.
 - To‘lov va harakat bitta tranzaksiyada saqlanadi. Xodim summa va to‘lov usulini tasdiqlaydi. Qayta yuborilgan tasdiq o‘sha chekni qaytaradi. Bir vaqtda boshqa xodim tashrifni o‘zgartirsa, hisobni qaytadan ko‘rish talab etiladi.
@@ -32,7 +32,7 @@ AIRITOM LOGISTICS CENTER MCHJ uchun qayta yozilgan tarozi terminali. Web qismi G
 - Techadmin loginidan keyin alohida texnik monitoring dashboardi: narxni o'zgartirish, foydalanuvchi yaratish/bloklash, parolni reset qilish, qo'lda backup, operatsion bazani himoyalangan tarzda tozalash va tizim monitoringi.
 - Operator, admin va techadmin jadvallarida server tomondagi qidiruv hamda 10/15/20/50/100 talik sahifalash mavjud.
 - Ochiq qurilmalar Supabase'dagi o'zgarish versiyasini yengil so'rov bilan kuzatadi; faqat o'zgarish bo'lganda ko'rinayotgan ma'lumot yangilanadi va kiritilayotgan matn saqlanadi.
-- Vazn o'lchash narxi avtomatik qo'llanadi va uni faqat techadmin o'zgartiradi. Hududga kirish hamda qayta yuklash tanlanganda operator summani har bir chek uchun qo'lda kiritadi.
+- Tarozi, parkovka/Free Zone kunlik haqi, hududga kirish va qayta yuklash narxlarini faqat techadmin belgilaydi. Operator xizmatni tanlaydi, summa serverdagi faol tarifdan avtomatik olinadi. O'chirilgan tarif operator oynasida ko'rinmaydi.
 - Chekda avtomobil vazni, har bir tanlangan xizmat va yakuniy summa alohida ko'rsatiladi. QR kod saytga yo'naltirmaydi: skaner qilinganda mashina, vazn, vaqt va barcha to'lovlar telefonning o'zida oddiy matn sifatida ko'rinadi.
 - Sessiya bir qurilmada yangilanib turadi va faqat foydalanuvchi chiqish tugmasini bosganda yopiladi.
 - Parollar `scrypt` bilan xeshlanadi. Amaldagi parolni ko'rib bo'lmaydi; techadmin faqat yangi parol o'rnatadi.
@@ -98,13 +98,12 @@ git push -u origin main
 | Environment variable | Qiymat |
 |---|---|
 | `DATABASE_URL` | Supabase Session pooler URI |
-| `SECRET_KEY` | Kamida 32 belgili o'zgarmaydigan tasodifiy qiymat |
-| `INITIAL_TECHADMIN_PASSWORD` | Kamida 8 belgili kuchli birinchi parol |
+| `SECRET_KEY` | Blueprint birinchi deployda avtomatik yaratadi |
+| `INITIAL_TECHADMIN_PASSWORD` | Ixtiyoriy birinchi parol; bo‘sh bo‘lsa Render logida vaqtinchalik parol yaratiladi |
 
 Qolgan muhim qiymatlar `render.yaml`da tayyor:
 
 - `INITIAL_TECHADMIN_USERNAME=techadmin`
-- `INITIAL_PRICE=30000`
 - `APP_TIMEZONE=Asia/Tashkent`
 - `COOKIE_SECURE=true`
 - `LOCAL_PRINTER_AGENT_ENABLED=true` — `AgentSetup.exe` o'rnatilgan kompyuterlarda dialogsız chop; agent yo'q bo'lsa brauzer rejimi ishlaydi.
@@ -124,7 +123,7 @@ Deploy tugagach `/health` manzili `{"status":"ok"}` qaytarishi kerak. Birinchi k
 
 ```text
 Login: techadmin
-Parol: Render'da INITIAL_TECHADMIN_PASSWORD uchun bergan qiymat
+Parol: Render'dagi INITIAL_TECHADMIN_PASSWORD qiymati yoki logdagi AIRITOM FIRST LOGIN vaqtinchalik paroli
 ```
 
 ## 4. Eski `tarozi.db`ni import qilish
@@ -260,7 +259,7 @@ Dialogsız Windows printer rejimi kerak bo'lsa lokal agentni o'rnatib, Render'da
 ## Operator qulayliklari va yangi hisobotlar
 
 - F2: yangi o'lchash yoki tugallanmagan operatsiyaga qaytish. Enter: keyingi maydon; to'lov tasdiqlangan bo'lsa saqlash. Esc: oynani yopish/formadan chiqish.
-- Qo'shimcha xizmatlarda 30 000 / 50 000 / 100 000 tezkor summalar.
+- Qo'shimcha xizmat summalari markaziy tarifdan avtomatik olinadi va operator tomonidan o'zgartirilmaydi.
 - Davlat raqami katta harfga va tanilgan O'zbekiston formatiga avtomatik keltiriladi.
 - Yashil to'lov tasdig'i, oxirgi chek tugmasi, operatorning naqd/karta/hisob-raqam tushumi.
 - Forma har foydalanuvchi va brauzer tabiga alohida sessionStorage'da saqlanadi. Sahifa yangilanganda serverdagi operatsiya tekshirilib tiklanadi; bu offline to'lov emas.

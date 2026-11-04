@@ -15,6 +15,24 @@ CREATE TABLE IF NOT EXISTS settings (
     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     updated_by BIGINT REFERENCES users(id) ON DELETE SET NULL
 );
+INSERT INTO settings(key,value) VALUES
+    ('weighing_price','30000'), ('entry_service_price','30000'),
+    ('reload_service_price','30000'), ('zone_daily_rate','30000'),
+    ('weighing_enabled','true'), ('entry_service_enabled','true'),
+    ('reload_service_enabled','true'), ('zone_daily_enabled','true')
+ON CONFLICT DO NOTHING;
+
+CREATE TABLE IF NOT EXISTS tariff_history (
+    id BIGSERIAL PRIMARY KEY,
+    code TEXT NOT NULL,
+    amount BIGINT NOT NULL CHECK(amount >= 0),
+    enabled BOOLEAN NOT NULL,
+    applied_to_existing BOOLEAN NOT NULL DEFAULT FALSE,
+    affected_rows INTEGER NOT NULL DEFAULT 0,
+    changed_by BIGINT REFERENCES users(id) ON DELETE SET NULL,
+    changed_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS idx_tariff_history_time ON tariff_history(changed_at DESC);
 
 CREATE TABLE IF NOT EXISTS daily_sequences (
     business_date DATE PRIMARY KEY,
@@ -121,14 +139,18 @@ DO $$ BEGIN
             (role IN ('operator','admin','techadmin','parkovka_tashqi','kpp2','ayritom'));
     END IF;
 END $$;
-INSERT INTO settings(key,value) VALUES ('zone_daily_rate','30000') ON CONFLICT DO NOTHING;
 CREATE TABLE IF NOT EXISTS zone_visits (
     id BIGSERIAL PRIMARY KEY,
     plate TEXT NOT NULL, plate_key TEXT NOT NULL,
     purpose TEXT NOT NULL CHECK (purpose IN ('border','zone')),
     location TEXT NOT NULL CHECK (location IN ('parking','transfer','inside','closed')),
-    started TIMESTAMPTZ NOT NULL, daily_rate BIGINT NOT NULL CHECK (daily_rate>0)
+    started TIMESTAMPTZ NOT NULL, daily_rate BIGINT NOT NULL CHECK (daily_rate>=0)
 );
+DO $$ BEGIN
+    ALTER TABLE zone_visits DROP CONSTRAINT IF EXISTS zone_visits_daily_rate_check;
+    ALTER TABLE zone_visits ADD CONSTRAINT zone_visits_daily_rate_check CHECK (daily_rate >= 0);
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
 CREATE UNIQUE INDEX IF NOT EXISTS zone_one_active ON zone_visits(plate_key) WHERE location <> 'closed';
 CREATE INDEX IF NOT EXISTS zone_queue ON zone_visits(location,purpose,id);
 CREATE INDEX IF NOT EXISTS zone_plate_history ON zone_visits(plate_key,id DESC);

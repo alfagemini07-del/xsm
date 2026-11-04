@@ -50,7 +50,11 @@ def quote(conn, point, action, plate, key, purpose, now):
         rate = visit["daily_rate"]
         days = (now.date() - visit["started"].astimezone(TZ).date()).days + 1
     else:
-        rate = int(conn.execute("SELECT value FROM settings WHERE key='zone_daily_rate'").fetchone()["value"])
+        tariff_rows = conn.execute(
+            "SELECT key,value FROM settings WHERE key IN ('zone_daily_rate','zone_daily_enabled')"
+        ).fetchall()
+        tariff = {row["key"]: row["value"] for row in tariff_rows}
+        rate = int(tariff.get("zone_daily_rate", "30000")) if tariff.get("zone_daily_enabled", "true") == "true" else 0
         version = conn.execute("SELECT MAX(id) n FROM zone_visits WHERE plate_key=%s",(key,)).fetchone()["n"]
         days, paid = 1, 0
     # Free Zone transfers carry the first payment forward. Settle only at final exit.
@@ -183,19 +187,6 @@ def register_zone(app, pool, roles, clean_plate, qr):
                   ("To‘lov turi",LABEL[e["method"]]),("Xodim",e["operator_name"])]
         return page(mode="receipt",fields=fields,qr=qr("AIRITOM FREE ZONE\n"+"\n".join(f"{k}: {v}" for k,v in fields)))
 
-    @app.post("/zone/rate")
-    @roles("techadmin")
-    def zone_rate():
-        try:
-            rate=int(request.form.get("rate",""))
-            if not 1<=rate<=10**9: raise ValueError()
-        except ValueError:
-            abort(400, description="Kunlik tarif 1–1 000 000 000 so‘m bo‘lishi kerak.")
-        with pool().connection() as conn:
-            conn.execute("UPDATE settings SET value=%s,updated_by=%s,updated_at=NOW() WHERE key='zone_daily_rate'",
-                         (str(rate),g.user["id"]))
-        return redirect(url_for("zone_home"),303)
-
     @app.get("/zone/report.xlsx")
     @roles(*ADMINS)
     def zone_export():
@@ -243,7 +234,11 @@ def register_zone(app, pool, roles, clean_plate, qr):
             pages=max(1,(total+29)//30)
             pg=min(pg,pages)
             active=conn.execute("SELECT * FROM zone_visits"+where+" ORDER BY id LIMIT 30 OFFSET %s",[*params,(pg-1)*30]).fetchall()
-            rate=conn.execute("SELECT value FROM settings WHERE key='zone_daily_rate'").fetchone()["value"]
+            tariff_rows=conn.execute(
+                "SELECT key,value FROM settings WHERE key IN ('zone_daily_rate','zone_daily_enabled')"
+            ).fetchall()
+            tariff={row["key"]:row["value"] for row in tariff_rows}
+            rate=tariff.get("zone_daily_rate","30000")
         stats={"border":0,"zone":0,"transfer":0,"inside":0}
         for r in counts:
             stats[r["purpose"] if r["location"]=="parking" else r["location"]]+=r["n"]

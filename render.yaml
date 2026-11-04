@@ -1,6 +1,6 @@
 services:
   - type: web
-    name: tarozi-kiosk
+    name: airitom-free-zone
     runtime: python
     plan: free
     buildCommand: pip install -r requirements.txt
@@ -15,8 +15,6 @@ services:
         value: techadmin
       - key: INITIAL_TECHADMIN_PASSWORD
         sync: false
-      - key: INITIAL_PRICE
-        value: "30000"
       - key: APP_TIMEZONE
         value: Asia/Tashkent
       - key: COOKIE_SECURE
