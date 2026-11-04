@@ -184,15 +184,15 @@ def ensure_schema() -> None:
                        WHERE username=%s AND role='techadmin' AND is_active""",
                     (username,),
                 ).fetchone()
-                if (
-                    bootstrap_user
-                    and bootstrap_user["last_login_at"] is None
-                    and not check_password_hash(bootstrap_user["password_hash"], configured_password)
-                ):
-                    conn.execute(
-                        "UPDATE users SET password_hash=%s, updated_at=NOW() WHERE id=%s",
-                        (generate_password_hash(configured_password, method="scrypt"), bootstrap_user["id"]),
-                    )
+                if bootstrap_user and bootstrap_user["last_login_at"] is None:
+                    if not check_password_hash(bootstrap_user["password_hash"], configured_password):
+                        conn.execute(
+                            "UPDATE users SET password_hash=%s, updated_at=NOW() WHERE id=%s",
+                            (generate_password_hash(configured_password, method="scrypt"), bootstrap_user["id"]),
+                        )
+                    # Identifiers contain an irreversible IP+username hash. During the
+                    # one-time first-login recovery it is safe to clear stale lockouts.
+                    conn.execute("DELETE FROM login_attempts")
                     synced_bootstrap = username
         if generated_bootstrap:
             username, password = generated_bootstrap
@@ -204,7 +204,7 @@ def ensure_schema() -> None:
             )
         elif synced_bootstrap:
             app.logger.warning(
-                "AIRITOM FIRST LOGIN RECOVERY | username=%s | ENV paroli sinxronlandi.",
+                "AIRITOM FIRST LOGIN RECOVERY | username=%s | ENV paroli tayyor, login bloklari tozalandi.",
                 synced_bootstrap,
             )
         _schema_ready = True
