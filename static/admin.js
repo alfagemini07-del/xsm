@@ -210,8 +210,40 @@
 
   async function loadTech() {
     if (role !== "techadmin") return;
-    try { const [price, tokens] = await Promise.all([api("/api/admin/settings/price"), api("/api/admin/backup-tokens")]); document.getElementById("price-input").value = price.price; document.getElementById("current-price-value").textContent = fmt(price.price); renderTokens(tokens.tokens); }
+    try { const [tariffs, tokens] = await Promise.all([api("/api/admin/settings/tariffs"), api("/api/admin/backup-tokens")]); renderTariffs(tariffs.tariffs, tariffs.history); renderTokens(tokens.tokens); }
     catch (error) { showToast(error.message, true); }
+  }
+  function renderTariffs(tariffs, history) {
+    const list = document.getElementById("tariff-admin-list"); list.replaceChildren();
+    tariffs.forEach(tariff => {
+      const card = document.createElement("div"); card.className = "tariff-admin-card";
+      const title = document.createElement("strong"); title.textContent = tariff.label;
+      const amountLabel = document.createElement("label"); amountLabel.textContent = "Summa, so'm";
+      const amount = document.createElement("input"); amount.type = "number"; amount.min = "0"; amount.max = "1000000000"; amount.step = "1000"; amount.value = tariff.amount;
+      amountLabel.append(amount);
+      const activeLabel = document.createElement("label"); activeLabel.className = "tariff-switch";
+      const active = document.createElement("input"); active.type = "checkbox"; active.checked = tariff.enabled;
+      activeLabel.append(active, document.createTextNode(" Tarif faol va operatorlarga ko'rinadi"));
+      let apply = null;
+      if (tariff.can_apply_existing) {
+        const applyLabel = document.createElement("label"); applyLabel.className = "tariff-switch";
+        apply = document.createElement("input"); apply.type = "checkbox";
+        applyLabel.append(apply, document.createTextNode(" Ochiq operatsiyalarga ham qo'llash")); card.append(title, amountLabel, activeLabel, applyLabel);
+      } else card.append(title, amountLabel, activeLabel);
+      const save = actionButton("Saqlash", () => saveTariff(tariff.code, amount, active, apply, save), "primary");
+      const disable = actionButton("Olib tashlash", () => { active.checked = false; saveTariff(tariff.code, amount, active, apply, disable); }, "danger-soft");
+      const state = document.createElement("small"); state.textContent = tariff.enabled ? "Hozir faol" : "Hozir o'chirilgan"; state.className = tariff.enabled ? "tariff-active" : "tariff-disabled";
+      card.append(state, save, disable); list.append(card);
+    });
+    const body = document.getElementById("tariff-history-body"); body.replaceChildren();
+    if (!history.length) emptyRow(body, 6, "Tarif hali o'zgartirilmagan");
+    history.forEach(item => { const row = document.createElement("tr"); row.append(td(item.changed_at),td(item.label),td(`${fmt(item.amount)} so'm`),td(item.enabled ? "Faol" : "O'chirilgan"),td(item.applied_to_existing ? `${item.affected_rows} ta` : "Faqat yangi"),td(item.username)); body.append(row); });
+  }
+  async function saveTariff(code, amountInput, activeInput, applyInput, button) {
+    const amount = Number(amountInput.value); if (!Number.isInteger(amount) || amount < 0 || amount > 1000000000 || (activeInput.checked && amount < 1)) { showToast("Faol tarif summasini to'g'ri kiriting", true); return; }
+    setBusy(button, true, "Saqlanmoqda...");
+    try { const saved = await api(`/api/admin/settings/tariffs/${code}`, {method:"PUT",body:JSON.stringify({amount,enabled:activeInput.checked,apply_existing:Boolean(applyInput?.checked)})}); showToast(saved.affected_rows ? `Tarif saqlandi va ${saved.affected_rows} ta ochiq yozuvga qo'llandi` : "Tarif saqlandi"); lastSyncVersion=null; await loadTech(); }
+    catch (error) { showToast(error.message,true); } finally { setBusy(button,false); }
   }
   async function loadUsers() { if (role !== "techadmin") return; try { const perPage = document.getElementById("users-page-size").value || 15; const data = await api(`/api/admin/users?page=${usersPage}&per_page=${perPage}`); usersPages = data.total_pages; renderUsers(data.users); document.getElementById("users-count-label").textContent = `${data.total} ta foydalanuvchi`; document.getElementById("users-page-info").textContent = `${data.page} / ${data.total_pages}`; document.getElementById("users-prev").disabled = data.page <= 1; document.getElementById("users-next").disabled = data.page >= data.total_pages; } catch (error) { showToast(error.message, true); } }
   function renderUsers(users) {
@@ -220,7 +252,6 @@
   function renderTokens(tokens) {
     const body = document.getElementById("tokens-body"); body.replaceChildren(); if (!tokens.length) return emptyRow(body, 5, "Backup token yaratilmagan"); tokens.forEach(token => { const row = document.createElement("tr"); row.append(td(token.name), td(token.created_at), td(token.last_used_at || "Ishlatilmagan")); const state = document.createElement("td"); const stateBadge = badge(token.revoked ? "cancelled" : "paid"); stateBadge.textContent = token.revoked ? "Bekor qilingan" : "Faol"; state.append(stateBadge); row.append(state); const actions = document.createElement("td"); if (!token.revoked) actions.append(actionButton("Bekor qilish", event => revokeToken(token.id, event.currentTarget), "danger-soft")); row.append(actions); body.append(row); });
   }
-  async function savePrice() { const button = document.getElementById("btn-save-price"); const price = Number(document.getElementById("price-input").value); setBusy(button, true); try { const saved = await api("/api/admin/settings/price", { method: "PUT", body: JSON.stringify({ price }) }); document.getElementById("current-price-value").textContent = fmt(saved.price); showToast("Tarozi narxi saqlandi"); lastSyncVersion = null; } catch (error) { showToast(error.message, true); } finally { setBusy(button, false); } }
   async function createUser() { const button = document.getElementById("btn-create-user"); const usernameInput = document.getElementById("new-username"); const passwordInput = document.getElementById("new-password"); const payload = { username: usernameInput.value.trim().toLowerCase(), password: passwordInput.value, role: document.getElementById("new-role").value }; if (!/^[a-z0-9_.-]{3,40}$/.test(payload.username)) { showToast("Login 3–40 belgi: lotin harfi, raqam, _, . yoki -", true); usernameInput.focus(); return; } if (payload.password.length < 8) { showToast("Parol kamida 8 belgidan iborat bo'lsin", true); passwordInput.focus(); return; } setBusy(button, true); try { await api("/api/admin/users", { method: "POST", body: JSON.stringify(payload) }); usernameInput.value = ""; passwordInput.value = ""; usersPage = 1; showToast("Foydalanuvchi yaratildi"); await loadUsers(); } catch (error) { showToast(error.message, true); } finally { setBusy(button, false); } }
   function openPasswordModal(user) { resetUserId = user.id; document.getElementById("password-user").textContent = `${user.username} uchun yangi parol`; document.getElementById("reset-password").value = ""; document.getElementById("password-modal").classList.remove("hidden"); }
   async function resetPassword() { const button = document.getElementById("btn-reset-password"); setBusy(button, true); try { await api(`/api/admin/users/${resetUserId}/reset-password`, { method: "POST", body: JSON.stringify({ password: document.getElementById("reset-password").value }) }); document.getElementById("password-modal").classList.add("hidden"); showToast("Parol yangilandi"); } catch (error) { showToast(error.message, true); } finally { setBusy(button, false); } }
@@ -280,7 +311,7 @@
   document.getElementById("history-page-size").addEventListener("change", () => { historyPage = 1; loadHistory(); });
   document.getElementById("detail-print").addEventListener("click", event => { if (selectedDetail) reprint(selectedDetail.id, event.currentTarget); });
   document.getElementById("import-file").addEventListener("change", event => { const file = event.target.files[0]; document.getElementById("import-file-name").textContent = file ? `${file.name} (${bytes(file.size)})` : ".db faylni tanlash"; document.getElementById("btn-import").disabled = !file; }); document.getElementById("btn-import").addEventListener("click", importDatabase);
-  if (role === "techadmin") { document.getElementById("btn-refresh-monitor").addEventListener("click", () => loadMonitor()); document.getElementById("btn-save-price").addEventListener("click", savePrice); document.getElementById("btn-create-user").addEventListener("click", createUser); document.getElementById("btn-reset-password").addEventListener("click", resetPassword); document.getElementById("btn-create-token").addEventListener("click", createToken); document.getElementById("users-page-size").addEventListener("change", () => { usersPage = 1; loadUsers(); }); document.getElementById("users-prev").addEventListener("click", () => { if (usersPage > 1) { usersPage -= 1; loadUsers(); } }); document.getElementById("users-next").addEventListener("click", () => { if (usersPage < usersPages) { usersPage += 1; loadUsers(); } }); document.getElementById("btn-open-clear-data").addEventListener("click", openClearDataModal); document.getElementById("clear-data-password").addEventListener("input", validateClearDataConfirmation); document.getElementById("clear-data-confirmation").addEventListener("input", validateClearDataConfirmation); document.getElementById("btn-confirm-clear-data").addEventListener("click", clearOperationalData); }
+  if (role === "techadmin") { document.getElementById("btn-refresh-monitor").addEventListener("click", () => loadMonitor()); document.getElementById("btn-create-user").addEventListener("click", createUser); document.getElementById("btn-reset-password").addEventListener("click", resetPassword); document.getElementById("btn-create-token").addEventListener("click", createToken); document.getElementById("users-page-size").addEventListener("change", () => { usersPage = 1; loadUsers(); }); document.getElementById("users-prev").addEventListener("click", () => { if (usersPage > 1) { usersPage -= 1; loadUsers(); } }); document.getElementById("users-next").addEventListener("click", () => { if (usersPage < usersPages) { usersPage += 1; loadUsers(); } }); document.getElementById("btn-open-clear-data").addEventListener("click", openClearDataModal); document.getElementById("clear-data-password").addEventListener("input", validateClearDataConfirmation); document.getElementById("clear-data-confirmation").addEventListener("input", validateClearDataConfirmation); document.getElementById("btn-confirm-clear-data").addEventListener("click", clearOperationalData); }
   document.getElementById("manual-backup-name").textContent = `${new Date().toLocaleDateString("uz-UZ")} 00-00 holatiga backup.db`;
   window.addEventListener("resize", () => { if (weeklyData.length) drawBarChart("weekly-chart", weeklyData, { highlightLast: true }); if (reportData.length) drawBarChart("report-chart", reportData); if (systemData.length) drawBarChart("system-chart", systemData, { highlightLast: true }); });
   setClock(); setInterval(setClock, 1000); checkAgent(); if (localAgentEnabled) setInterval(checkAgent, 30000); setReportRange("week"); activateTab(activeTab); pollSync(); setInterval(pollSync, 12000); document.addEventListener("visibilitychange", () => { if (!document.hidden) pollSync(); });

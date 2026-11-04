@@ -18,7 +18,7 @@
   const localAgentEnabled = document.body.dataset.localPrinterAgent === "1";
   let current = null;
   let paymentMethod = "cash";
-  let servicePrices = { weighing: 30000, entry: 30000, reload: 30000 };
+  let servicePrices = { weighing: 30000, entry: 30000, reload: 30000, weighing_enabled: true, entry_enabled: true, reload_enabled: true };
   let statsLoading = false;
   let lastSyncVersion = null;
   let syncLoading = false;
@@ -36,18 +36,6 @@
   const draftKey = `tarozi-draft-v2-${document.body.dataset.userId}`;
   const printLabels = {not_requested:"Hali chop etilmagan", requested:"Chop etish so'ralgan", dialog_closed:"Natija tasdiqlanmagan", spooled:"Printer navbatiga yuborilgan", confirmed:"Chek chiqqani tasdiqlangan", failed:"Chek chiqmagan"};
   const fmt = value => Number(value || 0).toLocaleString("ru-RU").replace(/[\u00a0\u202f]/g, " ");
-
-  function moneyInputValue(input) {
-    const digits = String(input.value || "").replace(/\D/g, "");
-    return digits ? Number(digits) : 0;
-  }
-
-  function formatMoneyInput(input) {
-    let digits = String(input.value || "").replace(/\D/g, "").slice(0, 10);
-    digits = digits.replace(/^0+(?=\d)/, "");
-    input.value = digits ? fmt(Number(digits)) : "";
-    return digits ? Number(digits) : 0;
-  }
 
   async function api(url, options = {}) {
     const headers = new Headers(options.headers || {});
@@ -85,6 +73,27 @@
     document.getElementById("clock-date").textContent = now.toLocaleDateString("uz-UZ", { day: "2-digit", month: "2-digit", year: "numeric", weekday: "short" }).toUpperCase();
   }
 
+  function applyTariffs() {
+    entryFeeInput.value = fmt(servicePrices.entry);
+    reloadFeeInput.value = fmt(servicePrices.reload);
+    document.getElementById("entry-tariff-label").textContent = `${fmt(servicePrices.entry)} so'm`;
+    document.getElementById("reload-tariff-label").textContent = `${fmt(servicePrices.reload)} so'm`;
+    for (const [code, checkbox, itemId, panelId] of [
+      ["entry", entryService, "entry-service-item", "entry-fee-panel"],
+      ["reload", reloadService, "reload-service-item", "reload-fee-panel"],
+    ]) {
+      const enabled = servicePrices[`${code}_enabled`] === true;
+      checkbox.disabled = !enabled;
+      document.getElementById(itemId).classList.toggle("hidden", !enabled);
+      if (!enabled) checkbox.checked = false;
+      document.getElementById(panelId).classList.toggle("hidden", !enabled || !checkbox.checked);
+    }
+    document.getElementById("current-price-chip").textContent = servicePrices.weighing_enabled
+      ? `Narx: ${fmt(servicePrices.weighing)} so'm`
+      : "Tarozi tarifi o'chirilgan";
+    if (current) renderPricing();
+  }
+
   async function loadStats() {
     if (statsLoading) return;
     statsLoading = true;
@@ -92,8 +101,12 @@
       const data = await api("/api/stats/today");
       document.getElementById("today-count").textContent = data.count;
       document.getElementById("today-revenue").textContent = data.total_fmt;
-      document.getElementById("current-price-chip").textContent = `Narx: ${Number(data.current_price).toLocaleString("ru-RU")} so'm`;
-      servicePrices = { weighing: Number(data.current_price), entry: Number(data.entry_price), reload: Number(data.reload_price) };
+      servicePrices = {
+        weighing: Number(data.current_price), entry: Number(data.entry_price), reload: Number(data.reload_price),
+        weighing_enabled: data.weighing_enabled === true, entry_enabled: data.entry_enabled === true,
+        reload_enabled: data.reload_enabled === true,
+      };
+      applyTariffs();
       for (const method of ["cash", "card", "bank"]) document.getElementById(`my-${method}`).textContent = `${fmt(data.personal?.[method] || 0)} so'm`;
       lastReceipt = data.last_receipt;
       document.getElementById("last-receipt").disabled = !lastReceipt;
@@ -110,7 +123,14 @@
     syncLoading = true;
     try {
       const data = await api("/api/sync/state");
-      if (lastSyncVersion && data.version !== lastSyncVersion) await loadStats();
+      if (lastSyncVersion && data.version !== lastSyncVersion) {
+        if (current) {
+          const refreshed = await api(`/api/weighings/${current.id}`);
+          if (refreshed.weighing.status === "pending") current = refreshed.weighing;
+          else { current = null; clearDraft(); showScreen(mainScreen); showToast("Operatsiya boshqa oynada yakunlangan"); }
+        }
+        await loadStats();
+      }
       lastSyncVersion = data.version;
     } catch (error) {
       console.warn("Sinxronlash vaqtincha mavjud emas", error);
@@ -266,32 +286,30 @@
   function updatePayAvailability() {
     payButton.disabled = operationBusy || !(
       paidCheck.checked && validWeight(false) &&
-      validServiceAmount(entryService, entryFeeInput, "entry-fee-error", false) &&
-      validServiceAmount(reloadService, reloadFeeInput, "reload-fee-error", false)
+      validServiceAmount(entryService, "entry", "entry-fee-error", false) &&
+      validServiceAmount(reloadService, "reload", "reload-fee-error", false)
     );
   }
 
-  function validServiceAmount(checkbox, input, errorId, showError = false) {
-    const value = moneyInputValue(input);
-    const valid = !checkbox.checked || (Number.isInteger(value) && value >= 1 && value <= 1000000000);
+  function validServiceAmount(checkbox, code, errorId, showError = false) {
+    const valid = !checkbox.checked || servicePrices[`${code}_enabled`] === true;
     const error = document.getElementById(errorId);
     error.classList.toggle("error", showError && !valid);
-    error.textContent = showError && !valid ? "To'lovni 1–1 000 000 000 so'm oralig'ida kiriting" : "1 dan 1 000 000 000 so'mgacha";
+    error.textContent = showError && !valid ? "Bu tarif techadmin tomonidan o'chirilgan" : "Summa markaziy tarifdan olinadi";
     return valid;
   }
 
-  function toggleServiceEditor(checkbox, panelId, input, errorId) {
+  function toggleServiceEditor(checkbox, code, panelId, errorId) {
     document.getElementById(panelId).classList.toggle("hidden", !checkbox.checked);
-    validServiceAmount(checkbox, input, errorId, false);
+    validServiceAmount(checkbox, code, errorId, false);
     renderPricing();
-    if (checkbox.checked) setTimeout(() => input.focus(), 60);
   }
 
   function renderPricing() {
     if (!current) return;
     const base = Number(current.weighing_fee ?? current.price ?? servicePrices.weighing);
-    const entry = entryService.checked ? Math.max(0, moneyInputValue(entryFeeInput)) : 0;
-    const reload = reloadService.checked ? Math.max(0, moneyInputValue(reloadFeeInput)) : 0;
+    const entry = entryService.checked ? servicePrices.entry : 0;
+    const reload = reloadService.checked ? servicePrices.reload : 0;
     const total = base + entry + reload;
     const weight = Math.max(0, Number(weightInput.value) || 0);
     document.getElementById("payment-price").textContent = fmt(base);
@@ -318,8 +336,8 @@
     document.getElementById("receipt-status").textContent = "KUTILMOQDA";
     paidCheck.checked = false;
     weightInput.value = "";
-    entryFeeInput.value = "";
-    reloadFeeInput.value = "";
+    entryFeeInput.value = fmt(servicePrices.entry);
+    reloadFeeInput.value = fmt(servicePrices.reload);
     entryService.checked = false;
     reloadService.checked = false;
     document.getElementById("entry-fee-panel").classList.add("hidden");
@@ -347,7 +365,7 @@
       const data = await api("/api/weighings", { method: "POST", body: JSON.stringify({ plate_number: plateInput.value.trim(), request_id:createRequestId }) });
       current = data.weighing;
       if(current.status !== "pending") { current=null; clearDraft(); closePlateModal(); showToast("Bu operatsiya avval yakunlangan. Jurnaldan chekni oching."); return; }
-      if (data.service_prices) servicePrices = data.service_prices;
+      if (data.service_prices) { servicePrices = data.service_prices; applyTariffs(); }
       closePlateModal();
       setReceiptPreview(current);
       showScreen(paymentScreen);
@@ -437,15 +455,15 @@
   async function confirmAndPrint() {
     if (operationBusy || !current || !paidCheck.checked) return;
     if (!validWeight(true)) { weightInput.focus(); updatePayAvailability(); return; }
-    if (!validServiceAmount(entryService, entryFeeInput, "entry-fee-error", true)) { entryFeeInput.focus(); updatePayAvailability(); return; }
-    if (!validServiceAmount(reloadService, reloadFeeInput, "reload-fee-error", true)) { reloadFeeInput.focus(); updatePayAvailability(); return; }
+    if (!validServiceAmount(entryService, "entry", "entry-fee-error", true)) { updatePayAvailability(); return; }
+    if (!validServiceAmount(reloadService, "reload", "reload-fee-error", true)) { updatePayAvailability(); return; }
     payButton.disabled = true;
     operationBusy = true;
     const original = payButton.textContent;
     payButton.textContent = "To'lov saqlanmoqda...";
     try {
       const weighingId = current.id;
-      const data = await api(`/api/weighings/${weighingId}/pay`, { method: "POST", body: JSON.stringify({ payment_method: paymentMethod, weight_kg: Number(weightInput.value), entry_service: entryService.checked, entry_fee: entryService.checked ? moneyInputValue(entryFeeInput) : 0, reload_service: reloadService.checked, reload_fee: reloadService.checked ? moneyInputValue(reloadFeeInput) : 0 }) });
+      const data = await api(`/api/weighings/${weighingId}/pay`, { method: "POST", body: JSON.stringify({ payment_method: paymentMethod, weight_kg: Number(weightInput.value), entry_service: entryService.checked, reload_service: reloadService.checked }) });
       lastReceipt={id:weighingId,receipt_no:data.receipt.receipt_no};
       document.getElementById("payment-success").classList.remove("hidden");
       document.getElementById("success-receipt").textContent=`${data.receipt.plate_number} · ${data.receipt.total_fmt} so'm · Chek ${data.receipt.receipt_no}`;
@@ -538,12 +556,8 @@
     document.getElementById("receipt-payment-type").textContent = { cash: "NAQD PUL", card: "UZCARD / HUMO", bank: "HISOB RAQAM" }[paymentMethod];
   }));
   weightInput.addEventListener("input", () => { if (weightInput.value.length > 7) weightInput.value = weightInput.value.slice(0, 7); validWeight(false); renderPricing(); });
-  entryFeeInput.addEventListener("input", () => { formatMoneyInput(entryFeeInput); validServiceAmount(entryService, entryFeeInput, "entry-fee-error", false); renderPricing(); });
-  reloadFeeInput.addEventListener("input", () => { formatMoneyInput(reloadFeeInput); validServiceAmount(reloadService, reloadFeeInput, "reload-fee-error", false); renderPricing(); });
-  entryFeeInput.addEventListener("focus", () => entryFeeInput.select());
-  reloadFeeInput.addEventListener("focus", () => reloadFeeInput.select());
-  entryService.addEventListener("change", () => toggleServiceEditor(entryService, "entry-fee-panel", entryFeeInput, "entry-fee-error"));
-  reloadService.addEventListener("change", () => toggleServiceEditor(reloadService, "reload-fee-panel", reloadFeeInput, "reload-fee-error"));
+  entryService.addEventListener("change", () => toggleServiceEditor(entryService, "entry", "entry-fee-panel", "entry-fee-error"));
+  reloadService.addEventListener("change", () => toggleServiceEditor(reloadService, "reload", "reload-fee-panel", "reload-fee-error"));
   paidCheck.addEventListener("change", updatePayAvailability);
   document.getElementById("btn-cancel").addEventListener("click", cancelCurrent);
   document.getElementById("btn-back-payment").addEventListener("click", cancelCurrent);
@@ -553,7 +567,7 @@
 
   function saveDraft() {
     if(restoringDraft) return;
-    try { sessionStorage.setItem(draftKey, JSON.stringify({id:current?.id || null,plate:plateInput.value,requestId:createRequestId,weight:weightInput.value,entry:entryService.checked,entryFee:entryFeeInput.value,reload:reloadService.checked,reloadFee:reloadFeeInput.value,method:paymentMethod,paid:paidCheck.checked})); }
+    try { sessionStorage.setItem(draftKey, JSON.stringify({id:current?.id || null,plate:plateInput.value,requestId:createRequestId,weight:weightInput.value,entry:entryService.checked,reload:reloadService.checked,method:paymentMethod,paid:paidCheck.checked})); }
     catch (_) { showToast("Brauzer vaqtincha saqlashni bloklagan; sahifani yangilamang",true); }
   }
   function clearDraft() {
@@ -570,8 +584,8 @@
         if(data.weighing.status!=="pending") {clearDraft(); return;}
         current=data.weighing; setReceiptPreview(current);
         weightInput.value=draft.weight || "";
-        entryService.checked=Boolean(draft.entry); reloadService.checked=Boolean(draft.reload);
-        entryFeeInput.value=draft.entryFee || ""; reloadFeeInput.value=draft.reloadFee || "";
+        entryService.checked=Boolean(draft.entry) && servicePrices.entry_enabled; reloadService.checked=Boolean(draft.reload) && servicePrices.reload_enabled;
+        applyTariffs();
         paymentMethod=["cash","card","bank"].includes(draft.method)?draft.method:"cash";
         document.querySelectorAll(".payment-method").forEach(b=>b.classList.toggle("selected",b.dataset.method===paymentMethod));
         document.getElementById("receipt-payment-type").textContent={cash:"NAQD PUL",card:"UZCARD / HUMO",bank:"HISOB RAQAM"}[paymentMethod];
@@ -583,15 +597,7 @@
     } catch (_) { showToast("Saqlangan formani tiklab bo'lmadi. Aloqani tekshirib, sahifani yangilang.",true); }
     finally {restoringDraft=false;}
   }
-  for(const [panel,input] of [["entry-fee-panel",entryFeeInput],["reload-fee-panel",reloadFeeInput]]) {
-    const bar=document.createElement("div"); bar.className="fee-presets";
-    for(const amount of [30000,50000,100000]) {
-      const b=document.createElement("button"); b.type="button"; b.textContent=fmt(amount);
-      b.addEventListener("click",()=>{if(operationBusy)return; input.value=fmt(amount); input.dispatchEvent(new Event("input",{bubbles:true})); input.focus();}); bar.append(b);
-    }
-    document.getElementById(panel).append(bar);
-  }
-  [weightInput,entryFeeInput,reloadFeeInput,plateInput].forEach(input=>input.addEventListener("input",saveDraft));
+  [weightInput,plateInput].forEach(input=>input.addEventListener("input",saveDraft));
   plateInput.addEventListener("input",()=>{if(!operationBusy && !current) {createRequestId=null; saveDraft();}});
   [paidCheck,entryService,reloadService].forEach(input=>input.addEventListener("change",saveDraft));
   document.querySelectorAll(".payment-method").forEach(b=>b.addEventListener("click",saveDraft));
@@ -605,7 +611,7 @@
     if(event.key==="F2") {event.preventDefault(); if(!receiptPreviewModal.classList.contains("hidden"))closeReceiptPreview(); openPlateModal();}
     if(event.key==="Enter" && !paymentScreen.classList.contains("hidden") && receiptPreviewModal.classList.contains("hidden") && event.target.tagName==="INPUT") {
       event.preventDefault();
-      const fields=[weightInput,...(entryService.checked?[entryFeeInput]:[]),...(reloadService.checked?[reloadFeeInput]:[]),paidCheck];
+      const fields=[weightInput,paidCheck];
       const index=fields.indexOf(event.target);
       if(index>=0 && index<fields.length-1)fields[index+1].focus();
       else if(!payButton.disabled)confirmAndPrint();
