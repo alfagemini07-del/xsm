@@ -1,0 +1,9 @@
+Flask>=3.1,<4
+gunicorn>=23,<24
+psycopg[binary]>=3.2,<4
+psycopg-pool>=3.2,<4
+qrcode[pil]>=8.2,<9
+psutil>=6,<8
+reportlab>=4.2,<5
+openpyxl>=3.1,<4
+pywin32>=311; platform_system == "Windows"

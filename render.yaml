@@ -1,0 +1,29 @@
+services:
+  - type: web
+    name: tarozi-kiosk
+    runtime: python
+    plan: free
+    buildCommand: pip install -r requirements.txt
+    startCommand: gunicorn app:app --workers 1 --threads 4 --timeout 120 --access-logfile -
+    healthCheckPath: /health
+    envVars:
+      - key: DATABASE_URL
+        sync: false
+      - key: SECRET_KEY
+        generateValue: true
+      - key: INITIAL_TECHADMIN_USERNAME
+        value: techadmin
+      - key: INITIAL_TECHADMIN_PASSWORD
+        sync: false
+      - key: INITIAL_PRICE
+        value: "30000"
+      - key: APP_TIMEZONE
+        value: Asia/Tashkent
+      - key: COOKIE_SECURE
+        value: "true"
+      - key: DB_POOL_SIZE
+        value: "5"
+      - key: LOCAL_PRINTER_AGENT_ENABLED
+        value: "true"
+      - key: SUPABASE_DB_LIMIT_BYTES
+        value: "524288000"

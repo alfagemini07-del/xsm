@@ -1,0 +1,146 @@
+CREATE TABLE IF NOT EXISTS users (
+    id BIGSERIAL PRIMARY KEY,
+    username TEXT NOT NULL UNIQUE,
+    password_hash TEXT NOT NULL,
+    role TEXT NOT NULL CHECK (role IN ('operator', 'admin', 'techadmin')),
+    is_active BOOLEAN NOT NULL DEFAULT TRUE,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    last_login_at TIMESTAMPTZ
+);
+
+CREATE TABLE IF NOT EXISTS settings (
+    key TEXT PRIMARY KEY,
+    value TEXT NOT NULL,
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_by BIGINT REFERENCES users(id) ON DELETE SET NULL
+);
+
+CREATE TABLE IF NOT EXISTS daily_sequences (
+    business_date DATE PRIMARY KEY,
+    next_value INTEGER NOT NULL CHECK (next_value > 0)
+);
+
+CREATE TABLE IF NOT EXISTS import_batches (
+    id UUID PRIMARY KEY,
+    filename TEXT NOT NULL,
+    file_sha256 TEXT NOT NULL,
+    imported_by BIGINT REFERENCES users(id) ON DELETE SET NULL,
+    imported_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    total_rows INTEGER NOT NULL DEFAULT 0,
+    inserted_rows INTEGER NOT NULL DEFAULT 0,
+    skipped_rows INTEGER NOT NULL DEFAULT 0
+);
+
+CREATE TABLE IF NOT EXISTS weighings (
+    id BIGSERIAL PRIMARY KEY,
+    receipt_no TEXT NOT NULL UNIQUE,
+    plate_number TEXT NOT NULL,
+    plate_search TEXT NOT NULL,
+    price BIGINT NOT NULL CHECK (price >= 0),
+    weight_kg BIGINT NOT NULL DEFAULT 0 CHECK (weight_kg >= 0),
+    weighing_fee BIGINT NOT NULL DEFAULT 0 CHECK (weighing_fee >= 0),
+    entry_fee BIGINT NOT NULL DEFAULT 0 CHECK (entry_fee >= 0),
+    reload_fee BIGINT NOT NULL DEFAULT 0 CHECK (reload_fee >= 0),
+    entry_service BOOLEAN NOT NULL DEFAULT FALSE,
+    reload_service BOOLEAN NOT NULL DEFAULT FALSE,
+    public_token TEXT,
+    status TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'paid', 'cancelled')),
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    business_date DATE NOT NULL,
+    paid_at TIMESTAMPTZ,
+    cancelled_at TIMESTAMPTZ,
+    payment_method TEXT NOT NULL DEFAULT 'cash' CHECK (payment_method IN ('cash', 'card', 'bank')),
+    created_by BIGINT REFERENCES users(id) ON DELETE SET NULL,
+    source TEXT NOT NULL DEFAULT 'web',
+    legacy_id BIGINT,
+    legacy_receipt_no TEXT,
+    legacy_fingerprint TEXT UNIQUE,
+    import_batch_id UUID REFERENCES import_batches(id) ON DELETE SET NULL
+);
+
+ALTER TABLE weighings ADD COLUMN IF NOT EXISTS payment_method TEXT NOT NULL DEFAULT 'cash';
+ALTER TABLE weighings ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW();
+ALTER TABLE weighings ADD COLUMN IF NOT EXISTS weight_kg BIGINT NOT NULL DEFAULT 0;
+ALTER TABLE weighings ADD COLUMN IF NOT EXISTS weighing_fee BIGINT NOT NULL DEFAULT 0;
+ALTER TABLE weighings ADD COLUMN IF NOT EXISTS entry_fee BIGINT NOT NULL DEFAULT 0;
+ALTER TABLE weighings ADD COLUMN IF NOT EXISTS reload_fee BIGINT NOT NULL DEFAULT 0;
+ALTER TABLE weighings ADD COLUMN IF NOT EXISTS entry_service BOOLEAN NOT NULL DEFAULT FALSE;
+ALTER TABLE weighings ADD COLUMN IF NOT EXISTS reload_service BOOLEAN NOT NULL DEFAULT FALSE;
+ALTER TABLE weighings ADD COLUMN IF NOT EXISTS public_token TEXT;
+
+UPDATE weighings
+SET weighing_fee = price
+WHERE weighing_fee = 0 AND entry_fee = 0 AND reload_fee = 0 AND price > 0;
+
+CREATE INDEX IF NOT EXISTS idx_weighings_created_at ON weighings (created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_weighings_updated_at ON weighings (updated_at DESC);
+CREATE INDEX IF NOT EXISTS idx_weighings_business_date ON weighings (business_date DESC);
+CREATE INDEX IF NOT EXISTS idx_weighings_status_date ON weighings (status, business_date DESC);
+CREATE INDEX IF NOT EXISTS idx_weighings_plate_search ON weighings (plate_search);
+CREATE INDEX IF NOT EXISTS idx_weighings_created_by ON weighings (created_by, created_at DESC);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_weighings_public_token ON weighings (public_token) WHERE public_token IS NOT NULL;
+
+CREATE TABLE IF NOT EXISTS backup_tokens (
+    id BIGSERIAL PRIMARY KEY,
+    name TEXT NOT NULL,
+    token_hash TEXT NOT NULL UNIQUE,
+    created_by BIGINT REFERENCES users(id) ON DELETE SET NULL,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    last_used_at TIMESTAMPTZ,
+    revoked_at TIMESTAMPTZ
+);
+
+CREATE TABLE IF NOT EXISTS login_attempts (
+    identifier TEXT PRIMARY KEY,
+    failure_count INTEGER NOT NULL DEFAULT 0,
+    first_failed_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    blocked_until TIMESTAMPTZ
+);
+
+ALTER TABLE weighings ADD COLUMN IF NOT EXISTS client_request_id TEXT;
+CREATE UNIQUE INDEX IF NOT EXISTS idx_weighing_request ON weighings(client_request_id) WHERE client_request_id IS NOT NULL;
+CREATE TABLE IF NOT EXISTS print_attempts (
+    id UUID PRIMARY KEY,
+    weighing_id BIGINT NOT NULL REFERENCES weighings(id) ON DELETE CASCADE,
+    user_id BIGINT REFERENCES users(id) ON DELETE SET NULL,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    state TEXT NOT NULL CHECK (state IN ('requested','dialog_closed','spooled','confirmed','failed')),
+    method TEXT NOT NULL CHECK (method IN ('browser','agent'))
+);
+CREATE INDEX IF NOT EXISTS idx_print_weighing ON print_attempts(weighing_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_print_created ON print_attempts(created_at DESC);
+
+-- Extend roles on existing installations as well as new databases.
+DO $$ BEGIN
+    IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conrelid='users'::regclass AND conname='users_zone_role_check') THEN
+        ALTER TABLE users DROP CONSTRAINT IF EXISTS users_role_check;
+        ALTER TABLE users ADD CONSTRAINT users_zone_role_check CHECK
+            (role IN ('operator','admin','techadmin','parkovka_tashqi','kpp2','ayritom'));
+    END IF;
+END $$;
+INSERT INTO settings(key,value) VALUES ('zone_daily_rate','30000') ON CONFLICT DO NOTHING;
+CREATE TABLE IF NOT EXISTS zone_visits (
+    id BIGSERIAL PRIMARY KEY,
+    plate TEXT NOT NULL, plate_key TEXT NOT NULL,
+    purpose TEXT NOT NULL CHECK (purpose IN ('border','zone')),
+    location TEXT NOT NULL CHECK (location IN ('parking','transfer','inside','closed')),
+    started TIMESTAMPTZ NOT NULL, daily_rate BIGINT NOT NULL CHECK (daily_rate>0)
+);
+CREATE UNIQUE INDEX IF NOT EXISTS zone_one_active ON zone_visits(plate_key) WHERE location <> 'closed';
+CREATE INDEX IF NOT EXISTS zone_queue ON zone_visits(location,purpose,id);
+CREATE INDEX IF NOT EXISTS zone_plate_history ON zone_visits(plate_key,id DESC);
+CREATE TABLE IF NOT EXISTS zone_events (
+    id BIGSERIAL PRIMARY KEY, request_key UUID UNIQUE NOT NULL,
+    visit_id BIGINT NOT NULL REFERENCES zone_visits(id),
+    occurred TIMESTAMPTZ NOT NULL, point TEXT NOT NULL,
+    action TEXT NOT NULL, location TEXT NOT NULL, operator_name TEXT NOT NULL,
+    days INTEGER NOT NULL, previous_paid BIGINT NOT NULL,
+    amount BIGINT NOT NULL CHECK (amount>=0),
+    method TEXT NOT NULL CHECK(method IN ('cash','card','bank','none'))
+);
+CREATE INDEX IF NOT EXISTS zone_event_visit ON zone_events(visit_id,id);
+CREATE INDEX IF NOT EXISTS zone_event_time ON zone_events(occurred);
+CREATE INDEX IF NOT EXISTS zone_weigh_paid_time ON weighings(paid_at) WHERE status='paid';
