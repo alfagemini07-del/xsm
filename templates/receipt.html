@@ -1,0 +1,21 @@
+<!doctype html>
+<html lang="uz">
+<head>
+  <meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Chek {{ receipt.receipt_no }}</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='receipt.css', v='20261002-1') }}">
+  <style nonce="{{ g.style_nonce }}">@page { size: 80mm {{ receipt.paper_height_mm }}mm; margin: 0; }</style>
+</head>
+<body data-auto-print="{{ '1' if auto_print else '0' }}" data-embedded="{{ '1' if embedded else '0' }}" data-id="{{ receipt.id }}" data-csrf="{{ csrf_token() if not public_view else '' }}" data-public="{{ '1' if public_view else '0' }}">
+  <main class="receipt"><img id="receipt-raster" src="data:image/png;base64,{{ receipt.raster_b64 }}" alt="Chek {{ receipt.receipt_no }}. {{ receipt.plate_number }}. Vazni {{ receipt.weight_fmt }} kg. Jami {{ receipt.total_fmt }} so'm."></main>
+  <section class="print-actions">
+    <p id="print-status" role="status">Chek tayyorlanmoqda...</p>
+    <button id="btn-browser-print" type="button" disabled>Chop etish</button>
+    {% if not public_view %}
+    <a href="{{ url_for('download_receipt_pdf', weighing_id=receipt.id) }}">PDF nusxa</a>
+    <div id="print-confirmation" hidden><p>Qog'ozdagi chek to'liq chiqdimi?</p><button id="confirm-printed" type="button">Ha, to'liq chiqdi</button><button id="confirm-failed" type="button">Yo'q, chiqmadi</button></div>
+    {% endif %}
+    {% if not embedded and not public_view %}<button id="btn-close-print" type="button">Yopish</button>{% endif %}
+  </section>
+  <script src="{{ url_for('static', filename='receipt.js', v='20261002-1') }}" defer></script>
+</body></html>

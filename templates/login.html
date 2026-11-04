@@ -1,0 +1,40 @@
+<!doctype html>
+<html lang="uz">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Kirish | Airitom Free Zone</title>
+  <link rel="icon" href="{{ url_for('static', filename='favicon.ico') }}">
+  <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body class="login-page">
+  <div class="ambient ambient-one"></div>
+  <div class="ambient ambient-two"></div>
+  <main class="login-shell">
+    <section class="login-panel">
+      <img src="/static/airitom.jpg" width="100" height="100" alt="Airitom Free Zone">
+      <p class="eyebrow">AIRITOM LOGISTICS CENTER MCHJ</p>
+      <h1>Airitom Free Zone</h1>
+      <p class="muted">Ishni boshlash uchun login va parolingizni kiriting.</p>
+
+      {% if error %}
+      <div class="alert alert-error" role="alert">{{ error }}</div>
+      {% endif %}
+
+      <form method="post" class="login-form" autocomplete="on">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <label>
+          <span>Login</span>
+          <input name="username" type="text" maxlength="40" autocomplete="username" required autofocus>
+        </label>
+        <label>
+          <span>Parol</span>
+          <input name="password" type="password" maxlength="200" autocomplete="current-password" required>
+        </label>
+        <button type="submit" class="btn btn-primary btn-large">Tizimga kirish <span>→</span></button>
+      </form>
+    </section>
+  </main>
+</body>
+</html>
+
