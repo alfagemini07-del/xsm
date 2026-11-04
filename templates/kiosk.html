@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Tarozi terminali | {{ company }}</title>
   <link rel="icon" href="{{ url_for('static', filename='favicon.ico') }}">
-  <link rel="stylesheet" href="{{ url_for('static', filename='style.css', v='20261002-1') }}">
+  <link rel="stylesheet" href="{{ url_for('static', filename='style.css', v='20261105-1') }}">
 </head>
 <body class="kiosk-page" data-csrf="{{ csrf_token() }}" data-role="{{ user.role }}" data-user-id="{{ user.id }}" data-local-printer-agent="{{ '1' if local_printer_agent else '0' }}">
   <div class="industrial-grid"></div>
@@ -48,8 +48,8 @@
         <div class="payment-methods"><button class="payment-method selected" data-method="cash" type="button"><b>▣</b><strong>Naqd pul</strong><small>Kassaga topshirish</small></button><button class="payment-method" data-method="card" type="button"><b>▤</b><strong>Uzcard / Humo</strong><small>POS terminal</small></button><button class="payment-method" data-method="bank" type="button"><b>▥</b><strong>Hisob raqam</strong><small>Shartnoma asosida</small></button></div>
         <h3>Qo'shimcha xizmatlar</h3>
         <div class="extra-services">
-          <article class="extra-service-item"><label class="service-toggle" for="service-entry"><input id="service-entry" type="checkbox"><span class="service-check">✓</span><span><strong>Hududga kirganlik uchun to'lov</strong><small>Tanlang va summani qo'lda kiriting</small></span><em>Qo'lda</em></label><div id="entry-fee-panel" class="service-amount-panel hidden"><span>Hududga kirish to'lovi</span><div class="weight-input-wrap service-money-input"><input id="entry-fee-input" type="text" inputmode="numeric" pattern="[0-9 ]*" maxlength="13" placeholder="Masalan: 30 000" autocomplete="off"><b>SO'M</b></div><small id="entry-fee-error">1 dan 1 000 000 000 so'mgacha</small></div></article>
-          <article class="extra-service-item"><label class="service-toggle" for="service-reload"><input id="service-reload" type="checkbox"><span class="service-check">✓</span><span><strong>Qayta yuklash uchun to'lov</strong><small>Tanlang va summani qo'lda kiriting</small></span><em>Qo'lda</em></label><div id="reload-fee-panel" class="service-amount-panel hidden"><span>Qayta yuklash to'lovi</span><div class="weight-input-wrap service-money-input"><input id="reload-fee-input" type="text" inputmode="numeric" pattern="[0-9 ]*" maxlength="13" placeholder="Masalan: 30 000" autocomplete="off"><b>SO'M</b></div><small id="reload-fee-error">1 dan 1 000 000 000 so'mgacha</small></div></article>
+          <article id="entry-service-item" class="extra-service-item"><label class="service-toggle" for="service-entry"><input id="service-entry" type="checkbox"><span class="service-check">✓</span><span><strong>Hududga kirganlik uchun to'lov</strong><small>Techadmin belgilagan avtomatik tarif</small></span><em id="entry-tariff-label">—</em></label><div id="entry-fee-panel" class="service-amount-panel hidden"><span>Hududga kirish to'lovi</span><div class="weight-input-wrap service-money-input"><input id="entry-fee-input" type="text" readonly tabindex="-1"><b>SO'M</b></div><small id="entry-fee-error">Summa markaziy tarifdan olinadi</small></div></article>
+          <article id="reload-service-item" class="extra-service-item"><label class="service-toggle" for="service-reload"><input id="service-reload" type="checkbox"><span class="service-check">✓</span><span><strong>Qayta yuklash uchun to'lov</strong><small>Techadmin belgilagan avtomatik tarif</small></span><em id="reload-tariff-label">—</em></label><div id="reload-fee-panel" class="service-amount-panel hidden"><span>Qayta yuklash to'lovi</span><div class="weight-input-wrap service-money-input"><input id="reload-fee-input" type="text" readonly tabindex="-1"><b>SO'M</b></div><small id="reload-fee-error">Summa markaziy tarifdan olinadi</small></div></article>
         </div>
         <div class="grand-total"><span>UMUMIY TO'LOV</span><strong><span id="grand-total-value">—</span> <i>so'm</i></strong></div>
         <label class="confirm-payment"><input id="paid-check" type="checkbox"><span class="visual-check">✓</span><span><strong>To'lov to'liq qabul qilindi</strong><small>Chekni chop etishga ruxsat berish</small></span><em>Majburiy</em></label>
@@ -70,6 +70,6 @@
   <div id="receipt-preview-modal" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="receipt-preview-title"><div class="modal-card receipt-preview-card"><header><span class="modal-icon">▤</span><div><h2 id="receipt-preview-title">Chek chop etishga tayyor</h2><p>Agent ulangan bo'lsa chek oynasiz printerga yuboriladi.</p></div><button id="receipt-preview-close" class="modal-close" type="button">×</button></header><div id="receipt-frame-loading" class="receipt-frame-loading">Chek tayyorlanmoqda...</div><iframe id="receipt-preview-frame" title="Chop etiladigan chek" src="about:blank"></iframe><footer><button id="receipt-preview-finish" class="button secondary" type="button">Yopish</button><button id="receipt-preview-print" class="button success grow" type="button">▤ Chekni Chop Etish</button></footer></div></div>
 
   <div id="toast" class="toast hidden" role="status"><b id="toast-icon">✓</b><span id="toast-text"></span></div>
-<script src="{{ url_for('static', filename='app.js', v='20261002-2') }}" defer></script>
+<script src="{{ url_for('static', filename='app.js', v='20261105-1') }}" defer></script>
 </body>
 </html>

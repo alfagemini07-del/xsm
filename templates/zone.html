@@ -1,7 +1,7 @@
 <!doctype html>
 <html lang="uz"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Airitom Free Zone · Nazorat markazi</title><link rel="icon" href="/static/airitom.jpg"><link rel="stylesheet" href="/static/zone.css">
-<script defer src="/static/zone.js"></script></head><body data-mode="{{ mode }}">
+<title>Airitom Free Zone · Nazorat markazi</title><link rel="icon" href="/static/airitom.jpg"><link rel="stylesheet" href="/static/zone.css?v=20261105-1">
+<script defer src="/static/zone.js?v=20261105-1"></script></head><body data-mode="{{ mode }}">
 {% macro csrf() %}<input type="hidden" name="csrf_token" value="{{ csrf_token() }}">{% endmacro %}
 {% macro period_fields() %}
 <input type="hidden" name="period" value="custom"><input type="hidden" name="start" value="{{ start }}"><input type="hidden" name="end" value="{{ end }}"><input type="hidden" name="point" value="{{ selected }}">
@@ -51,5 +51,5 @@
 <div class="scroll"><table><tr><th>Navbat</th><th>Avtomobil</th><th>Joylashuv</th><th>Maqsad</th><th>Kirish</th></tr>{% for v in active %}<tr><td>#{{ v.id }}</td><td>{{ v.plate }}</td><td>{{ labels[v.location] }}</td><td>{{ labels[v.purpose] }}</td><td>{{ v.started|zone_time }}</td></tr>{% else %}<tr><td colspan="5">Faol tashrif topilmadi.</td></tr>{% endfor %}</table></div>
 <nav class="chips">{% for n,title in [(pg-1,'← Oldingi'),(pg+1,'Keyingi →')] %}{% if 1<=n<=pages %}<a href="{{ url_for('zone_home', period='custom', start=start,end=end, point=selected,location=request.args.get('location',''),purpose=request.args.get('purpose',''),plate=request.args.get('plate',''),p=n) }}#active">{{ title }}</a>{% endif %}{% endfor %}<span>{{ pg }} / {{ pages }}</span></nav></section>
 <section class="card"><h2>Davrdagi oxirgi 80 ta amal</h2><div class="scroll"><table><tr><th>Vaqt</th><th>Nuqta</th><th>Avtomobil</th><th>Xodim</th><th>Amal</th><th>Summa</th><th>Chek</th></tr>{% for r in rows %}<tr><td>{{ r.ts|zone_time }}</td><td>{{ labels[r.point] }}</td><td>{{ r.plate }}</td><td>{{ r.worker }}</td><td>{{ labels[r.action] }}</td><td>{{ r.amount|som }}</td><td>{% if r.point!='scale' %}<a href="/zone/receipt/{{ r.ref[4:] }}">{{ r.ref }}</a>{% else %}{{ r.ref }}{% endif %}</td></tr>{% else %}<tr><td colspan="7">Yozuv yo‘q.</td></tr>{% endfor %}</table></div></section>
-{% if user.role=='techadmin' %}<section class="card"><h2>Kunlik tarif</h2><form class="filters" method="post" action="/zone/rate">{{ csrf() }}<label>Yangi tashriflar uchun, so‘m<input name="rate" type="number" min="1" max="1000000000" value="{{ rate }}" required></label><button>Tarifni saqlash</button></form></section>{% endif %}
+{% if user.role=='techadmin' %}<section class="card"><h2>Barcha tariflar</h2><p>Tarozi, kunlik hudud haqi va qo‘shimcha xizmatlar markaziy sozlamalarda boshqariladi.</p><a class="outline" href="/admin?tab=tech#tariffs">Tariflarni boshqarish →</a></section>{% endif %}
 {% endif %}</main></body></html>
