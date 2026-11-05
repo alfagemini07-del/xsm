@@ -4,30 +4,15 @@
   <meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Boshqaruv paneli | Airitom</title>
   <link rel="icon" href="{{ url_for('static', filename='favicon.ico') }}"><link rel="stylesheet" href="{{ url_for('static', filename='style.css', v='20261105-1') }}">
-  <link rel="stylesheet" href="/static/interface.css?v=20261105-3">
+  <link rel="stylesheet" href="/static/interface.css?v=6">
 </head>
 <body class="admin-page" data-csrf="{{ csrf_token() }}" data-role="{{ user.role }}" data-user-id="{{ user.id }}" data-default-tab="{{ default_tab }}" data-local-printer-agent="{{ '1' if local_printer_agent else '0' }}">
   <div class="industrial-grid"></div>
   <div class="admin-layout">
-    <aside class="admin-sidebar">
-      <div class="sidebar-brand"><span class="brand-symbol">◈</span><div><strong>AIRITOM</strong><small>FREE ZONE</small></div></div>
-      <div class="terminal-mini"><i></i><span>Terminal #01</span><b>ONLINE</b></div>
-      <nav>
-        <a class="nav-link" href="/zone">← Airitom umumiy paneli</a>
-        {% if user.role == 'admin' %}<button class="nav-link active" data-tab="dashboard" type="button"><span>▦</span>Admin dashboard</button>{% endif %}
-        {% if user.role == 'techadmin' %}<button class="nav-link active" data-tab="monitor" type="button"><span>◉</span>Techadmin dashboard</button><button class="nav-link" data-tab="users" type="button"><span>♙</span>Foydalanuvchilar</button>{% endif %}
-        <button class="nav-link" data-tab="reports" type="button"><span>▥</span>Hisobotlar</button>
-        <button class="nav-link" data-tab="analytics" type="button"><span>▤</span>Tahlil va eksport</button>
-        <button class="nav-link" data-tab="search" type="button"><span>⌕</span>Qidiruv</button>
-        <button class="nav-link" data-tab="history" type="button"><span>◴</span>Oxirgi o'lchashlar</button>
-        <button class="nav-link" data-tab="transfer" type="button"><span>⇅</span>Import va Backup</button>
-        {% if user.role == 'techadmin' %}<button class="nav-link" data-tab="tech" type="button"><span>⚙</span>Sozlamalar</button>{% endif %}
-      </nav>
-      <div class="sidebar-bottom"><div class="signed-user"><span>Joriy foydalanuvchi</span><strong>{{ user.username }}</strong><small>{{ user.role }}</small></div><form method="post" action="{{ url_for('logout') }}"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><button class="button danger-soft" type="submit">↪ Asosiy oynaga qaytish</button></form></div>
-    </aside>
+    {% include 'admin_nav.html' %}
 
     <div class="admin-workspace">
-      <header class="admin-topbar"><div class="topbar-brand">{{ 'TEXNIK BOSHQARUV' if user.role == 'techadmin' else 'ADMIN BOSHQARUV' }} <span>v2.6</span></div><div class="topbar-status"><span><i></i>Supabase Online</span><span class="blue"><i></i>Printer <b id="admin-printer-status">Tekshirilmoqda</b></span><span id="sync-status"><i></i>Qurilmalar sinxron</span></div><time id="admin-clock">--:--:--</time><form method="post" action="{{ url_for('logout') }}" class="topbar-logout"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><button class="button secondary compact" type="submit">Asosiy oynaga qaytish</button></form></header>
+      <header class="admin-topbar"><div class="topbar-brand">{{ 'TEXNIK BOSHQARUV' if user.role == 'techadmin' else 'ADMIN BOSHQARUV' }} <span>v2.6</span></div><div class="topbar-status"><span class="blue"><i></i>Printer <b id="admin-printer-status">Tekshirilmoqda</b></span><span id="sync-status"><i></i>Qurilmalar sinxron</span></div><time id="admin-clock">--:--:--</time><form method="post" action="{{ url_for('logout') }}" class="topbar-logout"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><button class="button secondary compact" type="submit">Hisobdan chiqish</button></form></header>
       <main class="admin-main">
         {% if user.role == 'admin' %}<section id="tab-dashboard" class="admin-tab active">
           <header class="page-title"><div><span class="eyebrow">REAL VAQT MA'LUMOTLARI</span><h1>Operatsion Dashboard</h1><p>Bugungi tarozi jarayonlari va moliyaviy ko'rsatkichlar.</p></div><button class="button secondary compact" id="btn-refresh-dashboard" type="button">⟳ Yangilash</button></header>

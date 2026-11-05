@@ -1,0 +1,21 @@
+<script src="/static/navigation.js?v=1" defer></script>
+<aside class="admin-sidebar">
+  <button type="button" class="rail-toggle" aria-controls="section-links" aria-expanded="true" aria-label="Bo‘limlar menyusi" hidden>☰</button>
+  <div class="sidebar-brand"><img src="/static/airitom.jpg" width="46" height="46" alt=""><div><strong>AIRITOM</strong><small>FREE ZONE</small></div></div>
+  <nav id="section-links" aria-label="Boshqaruv bo‘limlari">
+    <a class="nav-link {{ 'active' if mode == 'dashboard' }}" aria-label="Hudud nazorati" title="Hudud nazorati" href="/zone"><span>◈</span><b>Hudud nazorati</b></a>
+    {% set sections = [('monitor','◉','Texnik monitoring'),('users','♙','Foydalanuvchilar')] if user.role == 'techadmin' else [('dashboard','▦','Tarozi hisoboti')] %}
+    {% set sections = sections + [('reports','▥','Hisobotlar'),('analytics','▤','Tahlil va eksport'),('search','⌕','Qidiruv'),('history','◴','Oxirgi o‘lchashlar'),('transfer','⇅','Import va backup')] %}
+    {% if user.role == 'techadmin' %}{% set sections = sections + [('tech','⚙','Sozlamalar')] %}{% endif %}
+    {% for tab,icon,label in sections %}
+      {% if mode == 'dashboard' %}
+        <a class="nav-link" title="{{ label }}" aria-label="{{ label }}" href="/admin?tab={{ tab }}"><span aria-hidden="true">{{ icon }}</span><b>{{ label }}</b></a>
+      {% else %}
+        <button class="nav-link {{ 'active' if default_tab == tab }}" title="{{ label }}" aria-label="{{ label }}" data-tab="{{ tab }}" type="button"><span aria-hidden="true">{{ icon }}</span><b>{{ label }}</b></button>
+      {% endif %}
+    {% endfor %}
+  </nav>
+  <div class="sidebar-bottom"><div class="signed-user"><span>Xodim</span><strong>{{ user.username }}</strong><small>{{ user.role }}</small></div>
+    <form method="post" action="/logout"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><button class="button danger-soft" type="submit">Hisobdan chiqish ↗</button></form>
+  </div>
+</aside>

@@ -6,7 +6,7 @@
   <title>Tarozi terminali | {{ company }}</title>
   <link rel="icon" href="{{ url_for('static', filename='favicon.ico') }}">
   <link rel="stylesheet" href="{{ url_for('static', filename='style.css', v='20261105-1') }}">
-  <link rel="stylesheet" href="/static/interface.css?v=20261105-3">
+  <link rel="stylesheet" href="/static/interface.css?v=6">
 </head>
 <body class="kiosk-page" data-csrf="{{ csrf_token() }}" data-role="{{ user.role }}" data-user-id="{{ user.id }}" data-local-printer-agent="{{ '1' if local_printer_agent else '0' }}">
   <div class="industrial-grid"></div>
@@ -26,7 +26,7 @@
     <div class="operator-money"><div><small>Mening bugungi naqd tushumim</small><strong id="my-cash">—</strong></div><div><small>Mening bugungi karta tushumim</small><strong id="my-card">—</strong></div><div><small>Mening bugungi hisob-raqam tushumim</small><strong id="my-bank">—</strong></div></div>
     <section class="kiosk-hero"><span class="eyebrow-pill"><i></i> AIRITOM / TAROZI</span><h1>Avtomobilni <em>o‘lchash</em></h1><p>Yangi o‘lchashni boshlang, vaznni kiriting va to‘lovni tasdiqlang.</p></section>
     <button id="btn-start" class="weighbridge-stage" type="button" aria-label="Avtomobil vaznini o'lchashni boshlash">
-      <img src="{{ url_for('static', filename='truck.jpg') }}" alt="Tarozidagi yuk avtomobili"><span class="stage-shade"></span>
+      <img src="{{ url_for('static', filename='freight-scale.jpg') }}" alt="Tarozidagi yuk avtomobili"><span class="stage-shade"></span>
       <span class="barrier-chip">⌘ Shlagbaum: <b>NAZORATDA</b></span>
     </button>
     <section class="kiosk-stats">

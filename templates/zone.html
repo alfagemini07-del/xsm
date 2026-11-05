@@ -1,18 +1,25 @@
 <!doctype html>
 <html lang="uz"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Airitom Free Zone · Nazorat markazi</title><link rel="icon" href="/static/airitom.jpg"><link rel="stylesheet" href="/static/zone.css?v=20261105-3">
-<script defer src="/static/zone.js?v=20261105-3"></script></head><body data-mode="{{ mode }}">
+<title>Airitom Free Zone · Nazorat markazi</title><link rel="icon" href="/static/airitom.jpg">
+{% if mode=='dashboard' %}<link rel="stylesheet" href="/static/style.css?v=20261105-1">{% endif %}
+<link rel="stylesheet" href="/static/zone.css?v=4">
+<link rel="stylesheet" href="/static/interface.css?v=6">
+<script defer src="/static/zone.js?v=6"></script></head><body class="zone-page {{ 'admin-page' if mode=='dashboard' }}" data-mode="{{ mode }}">
 {% macro csrf() %}<input type="hidden" name="csrf_token" value="{{ csrf_token() }}">{% endmacro %}
 {% macro period_fields() %}
 <input type="hidden" name="period" value="custom"><input type="hidden" name="start" value="{{ start }}"><input type="hidden" name="end" value="{{ end }}"><input type="hidden" name="point" value="{{ selected }}">
 {% endmacro %}
+{% if mode=='dashboard' %}
+<div class="admin-layout">{% include 'admin_nav.html' %}<div class="admin-workspace">
+<header class="admin-topbar"><div class="topbar-brand">{{ 'TEXNIK BOSHQARUV' if user.role=='techadmin' else 'ADMIN BOSHQARUV' }}</div><span class="account">{{ user.username }}</span></header>
+{% else %}
 <header><a class="brand" href="/zone"><img src="/static/airitom.jpg" alt="Airitom Free Zone"><span>AIRITOM <small>FREE ZONE</small></span></a>
 <div class="account">{{ user.username }} <small>{{ labels.get(user.role,user.role) }}</small></div>
 <form method="post" action="/logout">{{ csrf() }}<button class="ghost">Hisobdan chiqish ↗</button></form></header>
-{% if user.role in ('admin','techadmin') %}<nav class="workspace-nav"><a class="active" href="/zone">◈ Umumiy nazorat</a><a href="/admin?tab=reports">▤ Hisobotlar</a>{% if user.role=='techadmin' %}<a href="/admin?tab=users">♙ Xodimlar</a><a href="/admin?tab=tech">⚙ Tariflar va sozlamalar</a>{% endif %}</nav>{% endif %}
+{% endif %}
 <main>
 {% if mode=="station" %}
-<div class="heading station-heading"><div><p class="eyebrow">TRANSPORT NAZORATI / ISH OYNASI</p><h1>{{ points[user.role] }}</h1><p class="subtitle">Bir harakat. Aniq hisob. Nazoratdagi har bir transport.</p></div><span class="live-pill"><i></i> Ishga tayyor</span></div>
+<div class="heading station-heading"><div><p class="eyebrow">Transport nazorati</p><h1>{{ points[user.role] }}</h1><p class="subtitle">Avtomobil kirishi yoki chiqishini tanlang.</p></div><span class="live-pill"><i></i> Ishga tayyor</span></div>
 <section id="action-step" class="step-panel">
 <p class="step-label"><b>01</b> Amalni tanlang <span>02 · Avtomobil &nbsp; 03 · Tasdiqlash</span></p>
 <div class="action-grid"><button type="button" class="action-tile arrival" data-action="in"><span class="action-icon">↙</span><small>KELAYOTGAN TRANSPORT</small><strong>Kirish</strong><span>Avtomobilni qabul qilish <b>→</b></span></button><button type="button" class="action-tile departure" data-action="out"><span class="action-icon">↗</span><small>KETAYOTGAN TRANSPORT</small><strong>Chiqish</strong><span>Hisobni tekshirish va chiqarish <b>→</b></span></button></div>
@@ -39,22 +46,34 @@
 <button>Harakatni tasdiqlash va chek olish</button> <a href="/zone">Orqaga</a></form></section>
 {% elif mode=="error" %}<section class="card narrow"><h1>Amal bajarilmadi</h1><p>{{ message }}</p><a href="/zone">Nuqta oynasiga qaytish</a></section>
 {% elif mode=="receipt" %}
-<article class="ticket"><strong>AIRITOM FREE ZONE</strong><h2>Transport cheki</h2><dl>{% for k,v in fields %}<dt>{{ k }}</dt><dd>{{ v }}</dd>{% endfor %}</dl>
+<article class="ticket">
+<h1>“Airitom Logistics Center” MCHJ</h1>
+<p class="ticket-caption">{{ labels[receipt.point] }} · {{ labels[receipt.action] }}</p>
+<div class="ticket-id">Chek № AFZ-{{ receipt.id }}</div>
+<strong class="receipt-plate">{{ receipt.plate }}</strong>
+<dl>{% for k,v in fields if k not in ['Chek','Avtomobil','Nuqta','Amal','Hozir olindi'] %}<dt>{{ k }}</dt><dd>{{ v }}</dd>{% endfor %}</dl>
+<p class="ticket-total"><span>Hozir olindi</span><strong>{{ receipt.amount|som }} so‘m</strong></p>
 <img class="qr" alt="Chek ma’lumotlari" src="data:image/png;base64,{{ qr }}"><small>Chekni telefonda o‘qish uchun skanerlang</small></article>
 <nav class="ticket-actions"><button id="print">Chekni chop etish</button><a href="/zone">Ish oynasiga qaytish</a></nav>
 {% elif mode=="dashboard" %}
-<div class="heading"><div><p class="eyebrow">AIRITOM / BOSHQARUV MARKAZI</p><h1>Hudud nazorati</h1></div><a class="outline" href="/admin">Tarozi va boshqaruv →</a></div>
-<h2>Hozirgi joylashuv</h2><div class="metrics">{% for k,title,loc in [('border','Ayritom navbati','parking'),('zone','Free Zone navbati','parking'),('transfer','KPP2 yo‘lida','transfer'),('inside','Hudud ichida','inside')] %}
-<a href="{{ url_for('zone_home',location=loc,purpose=k if loc=='parking' else '',period='custom',start=start,end=end,point=selected) }}#active"><small>{{ title }}</small><strong>{{ stats[k] }}</strong><span>avtomobil ↘</span></a>{% endfor %}</div>
-<section class="card"><div class="heading"><div><p class="eyebrow">KASSA / {{ start }} — {{ end }}</p><h2 class="amount">{{ total|som }} <small>so‘m</small></h2></div><a class="outline" href="{{ url_for('zone_export',period='custom',start=start,end=end,point=selected) }}">Excel yuklash ↓</a></div>
-<div class="distribution">{% for r in summary %}<div><small>{{ labels[r.point] }}</small><progress aria-label="{{ labels[r.point] }} tushum ulushi" max="{{ total or 1 }}" value="{{ r.total }}"></progress><b>{{ r.total|som }}</b></div>{% endfor %}</div>
+<div class="heading command-title"><h1>Hudud nazorati</h1><small id="refresh-status" role="status">Har 30 soniyada yangilanadi</small></div>
+{% macro visit_link(location,purpose='') %}{{ url_for('zone_home',location=location,purpose=purpose,period='custom',start=start,end=end,point=selected) }}#active{% endmacro %}
+{% include 'zone_overview.html' %}
+<section class="card" id="cash"><div class="heading"><div><p class="eyebrow">KASSA / {{ start }} — {{ end }}</p><h2 class="amount">{{ total|som }} <small>so‘m</small></h2></div><a class="outline" href="{{ url_for('zone_export',period='custom',start=start,end=end,point=selected) }}">Excel yuklash ↓</a></div>
+<div class="cash-breakdown" data-refresh="breakdown">
+{% if trend %}{% set peak=trend|map(attribute='revenue')|max or 1 %}
+<div><h3>Kunlik tushum</h3><small>{{ start }} — {{ end }} · so‘m</small>
+<div class="daily-plot" tabindex="0" aria-label="Operatsiya qayd etilgan kunlar bo‘yicha tushum">
+{% for day in trend %}<div><time>{{ day.day.strftime('%d.%m') }}</time><progress aria-label="{{ day.day }} tushumi" max="{{ peak }}" value="{{ day.revenue }}"></progress><b>{{ day.revenue|som }}</b></div>{% endfor %}</div></div>
+{% endif %}
+<div><h3>Nuqtalar bo‘yicha tushum</h3><div class="distribution">{% for r in summary %}<div><small>{{ labels[r.point] }}</small><progress aria-label="{{ labels[r.point] }} tushum ulushi" max="{{ total or 1 }}" value="{{ r.total }}"></progress><b>{{ r.total|som }}</b></div>{% else %}<small>Tanlangan davrda tushum qayd etilmagan.</small>{% endfor %}</div></div></div>
 <nav class="chips">{% for k,name in [('day','Bugun'),('week','Hafta'),('month','Oy'),('year','Yil')] %}<a href="{{ url_for('zone_home',period=k,point=selected) }}">{{ name }}</a>{% endfor %}</nav>
 <form class="filters"><input type="hidden" name="period" value="custom"><label>Boshlanish<input name="start" type="date" value="{{ start }}" required></label><label>Tugash<input name="end" type="date" value="{{ end }}" required></label>
 <label>Nuqta<select name="point"><option value="">Barchasi</option>{% for k in ['parkovka_tashqi','kpp2','ayritom','scale'] %}<option value="{{ k }}" {{ 'selected' if k==selected }}>{{ labels[k] }}</option>{% endfor %}</select></label><button>Hisoblash</button></form>
 <div class="scroll"><table><tr><th>Nuqta</th><th>Amallar</th><th>Kirish / chiqish</th><th>Naqd</th><th>Karta</th><th>Hisob raqam</th><th>Tushum</th></tr>{% for r in summary %}<tr><td>{{ labels[r.point] }}</td><td>{{ r.operations }}</td><td>{{ r.arrivals }} / {{ r.departures }}</td><td>{{ r.cash|som }}</td><td>{{ r.card|som }}</td><td>{{ r.bank|som }}</td><td><b>{{ r.total|som }}</b></td></tr>{% else %}<tr><td colspan="7">Bu davrda operatsiya yo‘q.</td></tr>{% endfor %}</table></div></section>
-<section class="card" id="active"><h2>Faol tashriflar</h2><form class="filters">{{ period_fields() }}<label>Davlat raqami<input name="plate" value="{{ request.args.get('plate','') }}" placeholder="Raqam bo‘yicha qidirish"></label><label>Joylashuv<select name="location"><option value="">Barchasi</option>{% for k in ['parking','transfer','inside'] %}<option value="{{ k }}" {{ 'selected' if request.args.get('location')==k }}>{{ labels[k] }}</option>{% endfor %}</select></label><label>Maqsad<select name="purpose"><option value="">Barchasi</option>{% for k in ['border','zone'] %}<option value="{{ k }}" {{ 'selected' if request.args.get('purpose')==k }}>{{ labels[k] }}</option>{% endfor %}</select></label><button>Qidirish</button></form>
-<div class="scroll"><table><tr><th>Navbat</th><th>Avtomobil</th><th>Joylashuv</th><th>Maqsad</th><th>Kirish</th></tr>{% for v in active %}<tr><td>#{{ v.id }}</td><td>{{ v.plate }}</td><td>{{ labels[v.location] }}</td><td>{{ labels[v.purpose] }}</td><td>{{ v.started|zone_time }}</td></tr>{% else %}<tr><td colspan="5">Faol tashrif topilmadi.</td></tr>{% endfor %}</table></div>
-<nav class="chips">{% for n,title in [(pg-1,'← Oldingi'),(pg+1,'Keyingi →')] %}{% if 1<=n<=pages %}<a href="{{ url_for('zone_home', period='custom', start=start,end=end, point=selected,location=request.args.get('location',''),purpose=request.args.get('purpose',''),plate=request.args.get('plate',''),p=n) }}#active">{{ title }}</a>{% endif %}{% endfor %}<span>{{ pg }} / {{ pages }}</span></nav></section>
-<section class="card"><h2>Davrdagi oxirgi 80 ta amal</h2><div class="scroll"><table><tr><th>Vaqt</th><th>Nuqta</th><th>Avtomobil</th><th>Xodim</th><th>Amal</th><th>Summa</th><th>Chek</th></tr>{% for r in rows %}<tr><td>{{ r.ts|zone_time }}</td><td>{{ labels[r.point] }}</td><td>{{ r.plate }}</td><td>{{ r.worker }}</td><td>{{ labels[r.action] }}</td><td>{{ r.amount|som }}</td><td>{% if r.point!='scale' %}<a href="/zone/receipt/{{ r.ref[4:] }}">{{ r.ref }}</a>{% else %}{{ r.ref }}{% endif %}</td></tr>{% else %}<tr><td colspan="7">Yozuv yo‘q.</td></tr>{% endfor %}</table></div></section>
+<section class="card" id="active"><h2>Faol tashriflar</h2><form class="filters">{{ period_fields() }}<label>Davlat raqami<input name="plate" value="{{ request.args.get('plate','') }}" placeholder="Raqam bo‘yicha qidirish"></label><label>Joylashuv<select name="location"><option value="">Barchasi</option>{% for k in ['outside','parking','transfer','inside'] %}<option value="{{ k }}" {{ 'selected' if request.args.get('location')==k }}>{{ labels[k] }}</option>{% endfor %}</select></label><label>Maqsad<select name="purpose"><option value="">Barchasi</option>{% for k in ['border','zone'] %}<option value="{{ k }}" {{ 'selected' if request.args.get('purpose')==k }}>{{ labels[k] }}</option>{% endfor %}</select></label><label>Tartib<select name="sort">{% for k,name in [('queue','Navbat bo‘yicha'),('latest','Eng yangi'),('plate','Davlat raqami')] %}<option value="{{ k }}" {{ 'selected' if request.args.get('sort')==k }}>{{ name }}</option>{% endfor %}</select></label><button>Qidirish</button></form>
+<div class="scroll"><table><tr><th>Navbat</th><th>Avtomobil</th><th>Joylashuv</th><th>Maqsad</th><th>Kirish</th></tr>{% for v in active %}<tr><td>#{{ v.id }}</td><td><details><summary>{{ v.plate }}</summary><dl><dt>Maqsad</dt><dd>{{ labels[v.purpose] }}</dd><dt>Kirish</dt><dd>{{ v.started|zone_time }}</dd><dt>Joylashuv</dt><dd>{{ labels[v.location] }}</dd></dl></details></td><td>{{ labels[v.location] }}</td><td>{{ labels[v.purpose] }}</td><td>{{ v.started|zone_time }}</td></tr>{% else %}<tr><td colspan="5">Faol tashrif topilmadi.</td></tr>{% endfor %}</table></div>
+<nav class="chips">{% for n,title in [(pg-1,'← Oldingi'),(pg+1,'Keyingi →')] %}{% if 1<=n<=pages %}<a href="{{ url_for('zone_home', period='custom', start=start,end=end, point=selected,location=request.args.get('location',''),purpose=request.args.get('purpose',''),plate=request.args.get('plate',''),sort=request.args.get('sort','queue'),p=n) }}#active">{{ title }}</a>{% endif %}{% endfor %}<span>{{ pg }} / {{ pages }}</span></nav></section>
+<section class="card" id="events"><h2>Davrdagi oxirgi 80 ta amal</h2><div class="scroll"><table><tr><th>Vaqt</th><th>Nuqta</th><th>Avtomobil</th><th>Xodim</th><th>Amal</th><th>Summa</th><th>Chek</th></tr>{% for r in rows %}<tr><td>{{ r.ts|zone_time }}</td><td>{{ labels[r.point] }}</td><td>{{ r.plate }}</td><td>{{ r.worker }}</td><td>{{ labels[r.action] }}</td><td>{{ r.amount|som }}</td><td>{% if r.point!='scale' %}<a href="/zone/receipt/{{ r.ref[4:] }}">{{ r.ref }}</a>{% else %}{{ r.ref }}{% endif %}</td></tr>{% else %}<tr><td colspan="7">Yozuv yo‘q.</td></tr>{% endfor %}</table></div></section>
 {% if user.role=='techadmin' %}<section class="card"><h2>Barcha tariflar</h2><p>Tarozi, kunlik hudud haqi va qo‘shimcha xizmatlar markaziy sozlamalarda boshqariladi.</p><a class="outline" href="/admin?tab=tech#tariffs">Tariflarni boshqarish →</a></section>{% endif %}
-{% endif %}</main></body></html>
+{% endif %}</main>{% if mode=='dashboard' %}</div></div>{% endif %}</body></html>
