@@ -1,34 +1,4 @@
 "use strict";
-const actionStep = document.getElementById("action-step");
-const vehicleStep = document.getElementById("vehicle-step");
-const plateField = document.getElementById("vehicle-plate");
-function showAction() {
-  vehicleStep.hidden = true;
-  actionStep.hidden = false;
-  document.querySelector("[data-action]")?.focus();
-}
-for (const button of document.querySelectorAll("[data-action]")) {
-  button.addEventListener("click", () => {
-    const action = button.dataset.action;
-    document.getElementById("movement-action").value = action;
-    document.getElementById("vehicle-title").textContent = action === "in" ? "Kirayotgan avtomobil" : "Chiqayotgan avtomobil";
-    const purpose = document.getElementById("purpose-field");
-    if (purpose) { purpose.hidden = action !== "in"; purpose.disabled = action !== "in"; }
-    actionStep.hidden = true;
-    vehicleStep.hidden = false;
-    plateField.focus();
-  });
-}
-document.getElementById("back-action")?.addEventListener("click", showAction);
-document.getElementById("clear-plate")?.addEventListener("click", () => { plateField.value = ""; plateField.focus(); });
-plateField?.addEventListener("input", () => {
-  const start = plateField.selectionStart;
-  plateField.value = plateField.value.toUpperCase();
-  plateField.setSelectionRange(start, start);
-});
-document.addEventListener("keydown", event => {
-  if (event.key === "Escape" && vehicleStep && !vehicleStep.hidden) showAction();
-});
 for (const form of document.querySelectorAll("form:not([method=dialog])")) {
   form.addEventListener("submit", () => {
     if (form.dataset.submitting) return;
@@ -40,11 +10,6 @@ for (const form of document.querySelectorAll("form:not([method=dialog])")) {
 window.addEventListener("pageshow", event => {
   if (event.persisted) location.reload();
 });
-document.getElementById("print")?.addEventListener("click", () => window.print());
-if (document.body.dataset.mode === "receipt" && new URL(location.href).searchParams.has("print_now")) {
-  history.replaceState(null, "", location.pathname);
-  window.addEventListener("load", () => window.print(), {once:true});
-}
 if (document.body.dataset.mode === "dashboard") {
   const status = document.querySelector("#refresh-status");
   const liveKeys = ["outside", "inside", "border", "zone", "inside_kpp2", "inside_ayritom", "inside_unknown"];
@@ -98,7 +63,4 @@ if (document.body.dataset.mode === "dashboard") {
     } catch { status.textContent = "Yangilash kechikdi · qayta tekshirilmoqda"; }
     finally { busy = false; }
   }, 30000);
-}
-for (const form of document.querySelectorAll("form[action='/zone/confirm']")) {
-  form.addEventListener("submit", () => { form.querySelector("button").disabled = true; });
 }
