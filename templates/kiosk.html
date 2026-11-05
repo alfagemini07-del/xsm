@@ -6,7 +6,7 @@
   <title>Tarozi terminali | {{ company }}</title>
   <link rel="icon" href="{{ url_for('static', filename='favicon.ico') }}">
   <link rel="stylesheet" href="{{ url_for('static', filename='style.css', v='20261105-1') }}">
-  <link rel="stylesheet" href="/static/interface.css?v=6">
+  <link rel="stylesheet" href="/static/interface.css?v=7">
 </head>
 <body class="kiosk-page" data-csrf="{{ csrf_token() }}" data-role="{{ user.role }}" data-user-id="{{ user.id }}" data-local-printer-agent="{{ '1' if local_printer_agent else '0' }}">
   <div class="industrial-grid"></div>

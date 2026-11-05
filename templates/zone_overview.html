@@ -1,19 +1,18 @@
-{% set places = [('Ayritom navbati', stats.border, 'parking', 'border'),
-                 ('Free Zone navbati', stats.zone, 'parking', 'zone'),
-                 ('KPP2 yo‘lida', stats.transfer, 'transfer', ''),
-                 ('Free Zone ichida', stats.inside, 'inside', '')] %}
+{% set places = [
+  ('Ayritom navbati', stats.border, 'parking', 'border', '', 'border'),
+  ('Free Zone navbati', stats.zone, 'parking', 'zone', '', 'zone'),
+  ('KPP2 orqali ichkarida', stats.inside_kpp2, 'inside', '', 'kpp2', 'inside_kpp2'),
+  ('Ayritom orqali ichkarida', stats.inside_ayritom, 'inside', '', 'ayritom', 'inside_ayritom')
+] %}
 <section class="command-kpis" data-refresh="kpis" aria-label="Asosiy ko‘rsatkichlar">
-  {% for title,value,unit,link,key in [
-    ('Tashqi parkovka',stats.border+stats.zone+stats.transfer,'transport, KPP2 yo‘li bilan',visit_link('outside'),'parking-card'),
-    ('Free Zone ichida',stats.inside,'kirishi tasdiqlangan',visit_link('inside'),'inside-card'),
-    ('Amallar',summary|sum(attribute='operations'),'tanlangan davrda','#events',''),
-    ('Tushum',total|som,'so‘m, tanlangan davrda','#cash','')] %}
-  <article class="{{ key }}"><a class="place-count" href="{{ link }}"><span>{{ title }}</span><strong>{{ value }}</strong><small>{{ unit }}</small></a></article>
-  {% endfor %}
+  <article class="parking-card"><a href="{{ visit_link('outside') }}"><span>Tashqi parkovka</span><strong data-kpi="outside">{{ stats.border + stats.zone }}</strong><small>ta transport</small></a></article>
+  <article class="inside-card"><a href="{{ visit_link('inside') }}"><span>Free Zone ichida</span><strong data-kpi="inside">{{ stats.inside }}</strong><small>ta transport</small></a></article>
+  <article><a href="{{ visit_link('parking','border') }}"><span>Ayritom navbati</span><strong data-kpi="border">{{ stats.border }}</strong><small>tashqi parkovkada</small></a></article>
+  <article><a href="{{ visit_link('parking','zone') }}"><span>Free Zone navbati</span><strong data-kpi="zone">{{ stats.zone }}</strong><small>tashqi parkovkada</small></a></article>
 </section>
 <div class="command-grid">
   <section class="network-panel">
-    <div class="panel-title"><div><h2>Transport joylashuvi</h2><small>Hozirgi transport soni · ta</small></div>
+    <div class="panel-title"><div><h2>Transport joylashuvi</h2><small>Navbat va kirish darvozasi bo‘yicha · ta</small></div>
       <div class="view-switch" hidden><button type="button" data-view="flat" aria-pressed="true">2D ko‘rinish</button><button type="button" data-view="depth" aria-pressed="false">3D ko‘rinish</button></div>
     </div>
     <div class="network-plot" data-refresh="plot">
@@ -23,31 +22,30 @@
           {% for x in range(12,607,33) %}<path d="M{{ x }} 199l40 -32"/>{% endfor %}
           {% for d in range(0,33,8) %}<path d="M{{ 12+d*1.25 }} {{ 199-d }}h594"/>{% endfor %}
         </g>
-        {% for title,count,place,purpose in places %}
+        {% for title,count,place,purpose,gate,key in places %}
           {% set x=42+loop.index0*148 %}{% set y=191-count/maximum*132 %}
-          <a class="plot-node tone-{{ loop.index }}" href="{{ visit_link(place,purpose) }}" data-name="{{ title }}" data-count="{{ count }}" aria-label="{{ title }}: {{ count }} ta">
+          <a class="plot-node tone-{{ loop.index }}" href="{{ visit_link(place,purpose,gate) }}" data-key="{{ key }}" data-x="{{ x }}" data-name="{{ title }}" data-count="{{ count }}" aria-label="{{ title }}: {{ count }} ta">
             <title>{{ title }} · {{ count }} ta</title>
-            {% if count %}
             <path class="front" d="M{{ x }} 191V{{ y }}h67V191Z"/>
             <path class="side" d="M{{ x+67 }} 191V{{ y }}l20 -16V175Z"/>
             <path class="top" d="M{{ x }} {{ y }}l20 -16h67l-20 16Z"/>
-            {% else %}<path class="base-pad" d="M{{ x }} 191l20 -16h67l-20 16Z"/>{% endif %}
             <text x="{{ x+41 }}" y="{{ y-24 }}" class="node-count">{{ count }}</text>
             <text x="{{ x+41 }}" y="223" class="node-label">{{ title }}</text>
           </a>
         {% endfor %}
       </svg>
-      {% for title,count,place,purpose in places %}
-      <a class="plot-item" href="{{ visit_link(place,purpose) }}" data-count="{{ count }}" data-name="{{ title }}">
+      {% for title,count,place,purpose,gate,key in places %}
+      <a class="plot-item" href="{{ visit_link(place,purpose,gate) }}" data-key="{{ key }}" data-count="{{ count }}" data-name="{{ title }}">
         <span class="bar-space"><progress aria-label="{{ title }}" value="{{ count }}" max="{{ maximum }}"></progress><b>{{ count }}</b></span><span class="plot-label">{{ title }}</span>
       </a>
       {% endfor %}
+      {% if stats.inside_unknown %}<p class="legacy-gate">{{ stats.inside_unknown }} ta eski tashrifning kirish darvozasi aniqlanmagan.</p>{% endif %}
     </div>
   </section>
-  <section class="activity-panel"><div class="panel-title"><div><h2>Oxirgi harakatlar</h2><small>Tanlangan davr va nuqta</small></div><a href="#events" aria-label="Barcha amallarni ko‘rish">↗</a></div>
+  <section class="activity-panel"><div class="panel-title"><div><h2>Oxirgi harakatlar</h2><small>Jonli operatsiyalar</small></div><a href="#events" aria-label="Barcha amallarni ko‘rish">↗</a></div>
     <div class="event-feed" data-refresh="feed">{% for r in rows[:4] %}
       <div><i aria-hidden="true">{{ '↙' if r.action=='in' else '↗' if r.action=='out' else '≋' }}</i><span><b>{{ r.plate }}</b><small>{{ labels[r.point] }} · {{ labels[r.action] }}</small></span><time>{{ (r.ts|zone_time)[-5:] }}</time></div>
-    {% else %}<p class="empty-feed">Bu davrda harakat qayd etilmagan.</p>{% endfor %}</div>
+    {% else %}<p class="empty-feed">Hozircha harakat qayd etilmagan.</p>{% endfor %}</div>
   </section>
 </div>
-<dialog id="place-detail"><form method="dialog"><button aria-label="Yopish">×</button></form><h2></h2><p></p><a class="outline">Faol tashriflarni ko‘rish</a></dialog>
+<dialog id="place-detail"><form method="dialog"><button aria-label="Yopish">×</button></form><h2></h2><p></p><a class="outline">Ro‘yxatni ko‘rish</a></dialog>
