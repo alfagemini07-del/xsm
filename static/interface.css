@@ -200,6 +200,8 @@ body.admin-page,body.kiosk-page{--bg:#101e29;--surface:#152631;--surface-2:#1a2e
   #place-detail {width:min(420px,90vw);padding:28px;color:var(--text);background:var(--surface);border:1px solid var(--border);border-radius:16px}
   #place-detail form {float:right}#place-detail p {font-size:22px}#place-detail .outline {display:inline-block}
   #place-detail::backdrop {background:#050a10bc}
+  #place-detail .gate-link {flex-direction:row}
+  #inside-gates {margin-bottom:20px}
   .zone-page .card,.admin-page .industrial-card,.admin-page .metric-card,.kiosk-page .industrial-card,.access-page .access-form-panel {background:var(--surface);border-color:var(--border);box-shadow:none;border-radius:16px}
   .zone-page :is(input,select),.access-page :is(input,.password-wrap) {background:#0f1822;border-color:var(--border)}
   .zone-page th {background:#101923;color:#bac9d5}.distribution small {color:var(--muted)}

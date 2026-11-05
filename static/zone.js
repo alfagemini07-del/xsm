@@ -69,16 +69,21 @@ if (document.body.dataset.mode === "dashboard") {
   switcher.addEventListener("click", event => {
     if (event.target.dataset.view) chooseView(event.target.dataset.view);
   });
-  panel.addEventListener("click", event => {
-    const link = event.target.closest("[data-count]");
+  document.addEventListener("click", event => {
+    const link = event.target.closest(".network-plot a[data-count], .inside-card a[data-key]");
     if (!link || !detail.showModal || event.ctrlKey || event.metaKey) return;
     event.preventDefault();
     detail.querySelector("h2").textContent = link.dataset.name;
-    detail.querySelector("p").textContent = link.dataset.count + " ta transport";
-    detail.querySelector("a").href = link.getAttribute("href");
+    const inside = link.dataset.key === "inside";
+    const count = inside ? document.querySelector('[data-kpi="inside"]').textContent : link.dataset.count;
+    detail.querySelector("[data-detail-total]").textContent = count + " ta transport";
+    detail.querySelector("#inside-gates").hidden = !inside;
+    const list = detail.querySelector("[data-detail-list]");
+    list.href = link.getAttribute("href");
+    list.textContent = inside ? "Ichkaridagi barcha mashinalar" : "Ro‘yxatni ko‘rish";
     detail.showModal();
   });
-  const liveKeys = ["outside", "inside", "border", "zone", "inside_kpp2", "inside_ayritom"];
+  const liveKeys = ["outside", "inside", "border", "zone", "inside_kpp2", "inside_ayritom", "inside_unknown"];
   function updateLiveStats(stats) {
     stats.outside = Number(stats.border || 0) + Number(stats.zone || 0);
     for (const key of liveKeys) {
@@ -91,7 +96,8 @@ if (document.body.dataset.mode === "dashboard") {
         if (progress) progress.value = value;
       });
     }
-    const maximum = Math.max(1, ...["border", "zone", "inside_kpp2", "inside_ayritom"].map(key => Number(stats[key] || 0)));
+    detail.querySelector("#unknown-gate").hidden = !Number(stats.inside_unknown);
+    const maximum = Math.max(1, stats.border, stats.zone, stats.inside);
     document.querySelectorAll(".plot-node[data-key]").forEach(node => {
       const key = node.dataset.key;
       const value = Number(stats[key] || 0);
