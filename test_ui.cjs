@@ -1,116 +1,198 @@
-// Offline UI checks: renders templates, intercepts every browser request.
-// Usage: node test_ui.cjs (PYTHON, JINJA_PATH, PLAYWRIGHT_PATH, CHROME_PATH optional)
-const fs = require("fs"), path = require("path"), os = require("os");
-const {spawnSync} = require("child_process");
-const {chromium} = require(process.env.PLAYWRIGHT_PATH || "playwright");
-const script = `
-import sys,json,os
-sys.path.insert(0,os.environ.get("JINJA_PATH",""))
-from jinja2 import Environment,FileSystemLoader,select_autoescape
-from datetime import datetime,date,timezone
-from types import SimpleNamespace
-env=Environment(loader=FileSystemLoader("templates"),autoescape=select_autoescape())
-env.filters["som"]=lambda n:format(int(n),",").replace(","," ")
-env.filters["zone_time"]=lambda d:d.strftime("%d.%m.%Y %H:%M")
-env.globals.update(csrf_token=lambda:"test",url_for=lambda endpoint,**kw:("/static/"+kw["filename"] if endpoint=="static" else "/"+endpoint))
-labels={"kpp2":"KPP2 · O‘zbekiston","parkovka_tashqi":"Tashqi parkovka","ayritom":"Ayritom","border":"Ayritom navbati","zone":"Free Zone","outside":"Tashqi parkovka","parking":"Tashqi parkovka","inside":"Free Zone ichida","closed":"Tashrif yakunlandi","in":"Kirish","out":"Chiqish","scale":"Tarozi"}
-base=dict(user=dict(username="test",role="kpp2",id=1),labels=labels,points=labels,queue=[],recent=[],csrf_token=lambda:"test",request=SimpleNamespace(args={}),company="AIRITOM",local_printer_agent=False,default_tab="tech")
-pages={}
-for role in ("kpp2","parkovka_tashqi","ayritom"):
-    pages[role]=env.get_template("zone.html").render(**(base|dict(mode="station",user=dict(username=role,role=role,id=1),recent_page=1,recent_pages=1,recent_total=0)))
-pages["dashboard"]=env.get_template("zone.html").render(**(base|dict(mode="dashboard",user=dict(username="techadmin",role="techadmin"),stats=dict(border=12,zone=8,inside=24,inside_kpp2=14,inside_ayritom=10,inside_unknown=0),summary=[dict(point="kpp2",operations=1,total=30000,arrivals=0,departures=1,cash=30000,card=0,bank=0)],trend=[dict(day=date.today(),revenue=30000)],rows=[dict(ts=datetime.now(),point="kpp2",plate="01A777BA",worker="test",action="out",amount=30000,ref="AFZ-1")],active=[dict(id=1,plate="01A777BA",purpose="zone",location="inside",entry_gate="kpp2",started=datetime.now())],pg=1,pages=1,event_page=1,event_pages=1,event_total=1,start=date.today(),end=date.today(),total=30000,selected="")))
-pages["login"]=env.get_template("login.html").render(error=None,username="")
-import qrcode,base64,io
-fields=[("Chek","AFZ-1"),("Navbat / tashrif","1"),("Avtomobil","BLH123"),("Maqsad","Free Zone"),("Nuqta","Tashqi parkovka"),("Amal","Kirish"),("Holat","Parkovkada"),("Kirish vaqti","05.11.2026 08:18"),("Chek vaqti","05.11.2026 08:18"),("Kun","1"),("Kunlik tarif","30 000"),("Oldin to‘langan","0"),("Hozir olindi","30 000 so‘m"),("Jami to‘langan","30 000"),("To‘lov turi","Naqd"),("Xodim","parkovka")]
-buffer=io.BytesIO()
-qrcode.make("Airitom Logistics Center MCHJ"+chr(10)+chr(10).join(k+": "+v for k,v in fields)).save(buffer,format="PNG")
-pages["receipt"]=env.get_template("zone.html").render(**(base|dict(mode="receipt",receipt=dict(id=1,plate="BLH123",point="parkovka_tashqi",action="in",amount=30000),fields=fields,qr=base64.b64encode(buffer.getvalue()).decode())))
-pages["confirm"]=env.get_template("zone.html").render(**(base|dict(mode="confirm",q=dict(point="kpp2",action="out",plate="01 A 777 BA",purpose="zone",location="closed",entry_gate="kpp2",visit=42,days=2,rate=30000,paid=30000,amount=30000),token="test")))
-pages["admin"]=env.get_template("admin.html").render(**(base|dict(user=dict(username="techadmin",role="techadmin",id=1))))
-pages["kiosk"]=env.get_template("kiosk.html").render(**base)
-print(json.dumps(pages))
-`;
-const rendered = spawnSync(process.env.PYTHON || "python", ["-c", script], {cwd:__dirname, encoding:"utf8"});
-if(rendered.status !== 0) throw new Error(rendered.stderr || rendered.error?.message || `Template renderer exited with ${rendered.status}; stdout: ${rendered.stdout}`);
-const pages = JSON.parse(rendered.stdout);
-const output = fs.mkdtempSync(path.join(os.tmpdir(),"airitom-ui-"));
-function assert(value, message){if(!value)throw new Error(message);}
-(async()=>{
-  const browser = await chromium.launch({headless:true,...(process.env.CHROME_PATH?{executablePath:process.env.CHROME_PATH}:{})});
+// npm install --prefix .qa playwright, then node server/test_ui.cjs (from repository root).
+const { chromium } = require("../.qa/node_modules/playwright");
+const { execFileSync } = require("node:child_process");
+const fs = require("node:fs"),
+  path = require("node:path");
+const root = path.resolve(__dirname, "..");
+const pages = JSON.parse(
+  execFileSync("python", [path.join(__dirname, "ui_fixtures.py")], {
+    encoding: "utf8",
+  }),
+);
+const sizes = [
+  [1280, 800],
+  [1024, 768],
+  [768, 1024],
+  [800, 600],
+  [600, 960],
+  [390, 844],
+  [667, 375],
+  [320, 568],
+];
+let checks = 0;
+async function fits(page, label) {
+  const bad = await page.evaluate(() =>
+    [
+      ...document.querySelectorAll(
+        "dialog[open],dialog[open] button,header,main section:not([hidden]),main section:not([hidden]) button,main section:not([hidden]) input:not([type=hidden]),main section:not([hidden]) select,main section:not([hidden]) a",
+      ),
+    ]
+      .filter(
+        (e) => e.getClientRects().length && !e.closest("dialog:not([open])"),
+      )
+      .map((e) => ({
+        tag: e.tagName,
+        text: e.textContent.slice(0, 50),
+        r: e.getBoundingClientRect().toJSON(),
+      }))
+      .filter(
+        (e) =>
+          e.r.x < -1 ||
+          e.r.y < -1 ||
+          e.r.right > innerWidth + 1 ||
+          e.r.bottom > innerHeight + 1,
+      ),
+  );
+  if (bad.length) throw Error(label + " " + JSON.stringify(bad));
+  const overflow = await page.evaluate(
+    () =>
+      document.documentElement.scrollHeight > innerHeight + 1 ||
+      document.documentElement.scrollWidth > innerWidth + 1,
+  );
+  if (overflow) throw Error(label + " document overflow");
+  checks++;
+}
+(async () => {
+  const browser = await chromium.launch({
+    executablePath: "C:/Program Files/Google/Chrome/Application/chrome.exe",
+    headless: true,
+  });
   try {
-    const page = await browser.newPage({viewport:{width:1440,height:900}});
-    const errors = [];
-    page.on("pageerror",error=>errors.push(error.message));
-    await page.route("**/*", async route=>{
-      const url=new URL(route.request().url());
-      if(url.pathname.startsWith("/static/")){
-        const file=path.join(__dirname,url.pathname.slice(1));
-        return route.fulfill({body:fs.readFileSync(file),contentType:file.endsWith(".css")?"text/css":file.endsWith(".js")?"application/javascript":file.endsWith(".jpg")?"image/jpeg":"image/x-icon"});
-      }
-      if(pages[url.pathname.slice(1)])return route.fulfill({body:pages[url.pathname.slice(1)],contentType:"text/html"});
-      if(url.pathname==="/api/zone/live")return route.fulfill({contentType:"application/json",body:'{"success":true,"stats":{"border":12,"zone":8,"inside":24,"inside_kpp2":14,"inside_ayritom":10,"inside_unknown":0},"events":[]}'});
-      if(url.pathname.startsWith("/api/"))return route.fulfill({status:503,contentType:"application/json",body:'{"success":false,"message":"Offline preview"}'});
-      return route.abort();
-    });
-    for(const name of ["login","kpp2","parkovka_tashqi","dashboard","receipt","confirm","admin","kiosk"]){
-      await page.goto("http://preview.local/"+name);
-      await page.screenshot({path:path.join(output,name+".png"),fullPage:true,animations:"disabled"});
-      if(name==="dashboard"){
-        await page.locator("#group-parking summary").focus();
-        await page.keyboard.press("Enter");
-        assert(await page.getByRole("link",{name:/Ayritom navbati/}).isVisible(),"Parking queues opened by keyboard");
-        for(const [width,height] of [[1440,900],[1280,800],[1024,768],[768,1024],[390,844]]){
-          await page.setViewportSize({width,height});
-          await page.reload();
-          assert(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth+1),"Dashboard overflow at "+width);
-          if(width===390){
-            await page.locator(".rail-toggle").click();
-            assert(await page.locator("#section-links").isVisible(),"Mobile navigation opens");
-            await page.keyboard.press("Escape");
-            assert(!(await page.locator("#section-links").isVisible()),"Escape closes mobile navigation");
+    for (const [width, height] of sizes) {
+      for (const [name, html] of Object.entries(pages)) {
+        const page = await browser.newPage({ viewport: { width, height } });
+        let authenticated = false;
+        const folder = name.startsWith("kpp") ? "server" : name;
+        await page.route("https://app.test/**", async (route) => {
+          const u = new URL(route.request().url());
+          let body = {},
+            type = "application/json";
+          if (u.pathname === "/") {
+            body = html;
+            type = "text/html";
+          } else if (u.pathname.startsWith("/static/")) {
+            body = fs.readFileSync(path.join(root, folder, u.pathname));
+            type = u.pathname.endsWith(".js") ? "text/javascript" : "text/css";
+          } else if (u.pathname === "/status")
+            body = {
+              online: true,
+              user: authenticated ? { id: 1, username: "operator" } : null,
+            };
+          else if (u.pathname === "/login") {
+            authenticated = true;
+            body = { user: { id: 1, username: "operator" } };
+          } else if (u.pathname.includes("/stats/today"))
+            body = {
+              current_price: 30000,
+              entry_price: 30000,
+              reload_price: 50000,
+              entry_enabled: true,
+              reload_enabled: true,
+              count: 123,
+              total_fmt: "3 690 000",
+            };
+          else if (u.pathname === "/bridge/api/weighings")
+            body = {
+              weighing: {
+                id: 1,
+                plate_number: "01 A 123 BA",
+                status: "pending",
+                weighing_fee: 30000,
+              },
+              service_prices: {
+                entry: 30000,
+                reload: 50000,
+                entry_enabled: true,
+                reload_enabled: true,
+              },
+            };
+          else if (u.pathname.endsWith("/quote"))
+            body = {
+              ticket: "test",
+              quote: {
+                plate: "01 A 123 BA",
+                days: 12,
+                rate: 30000,
+                paid: 30000,
+                amount: 330000,
+              },
+            };
+          else if (
+            u.pathname.includes("operator/weighings") ||
+            u.pathname.endsWith("/recent")
+          ) {
+            const rows = Array.from({ length: 20 }, (_, id) => ({
+              id,
+              plate: "01 A 123 BA",
+              plate_number: "01 A 123 BA",
+              price_fmt: "110 000",
+              amount: 30000,
+              status: "paid",
+            }));
+            body = { rows, results: rows, total: 20, total_pages: 1 };
+          } else if (u.pathname.endsWith("/pay"))
+            body = {
+              receipt: { plate_number: "01 A 123 BA", total_fmt: "110 000" },
+            };
+          else if (u.pathname.endsWith("/commit")) body = { id: 1 };
+          else if (u.pathname.startsWith("/print/"))
+            body = {
+              message:
+                "Windows printer navbatiga yuborildi. Qog‘ozni tekshiring.",
+            };
+          await route.fulfill({
+            status: 200,
+            contentType: type,
+            body:
+              typeof body === "string" || Buffer.isBuffer(body)
+                ? body
+                : JSON.stringify(body),
+          });
+        });
+        await page.goto("https://app.test/");
+        await fits(page, `${name} ${width}x${height}`);
+        if (!name.startsWith("kpp")) {
+          await page.locator("[name=username]").fill("operator");
+          await page.locator("[name=password]").fill("test");
+          await page.locator("#login-form button").click();
+          await page.locator("#home").waitFor({ state: "visible" });
+          await fits(page, `${name} home ${width}x${height}`);
+          await page.locator("[data-action]").first().click();
+          await fits(page, `${name} plate ${width}x${height}`);
+          await page.locator("#plate-number").fill("01 A 123 BA");
+          await page.locator("#plate-form button.primary").click();
+          await page.locator("#payment").waitFor({ state: "visible" });
+          await fits(page, `${name} payment ${width}x${height}`);
+          if (name === "tarozi") {
+            await page.locator("#weight").fill("18000");
+            await page.locator("#entry").check();
+            await page.locator("#reload").check();
           }
+          await page.locator("#received").check();
+          await page.locator("#pay").click();
+          await page.locator("#result").waitFor({ state: "visible" });
+          await fits(page, `${name} result ${width}x${height}`);
+          await page.locator("#result [data-home]").click();
+          await page.locator("#history-open").click();
+          await page.locator("#history").waitFor({ state: "visible" });
+          await fits(page, `${name} history ${width}x${height}`);
+        } else if (name === "kpp-station") {
+          await page.locator("#journal-open").click();
+          await fits(page, `kpp journal ${width}x${height}`);
+          await page.locator("#journal-close").click();
+          await page.locator("[data-action]").first().click();
+          await fits(page, `kpp vehicle ${width}x${height}`);
         }
-        assert(await page.locator('[data-kpi="outside"]').textContent()==="20","Outside is split by its two real queues");
-        assert(await page.locator('[data-kpi="inside"]').textContent()==="24","Inside counts confirmed arrivals");
-        for (const group of ["parking","inside"]){
-          const box=page.locator("#group-"+group);
-          await box.locator("summary").click();
-          assert(await box.locator("a").first().isVisible(),"Visible breakdown: "+group);
-          assert(await box.locator("a").count()===3,"Two subgroups and full list");
-        }
-        await page.locator(".vehicle-list summary").click();
-        assert(await page.locator(".vehicle-list dd").first().isVisible(),"Vehicle detail opens");
+        await page.close();
       }
-      if(name==="receipt"){
-        await page.emulateMedia({media:"print"});
-        const qr=await page.locator(".ticket .qr").boundingBox();
-        assert(qr && Math.abs(qr.width-34*96/25.4)<1,"Printed QR must be 34 mm");
-        assert(await page.locator(".ticket-actions").isHidden(),"Printed ticket hides controls");
-        await page.locator(".ticket").screenshot({path:path.join(output,"receipt-print.png")});
-        await page.emulateMedia({media:"screen"});
-      }
-      if(["kpp2","parkovka_tashqi"].includes(name)){
-        assert(await page.locator("#vehicle-step").isHidden(),"Plate step must start hidden");
-        await page.locator('[data-action="in"]').click();
-        assert(await page.locator("#vehicle-plate").evaluate(el=>el===document.activeElement),"Plate field focus");
-        await page.locator("#vehicle-plate").fill("01a777ba");
-        assert(await page.locator("#vehicle-plate").inputValue()==="01A777BA","Uppercase plate");
-        await page.screenshot({path:path.join(output,name+"-plate.png"),fullPage:true,animations:"disabled"});
-        await page.keyboard.press("Escape");
-        await page.locator('[data-action="out"]').click();
-        assert(await page.locator("#movement-action").inputValue()==="out","Exit action selected");
-        if(name==="parkovka_tashqi")assert(await page.locator("#purpose-field input").first().isDisabled(),"Exit must not require purpose");
-      }
-      if(name==="login"){
-        await page.locator("#toggle-password").click();
-        assert(await page.locator("#access-password").getAttribute("type")==="text","Show password");
-      }
-      await page.setViewportSize({width:390,height:844});
-      assert(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth+1),name+" mobile overflow");
-      await page.screenshot({path:path.join(output,name+"-mobile.png"),fullPage:true,animations:"disabled"});
-      await page.setViewportSize({width:1440,height:1000});
     }
-    assert(!errors.length,"Browser errors: "+errors.join("; "));
-    console.log("PASS: template rendering, wizard, focus, purpose, password, mobile overflow; screenshots: "+output);
-  } finally {await browser.close();}
-})().catch(error=>{console.error(error);process.exitCode=1;});
+    console.log(
+      `PASS: ${checks} viewport/state checks across ${sizes.length} screen sizes`,
+    );
+  } finally {
+    await browser.close();
+  }
+})().catch((e) => {
+  console.error(e);
+  process.exitCode = 1;
+});

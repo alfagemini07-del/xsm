@@ -212,3 +212,19 @@ CREATE INDEX IF NOT EXISTS zone_inside_gate
 CREATE INDEX IF NOT EXISTS zone_active_plate_prefix
     ON zone_visits(plate_key text_pattern_ops) WHERE location <> 'closed';
 CREATE INDEX IF NOT EXISTS zone_weigh_paid_time ON weighings(paid_at) WHERE status='paid';
+
+CREATE TABLE IF NOT EXISTS devices (
+ id UUID PRIMARY KEY,name TEXT NOT NULL,role TEXT NOT NULL,
+ approved BOOLEAN NOT NULL DEFAULT FALSE,blocked BOOLEAN NOT NULL DEFAULT FALSE,
+ last_seen TIMESTAMPTZ,last_user TEXT,ip TEXT,created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+CREATE TABLE IF NOT EXISTS device_sessions (
+ token_hash TEXT PRIMARY KEY,device_id UUID NOT NULL REFERENCES devices(id),
+ user_id BIGINT NOT NULL REFERENCES users(id),password_stamp TEXT NOT NULL,expires_at TIMESTAMPTZ NOT NULL
+);
+CREATE TABLE IF NOT EXISTS device_events (
+ id BIGSERIAL PRIMARY KEY,device_id UUID NOT NULL REFERENCES devices(id),
+ event TEXT NOT NULL,occurred TIMESTAMPTZ NOT NULL DEFAULT NOW(),previous_seen TIMESTAMPTZ
+);
+CREATE INDEX IF NOT EXISTS device_events_time ON device_events(occurred DESC);
+ALTER TABLE devices ADD COLUMN IF NOT EXISTS connected BOOLEAN NOT NULL DEFAULT FALSE;

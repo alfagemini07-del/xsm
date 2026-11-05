@@ -22,6 +22,6 @@ services:
       - key: DB_POOL_SIZE
         value: "5"
       - key: LOCAL_PRINTER_AGENT_ENABLED
-        value: "true"
+        value: "false"
       - key: SUPABASE_DB_LIMIT_BYTES
         value: "524288000"

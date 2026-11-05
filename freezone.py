@@ -102,7 +102,7 @@ LEDGER = """
 def register_zone(app, pool, roles, clean_plate, qr):
     signer = URLSafeTimedSerializer(app.secret_key, salt="zone-confirm-v1")
     def page(**fields):
-        return render_template("zone.html", labels=LABEL, points=POINTS, user=g.user, **fields)
+        return render_template("zone.html" if fields.get("mode")=="dashboard" else "kpp.html", labels=LABEL, points=POINTS, user=g.user, **fields)
 
     def money(value):
         return f"{int(value):,}".replace(",", " ")
@@ -113,6 +113,8 @@ def register_zone(app, pool, roles, clean_plate, qr):
     @roles(*POINTS, *ADMINS)
     def zone_home():
         point = g.user["role"]
+        if point == "parkovka_tashqi":
+            abort(403, description="Kompyuterdagi Parkovka dasturidan kiring")
         if point in POINTS:
             recent_page = max(1, request.args.get("rp", 1, type=int))
             recent_size = 10
@@ -134,6 +136,7 @@ def register_zone(app, pool, roles, clean_plate, qr):
     @app.post("/zone/quote")
     @roles(*POINTS)
     def zone_quote():
+        if g.user["role"] == "parkovka_tashqi": abort(403)
         try:
             plate, key = clean_plate(request.form.get("plate",""))
             if not re.fullmatch(r"[0-9A-ZА-ЯЁЎҚҒҲ -]+",plate) or len(key)<2:
@@ -149,6 +152,7 @@ def register_zone(app, pool, roles, clean_plate, qr):
     @app.post("/zone/confirm")
     @roles(*POINTS)
     def zone_commit():
+        if g.user["role"] == "parkovka_tashqi": abort(403)
         try:
             user_id, rid, expected = signer.loads(request.form.get("ticket",""), max_age=900)
         except BadData:

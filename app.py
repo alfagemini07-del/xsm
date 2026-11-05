@@ -47,9 +47,7 @@ from receipt_render import receipt_view, receipt_pdf
 BASE_DIR = Path(__file__).resolve().parent
 COMPANY_NAME = "AIRITOM LOGISTICS CENTER MCHJ"
 DATABASE_URL = os.getenv("DATABASE_URL", "").strip()
-SESSION_SECRET = os.getenv("SECRET_KEY", "").strip() or hashlib.sha256(
-    f"tarozi-kiosk-session:{DATABASE_URL}".encode("utf-8")
-).hexdigest()
+SESSION_SECRET = os.getenv("SECRET_KEY", "").strip() or secrets.token_hex(32)
 APP_TIMEZONE = ZoneInfo(os.getenv("APP_TIMEZONE", "Asia/Tashkent"))
 DB_POOL_SIZE = max(1, min(int(os.getenv("DB_POOL_SIZE", "5")), 20))
 LOCAL_PRINTER_AGENT_ENABLED = os.getenv(
@@ -83,7 +81,7 @@ app.config.update(
     SESSION_COOKIE_HTTPONLY=True,
     SESSION_COOKIE_SECURE=os.getenv("COOKIE_SECURE", "true").lower() == "true",
     SESSION_COOKIE_SAMESITE="Lax",
-    PERMANENT_SESSION_LIFETIME=timedelta(days=3650),
+    PERMANENT_SESSION_LIFETIME=timedelta(hours=12),
     SESSION_REFRESH_EACH_REQUEST=True,
 )
 
@@ -233,21 +231,36 @@ def load_request_context():
     if request.endpoint in {"static", "health", "favicon"}:
         return None
     ensure_schema()
+    from devices import authenticate_device, PUBLIC_DEVICE_ENDPOINTS
+    if request.endpoint in PUBLIC_DEVICE_ENDPOINTS:
+        return None
+    device_user = authenticate_device(get_pool)
+    if device_user:
+        g.user = device_user
+        return None
+    if request.endpoint in {"create_weighing", "pay_weighing", "cancel_weighing"}:
+        abort(403, description="Kompyuter dasturidan kiring")
     user_id = session.get("user_id")
     if user_id:
         with get_pool().connection() as conn:
             user = conn.execute(
                 """
-                SELECT id, username, role, is_active
+                SELECT id, username, role, is_active, password_hash
                 FROM users
                 WHERE id = %s
                 """,
                 (user_id,),
             ).fetchone()
-        if user and user["is_active"]:
+        if user and user["is_active"] and session.get("auth_version") == hashlib.sha256(user["password_hash"].encode()).hexdigest():
             g.user = user
+            if session.get("device_id"):
+                with get_pool().connection() as conn:
+                    device = conn.execute("SELECT blocked,approved,role FROM devices WHERE id=%s", (session["device_id"],)).fetchone()
+                if not device or device["blocked"] or not device["approved"] or device["role"] != user["role"]:
+                    session.clear()
+                    abort(403)
             if user["role"] in POINTS and request.endpoint not in {
-                "index", "login", "logout", "zone_home", "zone_quote", "zone_commit", "zone_receipt"
+                "index", "login", "logout", "zone_home", "zone_quote", "zone_commit", "zone_receipt", "kpp_select", "kpp_entry", "web_heartbeat"
             }:
                 abort(403)
         else:
@@ -437,6 +450,8 @@ def serialize_weighing(row: dict) -> dict:
 def can_access_weighing(row: dict) -> bool:
     if g.user["role"] in ADMIN_ROLES:
         return True
+    if getattr(g, "device", None) and row.get("created_by") != g.user["id"]:
+        return False
     business_date = row.get("business_date")
     return business_date in {now_local().date(), now_local().date() - timedelta(days=1)}
 
@@ -603,19 +618,41 @@ def login():
                     (username,),
                 ).fetchone()
                 if user and user["is_active"] and check_password_hash(user["password_hash"], password):
+                    station_roles = {"/kpp1": "ayritom", "/kpp2": "kpp2", "/dastur/kpp/1": "ayritom", "/dastur/kpp/2": "kpp2"}
+                    requested_station = request.args.get("next", "").split("?")[0].rstrip("/")
+                    required_role = station_roles.get(requested_station)
+                    if required_role and required_role != user["role"]:
+                        return render_template("login.html", error="Bu KPP uchun berilgan hisob bilan kiring.", username=username), 403
                     conn.execute("DELETE FROM login_attempts WHERE identifier = %s", (identifier,))
                     conn.execute(
                         "UPDATE users SET last_login_at = NOW(), updated_at = NOW() WHERE id = %s",
                         (user["id"],),
                     )
+                    device_cookie = None
+                    if user["role"] in {"kpp2", "ayritom"}:
+                        from devices import web_device_login, set_web_device_cookie
+                        from flask import make_response
+                        did, device_cookie, device_error = web_device_login(conn, user, app)
+                        if device_error:
+                            response = make_response(render_template("login.html", error=device_error, username=username), 403)
+                            return set_web_device_cookie(response, device_cookie, app)
                     session.clear()
                     session.permanent = True
                     session["user_id"] = user["id"]
+                    session["auth_version"] = hashlib.sha256(user["password_hash"].encode()).hexdigest()
+                    if user["role"] in {"kpp2", "ayritom"}:
+                        session["device_id"] = did
                     csrf_token()
                     # Land on the workspace allowed for this role, even when login
                     # was opened from another employee's admin link.
                     next_url = url_for("index" if user["role"] == "operator" else "zone_home")
-                    return redirect(next_url)
+                    if user["role"] in {"operator", "parkovka_tashqi"}:
+                        session.clear()
+                        return render_template("login.html", error="Bu hisob bilan kompyuterdagi Tarozi yoki Parkovka dasturidan kiring.", username=username), 403
+                    if user["role"] in {"ayritom", "kpp2"}:
+                        next_url = url_for("kpp_entry", number=1 if user["role"] == "ayritom" else 2)
+                    response = redirect(next_url)
+                    return set_web_device_cookie(response, device_cookie, app) if device_cookie else response
                 register_login_failure(conn, identifier)
                 error = "Login yoki parol noto'g'ri"
     return render_template("login.html", error=error, username=request.form.get("username", ""))
@@ -624,6 +661,10 @@ def login():
 @app.post("/logout")
 @login_required
 def logout():
+    if session.get("device_id"):
+        with get_pool().connection() as conn:
+            conn.execute("UPDATE devices SET connected=FALSE,last_seen=NOW() WHERE id=%s", (session["device_id"],))
+            conn.execute("INSERT INTO device_events(device_id,event) VALUES(%s,'logout')", (session["device_id"],))
     session.clear()
     return redirect(url_for("login"))
 
@@ -631,14 +672,9 @@ def logout():
 @app.get("/")
 @login_required
 def index():
-    if g.user["role"] != "operator":
-        return redirect(url_for("zone_home"))
-    return render_template(
-        "kiosk.html",
-        user=g.user,
-        company=COMPANY_NAME,
-        local_printer_agent=LOCAL_PRINTER_AGENT_ENABLED,
-    )
+    if g.user["role"] == "operator":
+        abort(403, description="Kompyuter dasturidan foydalaning")
+    return redirect(url_for("zone_home"))
 
 
 @app.get("/admin")
@@ -775,6 +811,9 @@ def operator_weighings():
         per_page = 15
     conditions = ["w.business_date = %s"]
     params: list = [target_date]
+    if getattr(g, "device", None):
+        conditions.append("w.created_by = %s")
+        params.append(g.user["id"])
     query = (request.args.get("q") or "").strip().upper()
     if query:
         plate_search = re.sub(r"[^0-9A-ZА-ЯЁЎҚҒҲ]", "", query)
@@ -830,8 +869,8 @@ def create_weighing():
             conn.execute("SELECT pg_advisory_xact_lock(hashtextextended(%s, 0))", (request_id,))
             existing = conn.execute("SELECT * FROM weighings WHERE client_request_id=%s", (request_id,)).fetchone()
             if existing:
-                if existing["created_by"] != g.user["id"]:
-                    abort(409)
+                if existing["created_by"] != g.user["id"] or existing["plate_search"] != plate_search:
+                    return jsonify(message="Bu amal avval boshqa ma’lumot bilan yuborilgan. Dastlabki raqamni tekshiring."), 409
                 return jsonify(success=True, weighing=serialize_weighing(existing), service_prices=get_service_prices(conn))
         service_prices = get_service_prices(conn)
         price = service_prices["weighing"] if service_prices["weighing_enabled"] else 0
@@ -853,7 +892,7 @@ def create_weighing():
                 receipt_no, plate_number, plate_search, price, status,
                 weighing_fee, created_at, business_date, created_by, source,
                 public_token, client_request_id
-            ) VALUES (%s, %s, %s, %s, 'pending', %s, %s, %s, %s, 'web', %s, %s)
+            ) VALUES (%s, %s, %s, %s, 'pending', %s, %s, %s, %s, 'desktop', %s, %s)
             RETURNING *
             """,
             (
@@ -935,6 +974,8 @@ def pay_weighing(weighing_id: int):
             entry_fee = service_prices["entry"] if entry_service else 0
             reload_fee = service_prices["reload"] if reload_service else 0
             total = weighing_fee + entry_fee + reload_fee
+            if data.get("expected_total") != total:
+                return jsonify(success=False, message="Tarif o‘zgardi. Hisobni yangilab qayta tasdiqlang."), 409
             row = conn.execute(
                 """
                 UPDATE weighings
@@ -2327,6 +2368,9 @@ def download_backup():
 
 
 from reports import register_reports
+from devices import register_devices
+register_devices(app, get_pool, roles_required, get_service_prices, clean_plate,
+                 login_identifier, check_login_limit, register_login_failure)
 register_zone(app, get_pool, roles_required, clean_plate, make_qr_base64)
 register_reports(app, get_pool, roles_required, now_local, parse_date, str(APP_TIMEZONE), COMPANY_NAME)
 
@@ -2341,6 +2385,13 @@ def bad_request(error):
 @app.errorhandler(413)
 def file_too_large(_error):
     return jsonify(success=False, message="Fayl 256 MB limitdan katta"), 413
+
+
+@app.errorhandler(401)
+def unauthorized(error):
+    if request.path.startswith("/api/"):
+        return jsonify(success=False, message=error.description), 401
+    return redirect(url_for("login"))
 
 
 @app.errorhandler(403)
