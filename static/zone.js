@@ -1,4 +1,45 @@
 "use strict";
+const actionStep = document.getElementById("action-step");
+const vehicleStep = document.getElementById("vehicle-step");
+const plateField = document.getElementById("vehicle-plate");
+function showAction() {
+  vehicleStep.hidden = true;
+  actionStep.hidden = false;
+  document.querySelector("[data-action]")?.focus();
+}
+for (const button of document.querySelectorAll("[data-action]")) {
+  button.addEventListener("click", () => {
+    const action = button.dataset.action;
+    document.getElementById("movement-action").value = action;
+    document.getElementById("vehicle-title").textContent = action === "in" ? "Kirayotgan avtomobil" : "Chiqayotgan avtomobil";
+    const purpose = document.getElementById("purpose-field");
+    if (purpose) { purpose.hidden = action !== "in"; purpose.disabled = action !== "in"; }
+    actionStep.hidden = true;
+    vehicleStep.hidden = false;
+    plateField.focus();
+  });
+}
+document.getElementById("back-action")?.addEventListener("click", showAction);
+document.getElementById("clear-plate")?.addEventListener("click", () => { plateField.value = ""; plateField.focus(); });
+plateField?.addEventListener("input", () => {
+  const start = plateField.selectionStart;
+  plateField.value = plateField.value.toUpperCase();
+  plateField.setSelectionRange(start, start);
+});
+document.addEventListener("keydown", event => {
+  if (event.key === "Escape" && vehicleStep && !vehicleStep.hidden) showAction();
+});
+for (const form of document.querySelectorAll("form")) {
+  form.addEventListener("submit", () => {
+    if (form.dataset.submitting) return;
+    form.dataset.submitting = "1";
+    const button = form.querySelector("button[type=submit],button:not([type])");
+    if (button) { button.disabled = true; button.textContent = "Bajarilmoqda…"; }
+  });
+}
+window.addEventListener("pageshow", event => {
+  if (event.persisted) location.reload();
+});
 document.getElementById("print")?.addEventListener("click", () => window.print());
 if (document.body.dataset.mode === "receipt" && new URL(location.href).searchParams.has("print_now")) {
   history.replaceState(null, "", location.pathname);

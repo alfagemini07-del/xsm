@@ -295,7 +295,10 @@
     finally { syncBusy = false; }
   }
 
-  document.querySelectorAll(".nav-link").forEach(link => link.addEventListener("click", () => activateTab(link.dataset.tab)));
+  document.querySelectorAll(".nav-link[data-tab]").forEach(link => link.addEventListener("click", () => activateTab(link.dataset.tab)));
+  document.querySelectorAll("form[action='/logout'] button").forEach(button => {
+    button.textContent = "Hisobdan chiqish ↗";
+  });
   document.querySelectorAll("[data-go]").forEach(button => { if (!document.getElementById(`tab-${button.dataset.go}`)) button.classList.add("hidden"); else button.addEventListener("click", () => activateTab(button.dataset.go)); });
   document.querySelectorAll("[data-close]").forEach(button => button.addEventListener("click", () => document.getElementById(button.dataset.close).classList.add("hidden")));
   document.getElementById("btn-refresh-dashboard")?.addEventListener("click", loadDashboard);
