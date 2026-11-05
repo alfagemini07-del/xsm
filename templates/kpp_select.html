@@ -1,0 +1,23 @@
+<!doctype html>
+<html lang="uz">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>KPP tanlash · Airitom</title>
+  <link rel="stylesheet" href="/static/kpp.css">
+</head>
+<body>
+  <header><strong>AIRITOM</strong><small>Darvozalar</small></header>
+  <main><section>
+    <h1>Postni tanlang</h1>
+    <nav class="actions station-links" aria-label="Nazorat postlari">
+      <a href="{{ url_for('kpp_entry', number=1) }}"><strong>KPP1</strong><span>Ayritom</span></a>
+      <a href="{{ url_for('kpp_entry', number=2) }}"><strong>KPP2</strong><span>O‘zbekiston</span></a>
+    </nav>
+    <nav class="apk-links" aria-label="Planshetga o‘rnatish">
+      <a href="/static/apk/kpp1.apk" download>KPP1 APK yuklash</a>
+      <a href="/static/apk/kpp2.apk" download>KPP2 APK yuklash</a>
+    </nav>
+  </section></main>
+</body>
+</html>
