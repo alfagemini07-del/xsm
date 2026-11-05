@@ -56,21 +56,14 @@ function assert(value, message){if(!value)throw new Error(message);}
       await page.goto("http://preview.local/"+name);
       await page.screenshot({path:path.join(output,name+".png"),fullPage:true,animations:"disabled"});
       if(name==="dashboard"){
-        await page.locator(".plot-node").first().focus();
+        await page.locator("#group-parking summary").focus();
         await page.keyboard.press("Enter");
-        assert(await page.locator("#place-detail").isVisible(),"Keyboard chart selection");
-        await page.keyboard.press("Escape");
-        await page.getByRole("button",{name:"2D ko‘rinish"}).click();
-        assert(await page.locator(".plot-item").first().isVisible(),"Flat view available");
-        await page.locator(".plot-item").first().click();
-        await page.getByRole("button",{name:"Yopish"}).click();
-        assert(!(await page.locator("#place-detail").isVisible()),"Close chart detail");
+        assert(await page.getByRole("link",{name:/Ayritom navbati/}).isVisible(),"Parking queues opened by keyboard");
         for(const [width,height] of [[1440,900],[1280,800],[1024,768],[768,1024],[390,844]]){
           await page.setViewportSize({width,height});
           await page.reload();
           assert(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth+1),"Dashboard overflow at "+width);
           if(width===390){
-            assert(await page.locator(".plot-item").first().isVisible(),"Phone opens in 2D");
             await page.locator(".rail-toggle").click();
             assert(await page.locator("#section-links").isVisible(),"Mobile navigation opens");
             await page.keyboard.press("Escape");
@@ -79,14 +72,14 @@ function assert(value, message){if(!value)throw new Error(message);}
         }
         assert(await page.locator('[data-kpi="outside"]').textContent()==="20","Outside is split by its two real queues");
         assert(await page.locator('[data-kpi="inside"]').textContent()==="24","Inside counts confirmed arrivals");
-        assert(await page.locator('.plot-node').count()===3,"Chart shows two queues and one inside total");
-        for (const trigger of ['.plot-item[data-key="inside"]','.inside-card a']){
-          await page.locator(trigger).click();
-          assert(await page.locator('#inside-gates').isVisible(),"Inside details opened");
-          assert(await page.locator('[data-kpi="inside_kpp2"]').textContent()==="14","KPP2 gate count");
-          assert(await page.locator('[data-kpi="inside_ayritom"]').textContent()==="10","Ayritom gate count");
-          await page.keyboard.press("Escape");
+        for (const group of ["parking","inside"]){
+          const box=page.locator("#group-"+group);
+          await box.locator("summary").click();
+          assert(await box.locator("a").first().isVisible(),"Visible breakdown: "+group);
+          assert(await box.locator("a").count()===3,"Two subgroups and full list");
         }
+        await page.locator(".vehicle-list summary").click();
+        assert(await page.locator(".vehicle-list dd").first().isVisible(),"Vehicle detail opens");
       }
       if(name==="receipt"){
         await page.emulateMedia({media:"print"});
