@@ -77,6 +77,8 @@ app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1, x_proto=1, x_host=1)
 app.secret_key = SESSION_SECRET
 app.config.update(
     MAX_CONTENT_LENGTH=256 * 1024 * 1024,
+    MAX_FORM_MEMORY_SIZE=1024 * 1024,
+    MAX_FORM_PARTS=50,
     SESSION_COOKIE_NAME="tarozi_session",
     SESSION_COOKIE_HTTPONLY=True,
     SESSION_COOKIE_SECURE=os.getenv("COOKIE_SECURE", "true").lower() == "true",
@@ -225,6 +227,8 @@ app.jinja_env.globals["csrf_token"] = csrf_token
 def load_request_context():
     g.style_nonce = secrets.token_urlsafe(18)
     g.request_started = time.perf_counter()
+    supplied_request_id = request.headers.get("X-Request-ID", "")
+    g.request_id = supplied_request_id if re.fullmatch(r"[A-Za-z0-9_-]{8,80}", supplied_request_id) else uuid.uuid4().hex
     g.user = None
     if request.endpoint in {"static", "health", "favicon"}:
         return None
@@ -267,14 +271,15 @@ def add_security_headers(response):
         elapsed_ms = (time.perf_counter() - started) * 1000
         response.headers["Server-Timing"] = f"app;dur={elapsed_ms:.1f}"
         if elapsed_ms > 1000 and request.endpoint != "static":
-            app.logger.warning("SLOW REQUEST endpoint=%s method=%s duration_ms=%.0f",
-                               request.endpoint, request.method, elapsed_ms)
+            app.logger.warning("SLOW REQUEST request_id=%s endpoint=%s method=%s duration_ms=%.0f",
+                               g.request_id, request.endpoint, request.method, elapsed_ms)
         with _request_metrics_lock:
             _request_count += 1
             if response.status_code >= 500:
                 _error_count += 1
             _request_durations_ms.append(elapsed_ms)
     response.headers["X-Content-Type-Options"] = "nosniff"
+    response.headers["X-Request-ID"] = getattr(g, "request_id", uuid.uuid4().hex)
     if request.endpoint != "static":
         response.headers.setdefault("Cache-Control", "no-store")
     embedded_receipt = (
@@ -1659,13 +1664,23 @@ def import_sqlite():
 @app.get("/api/admin/settings/tariffs")
 @roles_required("admin", "techadmin")
 def list_tariffs():
+    try:
+        page = max(1, int(request.args.get("history_page", "1")))
+        per_page = int(request.args.get("history_per_page", "15"))
+    except ValueError:
+        return jsonify(success=False, message="Sahifa qiymati noto'g'ri"), 400
+    if per_page not in {10, 15, 20, 50, 100}:
+        per_page = 15
+    offset = (page - 1) * per_page
     with get_pool().connection() as conn:
         values = get_service_prices(conn)
         history = conn.execute(
-            """SELECT h.*, u.username FROM tariff_history h
+            """SELECT h.*, u.username, COUNT(*) OVER() AS full_count FROM tariff_history h
                LEFT JOIN users u ON u.id=h.changed_by
-               ORDER BY h.changed_at DESC LIMIT 50"""
+               ORDER BY h.changed_at DESC LIMIT %s OFFSET %s""",
+            (per_page, offset),
         ).fetchall()
+    history_total = history[0]["full_count"] if history else 0
     tariffs = [
         {
             "code": code,
@@ -1679,6 +1694,10 @@ def list_tariffs():
     return jsonify(
         success=True,
         tariffs=tariffs,
+        history_page=page,
+        history_per_page=per_page,
+        history_total=history_total,
+        history_pages=max(1, math.ceil(history_total / per_page)),
         history=[
             {
                 "id": row["id"], "code": row["code"], "label": TARIFFS.get(row["code"], (None, None, row["code"]))[2],
@@ -1854,16 +1873,31 @@ def toggle_user(user_id: int):
 @app.get("/api/admin/backup-tokens")
 @roles_required("techadmin")
 def list_backup_tokens():
+    try:
+        page = max(1, int(request.args.get("page", "1")))
+        per_page = int(request.args.get("per_page", "15"))
+    except ValueError:
+        return jsonify(success=False, message="Sahifa qiymati noto'g'ri"), 400
+    if per_page not in {10, 15, 20, 50, 100}:
+        per_page = 15
+    offset = (page - 1) * per_page
     with get_pool().connection() as conn:
         rows = conn.execute(
             """
-            SELECT id, name, created_at, last_used_at, revoked_at
+            SELECT id, name, created_at, last_used_at, revoked_at, COUNT(*) OVER() AS full_count
             FROM backup_tokens
             ORDER BY created_at DESC
-            """
+            LIMIT %s OFFSET %s
+            """,
+            (per_page, offset),
         ).fetchall()
+    total = rows[0]["full_count"] if rows else 0
     return jsonify(
         success=True,
+        page=page,
+        per_page=per_page,
+        total=total,
+        total_pages=max(1, math.ceil(total / per_page)),
         tokens=[
             {
                 "id": row["id"],

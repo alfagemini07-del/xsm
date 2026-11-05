@@ -13,25 +13,25 @@ env=Environment(loader=FileSystemLoader("templates"),autoescape=select_autoescap
 env.filters["som"]=lambda n:format(int(n),",").replace(","," ")
 env.filters["zone_time"]=lambda d:d.strftime("%d.%m.%Y %H:%M")
 env.globals.update(csrf_token=lambda:"test",url_for=lambda endpoint,**kw:("/static/"+kw["filename"] if endpoint=="static" else "/"+endpoint))
-labels={"kpp2":"KPP2 · O‘zbekiston","parkovka_tashqi":"Tashqi parkovka","ayritom":"Ayritom","border":"Ayritom navbati","zone":"Free Zone","inside":"Hudud ichida","in":"Kirish","out":"Chiqish","scale":"Tarozi"}
+labels={"kpp2":"KPP2 · O‘zbekiston","parkovka_tashqi":"Tashqi parkovka","ayritom":"Ayritom","border":"Ayritom navbati","zone":"Free Zone","outside":"Tashqi parkovka","parking":"Tashqi parkovka","inside":"Free Zone ichida","closed":"Tashrif yakunlandi","in":"Kirish","out":"Chiqish","scale":"Tarozi"}
 base=dict(user=dict(username="test",role="kpp2",id=1),labels=labels,points=labels,queue=[],recent=[],csrf_token=lambda:"test",request=SimpleNamespace(args={}),company="AIRITOM",local_printer_agent=False,default_tab="tech")
 pages={}
 for role in ("kpp2","parkovka_tashqi","ayritom"):
-    pages[role]=env.get_template("zone.html").render(**(base|dict(mode="station",user=dict(username=role,role=role,id=1))))
-pages["dashboard"]=env.get_template("zone.html").render(**(base|dict(mode="dashboard",user=dict(username="techadmin",role="techadmin"),stats=dict(border=12,zone=8,transfer=3,inside=24),summary=[dict(point="kpp2",operations=1,total=30000,arrivals=0,departures=1,cash=30000,card=0,bank=0)],trend=[dict(day=date.today(),revenue=30000)],rows=[dict(ts=datetime.now(),point="kpp2",plate="01A777BA",worker="test",action="out",amount=30000,ref="AFZ-1")],active=[dict(id=1,plate="01A777BA",purpose="zone",location="inside",started=datetime.now())],pg=1,pages=1,start=date.today(),end=date.today(),total=30000,selected="")))
+    pages[role]=env.get_template("zone.html").render(**(base|dict(mode="station",user=dict(username=role,role=role,id=1),recent_page=1,recent_pages=1,recent_total=0)))
+pages["dashboard"]=env.get_template("zone.html").render(**(base|dict(mode="dashboard",user=dict(username="techadmin",role="techadmin"),stats=dict(border=12,zone=8,inside=24,inside_kpp2=14,inside_ayritom=10,inside_unknown=0),summary=[dict(point="kpp2",operations=1,total=30000,arrivals=0,departures=1,cash=30000,card=0,bank=0)],trend=[dict(day=date.today(),revenue=30000)],rows=[dict(ts=datetime.now(),point="kpp2",plate="01A777BA",worker="test",action="out",amount=30000,ref="AFZ-1")],active=[dict(id=1,plate="01A777BA",purpose="zone",location="inside",entry_gate="kpp2",started=datetime.now())],pg=1,pages=1,event_page=1,event_pages=1,event_total=1,start=date.today(),end=date.today(),total=30000,selected="")))
 pages["login"]=env.get_template("login.html").render(error=None,username="")
 import qrcode,base64,io
 fields=[("Chek","AFZ-1"),("Navbat / tashrif","1"),("Avtomobil","BLH123"),("Maqsad","Free Zone"),("Nuqta","Tashqi parkovka"),("Amal","Kirish"),("Holat","Parkovkada"),("Kirish vaqti","05.11.2026 08:18"),("Chek vaqti","05.11.2026 08:18"),("Kun","1"),("Kunlik tarif","30 000"),("Oldin to‘langan","0"),("Hozir olindi","30 000 so‘m"),("Jami to‘langan","30 000"),("To‘lov turi","Naqd"),("Xodim","parkovka")]
 buffer=io.BytesIO()
 qrcode.make("Airitom Logistics Center MCHJ"+chr(10)+chr(10).join(k+": "+v for k,v in fields)).save(buffer,format="PNG")
 pages["receipt"]=env.get_template("zone.html").render(**(base|dict(mode="receipt",receipt=dict(id=1,plate="BLH123",point="parkovka_tashqi",action="in",amount=30000),fields=fields,qr=base64.b64encode(buffer.getvalue()).decode())))
-pages["confirm"]=env.get_template("zone.html").render(**(base|dict(mode="confirm",q=dict(point="kpp2",action="out",plate="01 A 777 BA",purpose="zone",location="closed",visit=42,days=2,rate=30000,paid=30000,amount=30000),token="test")))
+pages["confirm"]=env.get_template("zone.html").render(**(base|dict(mode="confirm",q=dict(point="kpp2",action="out",plate="01 A 777 BA",purpose="zone",location="closed",entry_gate="kpp2",visit=42,days=2,rate=30000,paid=30000,amount=30000),token="test")))
 pages["admin"]=env.get_template("admin.html").render(**(base|dict(user=dict(username="techadmin",role="techadmin",id=1))))
 pages["kiosk"]=env.get_template("kiosk.html").render(**base)
 print(json.dumps(pages))
 `;
 const rendered = spawnSync(process.env.PYTHON || "python", ["-c", script], {cwd:__dirname, encoding:"utf8"});
-if(rendered.status !== 0) throw new Error(rendered.stderr);
+if(rendered.status !== 0) throw new Error(rendered.stderr || rendered.error?.message || `Template renderer exited with ${rendered.status}; stdout: ${rendered.stdout}`);
 const pages = JSON.parse(rendered.stdout);
 const output = fs.mkdtempSync(path.join(os.tmpdir(),"airitom-ui-"));
 function assert(value, message){if(!value)throw new Error(message);}
@@ -48,6 +48,7 @@ function assert(value, message){if(!value)throw new Error(message);}
         return route.fulfill({body:fs.readFileSync(file),contentType:file.endsWith(".css")?"text/css":file.endsWith(".js")?"application/javascript":file.endsWith(".jpg")?"image/jpeg":"image/x-icon"});
       }
       if(pages[url.pathname.slice(1)])return route.fulfill({body:pages[url.pathname.slice(1)],contentType:"text/html"});
+      if(url.pathname==="/api/zone/live")return route.fulfill({contentType:"application/json",body:'{"success":true,"stats":{"border":12,"zone":8,"inside":24,"inside_kpp2":14,"inside_ayritom":10,"inside_unknown":0},"events":[]}'});
       if(url.pathname.startsWith("/api/"))return route.fulfill({status:503,contentType:"application/json",body:'{"success":false,"message":"Offline preview"}'});
       return route.abort();
     });
@@ -76,8 +77,10 @@ function assert(value, message){if(!value)throw new Error(message);}
             assert(!(await page.locator("#section-links").isVisible()),"Escape closes mobile navigation");
           }
         }
-        assert(await page.locator(".parking-card .place-count strong").textContent()==="23","Outside includes KPP2 transfers");
-        assert(await page.locator(".inside-card .place-count strong").textContent()==="24","Inside counts confirmed arrivals");
+        assert(await page.locator('[data-kpi="outside"]').textContent()==="20","Outside is split by its two real queues");
+        assert(await page.locator('[data-kpi="inside"]').textContent()==="24","Inside counts confirmed arrivals");
+        assert(await page.locator('[data-key="inside_kpp2"] .node-count').textContent()==="14","KPP2 gate count");
+        assert(await page.locator('[data-key="inside_ayritom"] .node-count').textContent()==="10","Ayritom gate count");
       }
       if(name==="receipt"){
         await page.emulateMedia({media:"print"});

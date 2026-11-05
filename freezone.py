@@ -5,7 +5,7 @@ import uuid
 from datetime import date, datetime, time, timedelta
 from zoneinfo import ZoneInfo
 
-from flask import abort, g, redirect, render_template, request, send_file, url_for
+from flask import abort, g, jsonify, redirect, render_template, request, send_file, url_for
 from itsdangerous import BadData, URLSafeTimedSerializer
 from openpyxl import Workbook
 from openpyxl.styles import Font, PatternFill
@@ -14,7 +14,7 @@ from openpyxl.utils import get_column_letter
 TZ = ZoneInfo("Asia/Tashkent")
 POINTS = {"parkovka_tashqi": "Tashqi parkovka", "kpp2": "KPP2 · O‘zbekiston", "ayritom": "Ayritom darvozasi"}
 LABEL = {**POINTS, "scale": "Tarozi", "border": "Ayritom postiga navbat", "zone": "Free Zone",
-         "outside": "Tashqaridagi barchasi", "parking": "Parkovkada", "transfer": "KPP2 yo‘lida", "inside": "Hudud ichida",
+         "outside": "Tashqi parkovka", "parking": "Tashqi parkovka", "inside": "Free Zone ichida",
          "closed": "Tashrif yakunlandi", "in": "Kirish", "out": "Chiqish", "weigh": "Tarozi xizmati",
          "cash": "Naqd", "card": "Karta", "bank": "Hisob raqam", "none": "To‘lovsiz"}
 ADMINS = ("admin", "techadmin")
@@ -24,25 +24,31 @@ def transition(point, action, visit, purpose):
     place = visit["location"] if visit else None
     if action == "in":
         if point == "kpp2":
-            if visit and place in ("parking", "transfer") and visit["purpose"] == "zone":
-                return "inside"
+            if visit and place == "parking" and visit["purpose"] == "zone":
+                return "inside", "kpp2", True, True
             raise ValueError("KPP2 kirishi uchun tashqi parkovkadan Free Zone navbati kerak.")
         if visit:
             raise ValueError("Avtomobilning ochiq tashrifi bor: " + LABEL[place])
         if point == "parkovka_tashqi" and purpose not in ("zone", "border"):
             raise ValueError("Navbat maqsadini tanlang.")
-        return "parking" if point == "parkovka_tashqi" else "inside"
+        if point == "parkovka_tashqi":
+            return "parking", None, False, False
+        return "inside", "ayritom", False, True
     if action == "out" and visit:
         if point == "parkovka_tashqi" and place == "parking":
-            return "transfer" if visit["purpose"] == "zone" else "closed"
+            if visit["purpose"] == "zone":
+                if visit.get("parking_departed_at"):
+                    raise ValueError("Bu transportning parkovkadan chiqishi avval qayd etilgan.")
+                return "parking", None, True, False
+            return "closed", None, True, False
         if point in ("ayritom", "kpp2") and place == "inside":
-            return "closed"
+            return "closed", visit.get("entry_gate"), False, False
     raise ValueError("Bu nuqtada chiqish uchun mos ochiq tashrif topilmadi.")
 
 
 def quote(conn, point, action, plate, key, purpose, now):
     visit = conn.execute("SELECT * FROM zone_visits WHERE plate_key=%s AND location<>'closed'", (key,)).fetchone()
-    location = transition(point, action, visit, purpose)
+    location, entry_gate, mark_departed, mark_entered = transition(point, action, visit, purpose)
     if visit:
         history = conn.execute("SELECT COALESCE(SUM(amount),0) paid,MAX(id) version FROM zone_events WHERE visit_id=%s",
                                (visit["id"],)).fetchone()
@@ -57,11 +63,12 @@ def quote(conn, point, action, plate, key, purpose, now):
         rate = int(tariff.get("zone_daily_rate", "30000")) if tariff.get("zone_daily_enabled", "true") == "true" else 0
         version = conn.execute("SELECT MAX(id) n FROM zone_visits WHERE plate_key=%s",(key,)).fetchone()["n"]
         days, paid = 1, 0
-    # Free Zone transfers carry the first payment forward. Settle only at final exit.
+    # A Free Zone visit carries its first parking payment into the zone; settle only at final exit.
     amount = max(0, days * rate - paid) if not visit or location == "closed" else 0
     return dict(point=point, action=action, plate=visit["plate"] if visit else plate, key=key,
                 purpose=visit["purpose"] if visit else ("zone" if point=="ayritom" else purpose),
                 visit=visit["id"] if visit else None, version=version, location=location,
+                entry_gate=entry_gate, mark_departed=mark_departed, mark_entered=mark_entered,
                 day=now.date().isoformat(), days=days, rate=rate, paid=paid, amount=amount)
 
 
@@ -107,12 +114,21 @@ def register_zone(app, pool, roles, clean_plate, qr):
     def zone_home():
         point = g.user["role"]
         if point in POINTS:
+            recent_page = max(1, request.args.get("rp", 1, type=int))
+            recent_size = 10
             with pool().connection() as conn:
+                recent_total = conn.execute(
+                    "SELECT COUNT(*) n FROM zone_events WHERE point=%s", (point,)
+                ).fetchone()["n"]
+                recent_pages = max(1, (recent_total + recent_size - 1) // recent_size)
+                recent_page = min(recent_page, recent_pages)
                 recent = conn.execute("""SELECT e.id,e.occurred,e.action,e.amount,v.plate FROM zone_events e
-                    JOIN zone_visits v ON v.id=e.visit_id WHERE point=%s ORDER BY e.id DESC LIMIT 12""",(point,)).fetchall()
-                queue = conn.execute("""SELECT id,plate,purpose FROM zone_visits WHERE location IN ('parking','transfer')
+                    JOIN zone_visits v ON v.id=e.visit_id WHERE point=%s ORDER BY e.id DESC
+                    LIMIT %s OFFSET %s""",(point,recent_size,(recent_page-1)*recent_size)).fetchall()
+                queue = conn.execute("""SELECT id,plate,purpose FROM zone_visits WHERE location='parking'
                     AND (purpose='zone' OR %s='parkovka_tashqi') ORDER BY id LIMIT 25""",(point,)).fetchall() if point!="ayritom" else []
-            return page(mode="station",recent=recent,queue=queue)
+            return page(mode="station",recent=recent,queue=queue,recent_page=recent_page,
+                        recent_pages=recent_pages,recent_total=recent_total)
         return overview(False)
 
     @app.post("/zone/quote")
@@ -160,21 +176,30 @@ def register_zone(app, pool, roles, clean_plate, qr):
                 return page(mode="error",message=str(exc)),409
             vid = q["visit"]
             if vid:
-                conn.execute("UPDATE zone_visits SET location=%s WHERE id=%s",(q["location"],vid))
+                conn.execute("""UPDATE zone_visits SET location=%s,
+                    entry_gate=CASE WHEN %s THEN %s ELSE entry_gate END,
+                    parking_departed_at=CASE WHEN %s THEN COALESCE(parking_departed_at,%s) ELSE parking_departed_at END,
+                    entered_at=CASE WHEN %s THEN COALESCE(entered_at,%s) ELSE entered_at END
+                    WHERE id=%s""",
+                    (q["location"],q["mark_entered"],q["entry_gate"],q["mark_departed"],now,
+                     q["mark_entered"],now,vid))
             else:
-                vid = conn.execute("""INSERT INTO zone_visits(plate,plate_key,purpose,location,started,daily_rate)
-                    VALUES (%s,%s,%s,%s,%s,%s) RETURNING id""",
-                    (q["plate"],key,q["purpose"],q["location"],now,q["rate"])).fetchone()["id"]
+                vid = conn.execute("""INSERT INTO zone_visits
+                    (plate,plate_key,purpose,location,entry_gate,entered_at,started,daily_rate)
+                    VALUES (%s,%s,%s,%s,%s,%s,%s,%s) RETURNING id""",
+                    (q["plate"],key,q["purpose"],q["location"],q["entry_gate"],
+                     now if q["mark_entered"] else None,now,q["rate"])).fetchone()["id"]
             event = conn.execute("""INSERT INTO zone_events(request_key,visit_id,occurred,point,action,location,
                 operator_name,days,previous_paid,amount,method) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s) RETURNING id""",
                 (rid,vid,now,point,q["action"],q["location"],g.user["username"],q["days"],q["paid"],q["amount"],method)).fetchone()
+            app.logger.info("ZONE_EVENT id=%s point=%s action=%s amount=%s", event["id"], point, q["action"], q["amount"])
         return redirect(url_for("zone_receipt",eid=event["id"],print_now=1),303)
 
     @app.get("/zone/receipt/<int:eid>")
     @roles(*POINTS,*ADMINS)
     def zone_receipt(eid):
         with pool().connection() as conn:
-            e = conn.execute("""SELECT e.*,v.plate,v.started,v.daily_rate,v.purpose FROM zone_events e
+            e = conn.execute("""SELECT e.*,v.plate,v.started,v.daily_rate,v.purpose,v.entry_gate FROM zone_events e
                 JOIN zone_visits v ON v.id=e.visit_id WHERE e.id=%s""",(eid,)).fetchone()
         if not e or g.user["role"] not in (*ADMINS,e["point"]):
             abort(404)
@@ -185,6 +210,8 @@ def register_zone(app, pool, roles, clean_plate, qr):
                   ("Kunlik tarif",money(e["daily_rate"])),("Oldin to‘langan",money(e["previous_paid"])),
                   ("Hozir olindi",money(e["amount"])+" so‘m"),("Jami to‘langan",money(e["previous_paid"]+e["amount"])),
                   ("To‘lov turi",LABEL[e["method"]]),("Xodim",e["operator_name"])]
+        if e["entry_gate"]:
+            fields.insert(7, ("Free Zone kirish darvozasi", POINTS[e["entry_gate"]]))
         return page(mode="receipt", fields=fields, receipt=e,
                     qr=qr("Airitom Logistics Center MCHJ\n"+"\n".join(f"{k}: {v}" for k,v in fields), border=4))
 
@@ -212,21 +239,34 @@ def register_zone(app, pool, roles, clean_plate, qr):
                 +sql+" GROUP BY point ORDER BY point",args).fetchall()
             if export and sum(r["operations"] for r in summary)>25000:
                 abort(400,description="25 000 qatordan ko‘p. Davr yoki nuqtani toraytiring.")
-            rows=conn.execute("SELECT *"+sql+" ORDER BY ts DESC,ref"+("" if export else " LIMIT 80"),args).fetchall()
             if export:
+                rows=conn.execute("SELECT *"+sql+" ORDER BY ts DESC,ref",args).fetchall()
                 return workbook(summary,rows,start,end,selected)
+            event_page=max(1,request.args.get("ep",1,type=int))
+            event_size=25
+            event_total=conn.execute("SELECT COUNT(*) n"+sql,args).fetchone()["n"]
+            event_pages=max(1,(event_total+event_size-1)//event_size)
+            event_page=min(event_page,event_pages)
+            rows=conn.execute("SELECT *"+sql+" ORDER BY ts DESC,ref LIMIT %s OFFSET %s",
+                              [*args,event_size,(event_page-1)*event_size]).fetchall()
             trend = conn.execute("""
                 SELECT (ts AT TIME ZONE 'Asia/Tashkent')::date AS day, sum(amount) AS revenue
                 """ + sql + " GROUP BY 1 ORDER BY 1", args).fetchall()
-            counts=conn.execute("""SELECT location,purpose,count(*) n FROM zone_visits WHERE location<>'closed'
-                GROUP BY location,purpose""").fetchall()
+            stats=conn.execute("""SELECT
+                COUNT(*) FILTER(WHERE location='parking' AND purpose='border') AS border,
+                COUNT(*) FILTER(WHERE location='parking' AND purpose='zone') AS zone,
+                COUNT(*) FILTER(WHERE location='inside') AS inside,
+                COUNT(*) FILTER(WHERE location='inside' AND entry_gate='kpp2') AS inside_kpp2,
+                COUNT(*) FILTER(WHERE location='inside' AND entry_gate='ayritom') AS inside_ayritom,
+                COUNT(*) FILTER(WHERE location='inside' AND entry_gate IS NULL) AS inside_unknown
+                FROM zone_visits WHERE location<>'closed'""").fetchone()
             place=request.args.get("location","")
-            if place and place not in ("parking","transfer","inside","outside"): abort(400)
+            if place and place not in ("parking","inside","outside"): abort(400)
             search=re.sub(r"[^0-9A-ZА-ЯЁЎҚҒҲ]","",request.args.get("plate","").upper())[:20]
             where=" WHERE location<>'closed' AND plate_key LIKE %s"
-            params=["%"+search+"%"]
+            params=[search+"%"]
             if place == "outside":
-                where += " AND location IN ('parking','transfer')"
+                where += " AND location='parking'"
             elif place:
                 where+=" AND location=%s"
                 params.append(place)
@@ -235,6 +275,11 @@ def register_zone(app, pool, roles, clean_plate, qr):
                 if purpose not in ("border","zone"): abort(400)
                 where+=" AND purpose=%s"
                 params.append(purpose)
+            gate=request.args.get("gate","")
+            if gate:
+                if gate not in ("kpp2","ayritom"): abort(400)
+                where+=" AND entry_gate=%s"
+                params.append(gate)
             pg=max(1,request.args.get("p",1,type=int))
             total=conn.execute("SELECT count(*) n FROM zone_visits"+where,params).fetchone()["n"]
             pages=max(1,(total+29)//30)
@@ -243,12 +288,29 @@ def register_zone(app, pool, roles, clean_plate, qr):
             ordering = {"queue": "id", "latest": "started DESC, id DESC", "plate": "plate_key, id"}
             active=conn.execute("SELECT * FROM zone_visits"+where+" ORDER BY "+ordering.get(sort, "id")
                                 +" LIMIT 30 OFFSET %s",[*params,(pg-1)*30]).fetchall()
-        stats={"border":0,"zone":0,"transfer":0,"inside":0}
-        for r in counts:
-            stats[r["purpose"] if r["location"]=="parking" else r["location"]]+=r["n"]
         return page(mode="dashboard",summary=summary,trend=trend,rows=rows,active=active,stats=stats,pg=pg,pages=pages,
+                    event_page=event_page,event_pages=event_pages,event_total=event_total,
                     start=start.date(),end=end.date()-timedelta(days=1),selected=selected,
                     total=sum(r["total"] for r in summary))
+
+    @app.get("/api/zone/live")
+    @roles(*ADMINS)
+    def zone_live():
+        with pool().connection() as conn:
+            stats=conn.execute("""SELECT
+                COUNT(*) FILTER(WHERE location='parking' AND purpose='border') AS border,
+                COUNT(*) FILTER(WHERE location='parking' AND purpose='zone') AS zone,
+                COUNT(*) FILTER(WHERE location='inside') AS inside,
+                COUNT(*) FILTER(WHERE location='inside' AND entry_gate='kpp2') AS inside_kpp2,
+                COUNT(*) FILTER(WHERE location='inside' AND entry_gate='ayritom') AS inside_ayritom,
+                COUNT(*) FILTER(WHERE location='inside' AND entry_gate IS NULL) AS inside_unknown
+                FROM zone_visits WHERE location<>'closed'""").fetchone()
+            events=conn.execute("""SELECT e.action,e.point,e.occurred,v.plate FROM zone_events e
+                JOIN zone_visits v ON v.id=e.visit_id ORDER BY e.id DESC LIMIT 4""").fetchall()
+        return jsonify(success=True,stats={key:int(value or 0) for key,value in stats.items()},events=[{
+            "action":row["action"],"point":POINTS[row["point"]],"plate":row["plate"],
+            "time":row["occurred"].astimezone(TZ).strftime("%H:%M")
+        } for row in events])
 
 
 def workbook(summary,rows,start,end,point):

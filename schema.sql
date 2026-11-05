@@ -143,7 +143,10 @@ CREATE TABLE IF NOT EXISTS zone_visits (
     id BIGSERIAL PRIMARY KEY,
     plate TEXT NOT NULL, plate_key TEXT NOT NULL,
     purpose TEXT NOT NULL CHECK (purpose IN ('border','zone')),
-    location TEXT NOT NULL CHECK (location IN ('parking','transfer','inside','closed')),
+    location TEXT NOT NULL CHECK (location IN ('parking','inside','closed')),
+    entry_gate TEXT CHECK (entry_gate IS NULL OR entry_gate IN ('kpp2','ayritom')),
+    parking_departed_at TIMESTAMPTZ,
+    entered_at TIMESTAMPTZ,
     started TIMESTAMPTZ NOT NULL, daily_rate BIGINT NOT NULL CHECK (daily_rate>=0)
 );
 DO $$ BEGIN
@@ -163,6 +166,49 @@ CREATE TABLE IF NOT EXISTS zone_events (
     amount BIGINT NOT NULL CHECK (amount>=0),
     method TEXT NOT NULL CHECK(method IN ('cash','card','bank','none'))
 );
+
+-- Non-destructive v2 migration. A Free Zone vehicle remains in the outside
+-- group until a gate confirms entry. Existing transfer rows are preserved as
+-- parking visits and their departure timestamp is retained as metadata.
+ALTER TABLE zone_visits ADD COLUMN IF NOT EXISTS entry_gate TEXT;
+ALTER TABLE zone_visits ADD COLUMN IF NOT EXISTS parking_departed_at TIMESTAMPTZ;
+ALTER TABLE zone_visits ADD COLUMN IF NOT EXISTS entered_at TIMESTAMPTZ;
+UPDATE zone_visits v
+SET parking_departed_at = COALESCE(
+        (SELECT MAX(e.occurred) FROM zone_events e
+         WHERE e.visit_id=v.id AND e.point='parkovka_tashqi' AND e.action='out'),
+        v.started
+    ),
+    location = 'parking'
+WHERE v.location = 'transfer';
+UPDATE zone_visits v
+SET entry_gate = (
+        SELECT e.point FROM zone_events e
+        WHERE e.visit_id=v.id AND e.action='in' AND e.point IN ('kpp2','ayritom')
+        ORDER BY e.id DESC LIMIT 1
+    ),
+    entered_at = COALESCE(v.entered_at, (
+        SELECT e.occurred FROM zone_events e
+        WHERE e.visit_id=v.id AND e.action='in' AND e.point IN ('kpp2','ayritom')
+        ORDER BY e.id DESC LIMIT 1
+    ))
+WHERE v.location='inside' AND v.entry_gate IS NULL;
+DO $$ BEGIN
+    ALTER TABLE zone_visits DROP CONSTRAINT IF EXISTS zone_visits_location_check;
+    ALTER TABLE zone_visits DROP CONSTRAINT IF EXISTS zone_visits_location_v2_check;
+    ALTER TABLE zone_visits ADD CONSTRAINT zone_visits_location_v2_check
+        CHECK (location IN ('parking','inside','closed'));
+    ALTER TABLE zone_visits DROP CONSTRAINT IF EXISTS zone_visits_entry_gate_check;
+    ALTER TABLE zone_visits ADD CONSTRAINT zone_visits_entry_gate_check
+        CHECK (entry_gate IS NULL OR entry_gate IN ('kpp2','ayritom'));
+END $$;
 CREATE INDEX IF NOT EXISTS zone_event_visit ON zone_events(visit_id,id);
-CREATE INDEX IF NOT EXISTS zone_event_time ON zone_events(occurred);
+CREATE INDEX IF NOT EXISTS zone_event_time ON zone_events(occurred DESC);
+CREATE INDEX IF NOT EXISTS zone_event_point_recent ON zone_events(point,id DESC);
+CREATE INDEX IF NOT EXISTS zone_active_dashboard
+    ON zone_visits(location,purpose,entry_gate) WHERE location <> 'closed';
+CREATE INDEX IF NOT EXISTS zone_inside_gate
+    ON zone_visits(entry_gate,id) WHERE location='inside';
+CREATE INDEX IF NOT EXISTS zone_active_plate_prefix
+    ON zone_visits(plate_key text_pattern_ops) WHERE location <> 'closed';
 CREATE INDEX IF NOT EXISTS zone_weigh_paid_time ON weighings(paid_at) WHERE status='paid';
