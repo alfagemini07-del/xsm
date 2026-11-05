@@ -1,59 +1,25 @@
-{% set places = [
-  ('Ayritom navbati', stats.border, 'parking', 'border', '', 'border'),
-  ('Free Zone navbati', stats.zone, 'parking', 'zone', '', 'zone'),
-  ('Free Zone ichida', stats.inside, 'inside', '', '', 'inside')
-] %}
-<section class="command-kpis" data-refresh="kpis" aria-label="Asosiy ko‘rsatkichlar">
-  <article class="parking-card"><a href="{{ visit_link('outside') }}"><span>Tashqi parkovka</span><strong data-kpi="outside">{{ stats.border + stats.zone }}</strong><small>ta transport</small></a></article>
-  <article class="inside-card"><a href="{{ visit_link('inside') }}" data-key="inside" data-name="Free Zone ichida" aria-haspopup="dialog"><span>Free Zone ichida</span><strong data-kpi="inside">{{ stats.inside }}</strong><small>Darvozalar bo‘yicha ↗</small></a></article>
-  <article><a href="{{ visit_link('parking','border') }}"><span>Ayritom navbati</span><strong data-kpi="border">{{ stats.border }}</strong><small>tashqi parkovkada</small></a></article>
-  <article><a href="{{ visit_link('parking','zone') }}"><span>Free Zone navbati</span><strong data-kpi="zone">{{ stats.zone }}</strong><small>tashqi parkovkada</small></a></article>
-</section>
-<div class="command-grid">
-  <section class="network-panel">
-    <div class="panel-title"><div><h2>Transport joylashuvi</h2><small>Tashqi parkovka navbatlari va Free Zone ichidagi transport</small></div>
-      <div class="view-switch" hidden><button type="button" data-view="flat" aria-pressed="true">2D ko‘rinish</button><button type="button" data-view="depth" aria-pressed="false">3D ko‘rinish</button></div>
-    </div>
-    <div class="network-plot" data-refresh="plot">
-      {% set maximum = places|map(attribute=1)|max or 1 %}
-      <svg class="depth-scene" viewBox="0 0 640 239" role="group" aria-label="Transport soni bo‘yicha hajmli diagramma">
-        <g class="floor-grid" aria-hidden="true">
-          {% for x in range(12,607,33) %}<path d="M{{ x }} 199l40 -32"/>{% endfor %}
-          {% for d in range(0,33,8) %}<path d="M{{ 12+d*1.25 }} {{ 199-d }}h594"/>{% endfor %}
-        </g>
-        {% for title,count,place,purpose,gate,key in places %}
-          {% set x=78+loop.index0*200 %}{% set y=191-count/maximum*132 %}
-          <a class="plot-node tone-{{ loop.index }}" href="{{ visit_link(place,purpose,gate) }}" data-key="{{ key }}" data-x="{{ x }}" data-name="{{ title }}" data-count="{{ count }}" aria-label="{{ title }}: {{ count }} ta">
-            <title>{{ title }} · {{ count }} ta</title>
-            <path class="front" d="M{{ x }} 191V{{ y }}h67V191Z"/>
-            <path class="side" d="M{{ x+67 }} 191V{{ y }}l20 -16V175Z"/>
-            <path class="top" d="M{{ x }} {{ y }}l20 -16h67l-20 16Z"/>
-            <text x="{{ x+41 }}" y="{{ y-24 }}" class="node-count">{{ count }}</text>
-            <text x="{{ x+41 }}" y="223" class="node-label">{{ title }}</text>
-          </a>
-        {% endfor %}
-      </svg>
-      {% for title,count,place,purpose,gate,key in places %}
-      <a class="plot-item" href="{{ visit_link(place,purpose,gate) }}" data-key="{{ key }}" data-count="{{ count }}" data-name="{{ title }}">
-        <span class="bar-space"><progress aria-label="{{ title }}" value="{{ count }}" max="{{ maximum }}"></progress><b>{{ count }}</b></span><span class="plot-label">{{ title }}</span>
-      </a>
+<section class="location-panels" aria-label="Transport joylashuvi">
+  {% for place,title,total,groups in [
+    ('parking','Tashqi parkovka',stats.border + stats.zone,[
+      ('Ayritom navbati','border','border','',stats.border),
+      ('Free Zone navbati','zone','zone','',stats.zone)]),
+    ('inside','Free Zone ichida',stats.inside,[
+      ('KPP2 orqali Free Zoneda','inside_kpp2','','kpp2',stats.inside_kpp2),
+      ('Ayritom orqali Free Zoneda','inside_ayritom','','ayritom',stats.inside_ayritom)])] %}
+  <details class="location-box" id="group-{{ place }}" {% if request.args.get('location')==place or (place=='parking' and request.args.get('location')=='outside') %}open{% endif %}>
+    <summary><span>{{ title }}</span><strong data-kpi="{{ 'outside' if place=='parking' else 'inside' }}">{{ total }}</strong><small>ta mashina</small><span class="expand-label"></span></summary>
+    <div class="location-links">
+      {% for label,key,purpose,gate,count in groups %}
+      <a href="{{ visit_link(place,purpose,gate) }}"><span>{{ label }}</span><b data-kpi="{{ key }}">{{ count }}</b><span aria-hidden="true">›</span></a>
       {% endfor %}
+      {% if place=='inside' %}<small id="unknown-gate" {% if not stats.inside_unknown %}hidden{% endif %}>Darvozasi aniqlanmagan: <b data-kpi="inside_unknown">{{ stats.inside_unknown }}</b></small>{% endif %}
+      <a href="{{ visit_link(place) }}">Barcha mashinalarni ko‘rish →</a>
     </div>
-  </section>
+  </details>
+  {% endfor %}
+</section>
   <section class="activity-panel"><div class="panel-title"><div><h2>Oxirgi harakatlar</h2><small>Jonli operatsiyalar</small></div><a href="#events" aria-label="Barcha amallarni ko‘rish">↗</a></div>
     <div class="event-feed" data-refresh="feed">{% for r in rows[:4] %}
       <div><i aria-hidden="true">{{ '↙' if r.action=='in' else '↗' if r.action=='out' else '≋' }}</i><span><b>{{ r.plate }}</b><small>{{ labels[r.point] }} · {{ labels[r.action] }}</small></span><time>{{ (r.ts|zone_time)[-5:] }}</time></div>
     {% else %}<p class="empty-feed">Hozircha harakat qayd etilmagan.</p>{% endfor %}</div>
   </section>
-</div>
-<dialog id="place-detail" aria-labelledby="place-title">
-  <form method="dialog"><button aria-label="Yopish">×</button></form>
-  <h2 id="place-title"></h2><p data-detail-total></p>
-  <div id="inside-gates" hidden>
-    {% for gate,title,count in [('kpp2','KPP2 orqali Free Zoneda',stats.inside_kpp2),('ayritom','Ayritom orqali Free Zoneda',stats.inside_ayritom)] %}
-    <a class="plot-item gate-link" href="{{ visit_link('inside','',gate) }}"><span>{{ title }}</span><strong><b data-kpi="inside_{{ gate }}">{{ count }}</b> ta ↗</strong></a>
-    {% endfor %}
-    <small id="unknown-gate" {% if not stats.inside_unknown %}hidden{% endif %}>Kirish darvozasi aniqlanmagan: <b data-kpi="inside_unknown">{{ stats.inside_unknown }}</b> ta</small>
-  </div>
-  <a class="outline" data-detail-list>Ro‘yxatni ko‘rish</a>
-</dialog>
