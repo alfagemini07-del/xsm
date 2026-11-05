@@ -1,35 +1,40 @@
 <!doctype html>
 <html lang="uz"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Airitom Free Zone · Nazorat markazi</title><link rel="icon" href="/static/airitom.jpg"><link rel="stylesheet" href="/static/zone.css?v=20261105-1">
-<script defer src="/static/zone.js?v=20261105-1"></script></head><body data-mode="{{ mode }}">
+<title>Airitom Free Zone · Nazorat markazi</title><link rel="icon" href="/static/airitom.jpg"><link rel="stylesheet" href="/static/zone.css?v=20261105-3">
+<script defer src="/static/zone.js?v=20261105-3"></script></head><body data-mode="{{ mode }}">
 {% macro csrf() %}<input type="hidden" name="csrf_token" value="{{ csrf_token() }}">{% endmacro %}
 {% macro period_fields() %}
 <input type="hidden" name="period" value="custom"><input type="hidden" name="start" value="{{ start }}"><input type="hidden" name="end" value="{{ end }}"><input type="hidden" name="point" value="{{ selected }}">
 {% endmacro %}
 <header><a class="brand" href="/zone"><img src="/static/airitom.jpg" alt="Airitom Free Zone"><span>AIRITOM <small>FREE ZONE</small></span></a>
 <div class="account">{{ user.username }} <small>{{ labels.get(user.role,user.role) }}</small></div>
-<form method="post" action="/logout">{{ csrf() }}<button class="ghost">Chiqish ↗</button></form></header>
+<form method="post" action="/logout">{{ csrf() }}<button class="ghost">Hisobdan chiqish ↗</button></form></header>
+{% if user.role in ('admin','techadmin') %}<nav class="workspace-nav"><a class="active" href="/zone">◈ Umumiy nazorat</a><a href="/admin?tab=reports">▤ Hisobotlar</a>{% if user.role=='techadmin' %}<a href="/admin?tab=users">♙ Xodimlar</a><a href="/admin?tab=tech">⚙ Tariflar va sozlamalar</a>{% endif %}</nav>{% endif %}
 <main>
 {% if mode=="station" %}
-<p class="eyebrow">TRANSPORT NAZORATI</p><h1>{{ points[user.role] }}</h1>
-<div class="split">
-{% for act,caption in [('in','Kirish'),('out','Chiqish')] %}
-<section class="card"><p class="eyebrow">{{ '01 / QABUL' if act=='in' else '02 / KUZATISH' }}</p><h2>{{ caption }}</h2>
-<form method="post" action="/zone/quote">{{ csrf() }}<input type="hidden" name="action" value="{{ act }}">
-<label>Davlat raqami<input class="plate" name="plate" placeholder="01 A 777 BA" required minlength="2" maxlength="20" autocomplete="off"></label>
-{% if act=='in' and user.role=='parkovka_tashqi' %}<label>Navbat maqsadi<select required name="purpose"><option value="">Maqsadni tanlang</option><option value="border">Ayritom bojxona postiga</option><option value="zone">Free Zone hududiga</option></select></label>{% endif %}
-<button>{{ caption }} hisobini tekshirish →</button></form></section>{% endfor %}</div>
+<div class="heading station-heading"><div><p class="eyebrow">TRANSPORT NAZORATI / ISH OYNASI</p><h1>{{ points[user.role] }}</h1><p class="subtitle">Bir harakat. Aniq hisob. Nazoratdagi har bir transport.</p></div><span class="live-pill"><i></i> Ishga tayyor</span></div>
+<section id="action-step" class="step-panel">
+<p class="step-label"><b>01</b> Amalni tanlang <span>02 · Avtomobil &nbsp; 03 · Tasdiqlash</span></p>
+<div class="action-grid"><button type="button" class="action-tile arrival" data-action="in"><span class="action-icon">↙</span><small>KELAYOTGAN TRANSPORT</small><strong>Kirish</strong><span>Avtomobilni qabul qilish <b>→</b></span></button><button type="button" class="action-tile departure" data-action="out"><span class="action-icon">↗</span><small>KETAYOTGAN TRANSPORT</small><strong>Chiqish</strong><span>Hisobni tekshirish va chiqarish <b>→</b></span></button></div>
+</section>
+<section id="vehicle-step" class="card vehicle-step" hidden>
+<div class="heading"><button type="button" id="back-action" class="back-button">← Orqaga</button><span class="step-label">02 / 03 · AVTOMOBIL</span></div>
+<h2 id="vehicle-title">Avtomobil raqamini kiriting</h2><p class="subtitle">Davlat raqamini kiriting. Hisob avtomatik tekshiriladi.</p>
+<form method="post" action="/zone/quote" id="vehicle-form">{{ csrf() }}<input type="hidden" name="action" id="movement-action" value="in">
+<label for="vehicle-plate">Davlat raqami</label><div class="plate-field"><span>UZ</span><input id="vehicle-plate" class="plate" name="plate" placeholder="01 A 777 BA" required minlength="2" maxlength="20" autocomplete="off" spellcheck="false" autocapitalize="characters"><button type="button" id="clear-plate" aria-label="Raqamni tozalash">×</button></div>
+{% if user.role=='parkovka_tashqi' %}<fieldset id="purpose-field"><legend>Kelish maqsadi</legend><div class="purpose-grid"><label><input type="radio" name="purpose" value="border" required><span>Ayritom bojxona posti<small>Chegaraga chiqish navbati</small></span></label><label><input type="radio" name="purpose" value="zone" required><span>Free Zone<small>Hududga kirish navbati</small></span></label></div></fieldset>{% endif %}
+<button class="continue-button" type="submit">Hisobni tekshirish <span>→</span></button><p class="input-hint">Enter — davom etish · Esc — orqaga</p></form></section>
 {% if queue %}<section class="card"><h2>Navbat tartibi</h2><p>Eng oldingi 25 ta faol navbat</p><div class="chips">{% for v in queue %}<span>#{{ v.id }} · <b>{{ v.plate }}</b> · {{ labels[v.purpose] }}</span>{% endfor %}</div></section>{% endif %}
 <section class="card"><h2>Nuqtaning oxirgi cheklari</h2><div class="scroll"><table><tr><th>Vaqt</th><th>Avtomobil</th><th>Amal</th><th>Olindi</th><th>Chek</th></tr>
 {% for e in recent %}<tr><td>{{ e.occurred|zone_time }}</td><td>{{ e.plate }}</td><td>{{ labels[e.action] }}</td><td>{{ e.amount|som }}</td><td><a href="/zone/receipt/{{ e.id }}">AFZ-{{ e.id }}</a></td></tr>{% else %}<tr><td colspan="5">Hali operatsiya yo‘q.</td></tr>{% endfor %}</table></div></section>
 {% elif mode=="confirm" %}
-<section class="card narrow"><p class="eyebrow">{{ labels[q.point] }} / {{ labels[q.action] }}</p><h1>{{ q.plate }}</h1>
+<section class="card narrow"><p class="eyebrow">03 / 03 · {{ labels[q.point] }} / {{ labels[q.action] }}</p><h1>{{ q.plate }}</h1>
 <p>{{ labels[q.purpose] }} · Yakuniy holat: {{ labels[q.location] }}</p><dl>
 {% for k,v in [('Tashrif',q.visit or 'Yangi'),('Hisoblangan kun',q.days),('Kunlik tarif',q.rate|som),('Avval to‘langan',q.paid|som)] %}<dt>{{ k }}</dt><dd>{{ v }}</dd>{% endfor %}</dl>
 <small>Hozir undiriladi</small><h2 class="amount">{{ q.amount|som }} so‘m</h2>
 <form method="post" action="/zone/confirm">{{ csrf() }}<input type="hidden" name="ticket" value="{{ token }}">
 {% if q.amount %}<label>To‘lov turi<select name="method"><option value="cash">Naqd</option><option value="card">Karta</option><option value="bank">Hisob raqam</option></select></label>
-<label>Qabul qilingan summa (so‘m)<input type="number" step="1" min="{{ q.amount }}" max="{{ q.amount }}" value="{{ q.amount }}" name="amount" required></label>
+<input type="hidden" value="{{ q.amount }}" name="amount">
 <label class="check"><input type="checkbox" name="received" value="yes" required> To‘lovni to‘liq qabul qildim</label>{% endif %}
 <button>Harakatni tasdiqlash va chek olish</button> <a href="/zone">Orqaga</a></form></section>
 {% elif mode=="error" %}<section class="card narrow"><h1>Amal bajarilmadi</h1><p>{{ message }}</p><a href="/zone">Nuqta oynasiga qaytish</a></section>

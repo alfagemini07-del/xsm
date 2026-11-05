@@ -2,14 +2,15 @@
 <html lang="uz">
 <head>
   <meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Boshqaruv paneli | Tarozi</title>
+  <title>Boshqaruv paneli | Airitom</title>
   <link rel="icon" href="{{ url_for('static', filename='favicon.ico') }}"><link rel="stylesheet" href="{{ url_for('static', filename='style.css', v='20261105-1') }}">
+  <link rel="stylesheet" href="/static/interface.css?v=20261105-3">
 </head>
 <body class="admin-page" data-csrf="{{ csrf_token() }}" data-role="{{ user.role }}" data-user-id="{{ user.id }}" data-default-tab="{{ default_tab }}" data-local-printer-agent="{{ '1' if local_printer_agent else '0' }}">
   <div class="industrial-grid"></div>
   <div class="admin-layout">
     <aside class="admin-sidebar">
-      <div class="sidebar-brand"><span class="brand-symbol">⚖</span><div><strong>TAROZI</strong><small>AIRITOM MCHJ</small></div></div>
+      <div class="sidebar-brand"><span class="brand-symbol">◈</span><div><strong>AIRITOM</strong><small>FREE ZONE</small></div></div>
       <div class="terminal-mini"><i></i><span>Terminal #01</span><b>ONLINE</b></div>
       <nav>
         <a class="nav-link" href="/zone">← Airitom umumiy paneli</a>
@@ -114,7 +115,7 @@
   <div id="password-modal" class="modal hidden" role="dialog" aria-modal="true"><div class="modal-card narrow"><header><div><h2>Parolni yangilash</h2><p id="password-user">—</p></div><button class="modal-close" data-close="password-modal" type="button">×</button></header><div class="modal-body"><label>Yangi parol<input id="reset-password" type="password" placeholder="Kamida 8 belgi"></label></div><footer><button class="button secondary" data-close="password-modal" type="button">Bekor qilish</button><button id="btn-reset-password" class="button primary" type="button">Parolni reset qilish</button></footer></div></div>
   {% if user.role == 'techadmin' %}<div id="clear-data-modal" class="modal hidden" role="dialog" aria-modal="true"><div class="modal-card narrow destructive-modal"><header><div><h2>Barcha operatsiyalarni o'chirish</h2><p>Bu amalni ortga qaytarib bo'lmaydi.</p></div><button class="modal-close" data-close="clear-data-modal" type="button">×</button></header><div class="modal-body"><div class="destructive-warning">Tarozi o'lchovlari, Free Zone tashriflari, cheklar, to'lovlar va import tarixi butunlay o'chadi. Loginlar, tariflar va tariflar tarixi saqlanadi. Avval backup olish tavsiya qilinadi.</div><label>Joriy techadmin paroli<input id="clear-data-password" type="password" autocomplete="current-password" placeholder="Parolingiz"></label><label>Tasdiqlash uchun <b>BARCHASINI OCHIRISH</b> deb yozing<input id="clear-data-confirmation" type="text" autocomplete="off" placeholder="BARCHASINI OCHIRISH"></label></div><footer><button class="button secondary" data-close="clear-data-modal" type="button">Bekor qilish</button><button id="btn-confirm-clear-data" class="button danger" type="button" disabled>Hammasini o'chirish</button></footer></div></div>{% endif %}
   <div id="toast" class="toast hidden" role="status"><b id="toast-icon">✓</b><span id="toast-text"></span></div>
-<script src="{{ url_for('static', filename='admin.js', v='20261105-1') }}" defer></script>
+<script src="{{ url_for('static', filename='admin.js', v='20261105-3') }}" defer></script>
   <script src="{{ url_for('static', filename='reports.js', v='20261002-1') }}" defer></script>
 </body>
 </html>

@@ -1,40 +1,18 @@
 <!doctype html>
-<html lang="uz">
-<head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Kirish | Airitom Free Zone</title>
-  <link rel="icon" href="{{ url_for('static', filename='favicon.ico') }}">
-  <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
-</head>
-<body class="login-page">
-  <div class="ambient ambient-one"></div>
-  <div class="ambient ambient-two"></div>
-  <main class="login-shell">
-    <section class="login-panel">
-      <img src="/static/airitom.jpg" width="100" height="100" alt="Airitom Free Zone">
-      <p class="eyebrow">AIRITOM LOGISTICS CENTER MCHJ</p>
-      <h1>Airitom Free Zone</h1>
-      <p class="muted">Ishni boshlash uchun login va parolingizni kiriting.</p>
-
-      {% if error %}
-      <div class="alert alert-error" role="alert">{{ error }}</div>
-      {% endif %}
-
-      <form method="post" class="login-form" autocomplete="on">
-        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-        <label>
-          <span>Login</span>
-          <input name="username" type="text" maxlength="40" autocomplete="username" required autofocus>
-        </label>
-        <label>
-          <span>Parol</span>
-          <input name="password" type="password" maxlength="200" autocomplete="current-password" required>
-        </label>
-        <button type="submit" class="btn btn-primary btn-large">Tizimga kirish <span>→</span></button>
-      </form>
-    </section>
-  </main>
-</body>
-</html>
-
+<html lang="uz"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Kirish | Airitom Free Zone</title><link rel="icon" href="/static/airitom.jpg">
+<link rel="stylesheet" href="/static/zone.css?v=20261105-3"><link rel="stylesheet" href="/static/interface.css?v=20261105-3">
+<script src="/static/interface.js?v=20261105-3" defer></script></head>
+<body class="access-page">
+<main class="access-shell"><section class="access-story"><a class="brand" href="/"><img src="/static/airitom.jpg" alt="Airitom"><span>AIRITOM<small>FREE ZONE</small></span></a>
+<div class="story-copy"><span class="story-tag">YAGONA NAZORAT MARKAZI</span><h1>Har bir harakat.<br>To‘liq nazorat.</h1><p>Transport, navbat va to‘lovlar —<br>barchasi bitta tizimda.</p><div class="story-route"><span>Parkovka</span><i></i><span>Darvoza</span><i></i><span>Tarozi</span></div></div>
+<small class="story-footer">AIRITOM LOGISTICS CENTER MCHJ</small></section>
+<section class="access-form-panel"><div class="access-form-inner"><span class="eyebrow">XUSH KELIBSIZ</span><h2>Ishni boshlaymiz</h2><p class="subtitle">Shaxsiy login va parolingiz bilan kiring.</p>
+{% if error %}<div class="access-error" role="alert">{{ error }}</div>{% endif %}
+<form method="post" class="login-form" id="access-form" autocomplete="on">
+<input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+<label for="access-user">Login</label><input id="access-user" name="username" value="{{ username }}" type="text" maxlength="40" autocomplete="username" autocapitalize="none" spellcheck="false" placeholder="Masalan: kpp2_1" required autofocus>
+<label for="access-password">Parol</label><div class="password-wrap"><input id="access-password" name="password" type="password" maxlength="200" autocomplete="current-password" placeholder="Parolingizni kiriting" required><button id="toggle-password" type="button" aria-label="Parolni ko‘rsatish" aria-pressed="false">Ko‘rsatish</button></div>
+<p id="caps-warning" class="access-caps" hidden>Caps Lock yoqilgan</p>
+<button type="submit" class="continue-button">Tizimga kirish <span>→</span></button><p id="login-progress" class="input-hint" role="status">Hisobingiz sizning ish oynangizni avtomatik ochadi.</p></form>
+<p class="access-help">Kirish ma’lumotlari uchun mas’ul administratorga murojaat qiling.</p></div></section></main></body></html>
