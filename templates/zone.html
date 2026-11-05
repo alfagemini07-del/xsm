@@ -3,8 +3,8 @@
 <title>Airitom Free Zone · Nazorat markazi</title><link rel="icon" href="/static/airitom.jpg">
 {% if mode=='dashboard' %}<link rel="stylesheet" href="/static/style.css?v=20261105-1">{% endif %}
 <link rel="stylesheet" href="/static/zone.css?v=4">
-<link rel="stylesheet" href="/static/interface.css?v=7">
-<script defer src="/static/zone.js?v=7"></script></head><body class="zone-page {{ 'admin-page' if mode=='dashboard' }}" data-mode="{{ mode }}">
+<link rel="stylesheet" href="/static/interface.css?v=8">
+<script defer src="/static/zone.js?v=8"></script></head><body class="zone-page {{ 'admin-page' if mode=='dashboard' }}" data-mode="{{ mode }}">
 {% macro csrf() %}<input type="hidden" name="csrf_token" value="{{ csrf_token() }}">{% endmacro %}
 {% macro period_fields() %}
 <input type="hidden" name="period" value="custom"><input type="hidden" name="start" value="{{ start }}"><input type="hidden" name="end" value="{{ end }}"><input type="hidden" name="point" value="{{ selected }}">
