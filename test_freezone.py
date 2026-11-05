@@ -4,9 +4,29 @@ import re
 import unittest
 from openpyxl import load_workbook
 from app import app, ensure_schema, get_pool
+from werkzeug.security import generate_password_hash
 
 
 class CheckpointFlow(unittest.TestCase):
+    def test_login_role_redirects(self):
+        with get_pool().connection() as db:
+            self.assertEqual(db.execute("SELECT current_database() AS n").fetchone()["n"], "airitom_test")
+        ensure_schema()
+        password = "ci_password_for_login"
+        with get_pool().connection() as db:
+            for role in ("kpp2", "operator", "techadmin"):
+                db.execute("INSERT INTO users(username,role,password_hash) VALUES (%s,%s,%s)",
+                           ("login_"+role, role, generate_password_hash(password)))
+        for role, target in (("kpp2", "/zone"), ("operator", "/"), ("techadmin", "/zone")):
+            client = app.test_client()
+            with client.session_transaction() as session:
+                session["_csrf_token"] = "login-test"
+            response = client.post("/login?next=/admin?tab=tech",
+                data=dict(username="login_"+role, password=password, csrf_token="login-test"))
+            self.assertEqual(response.status_code, 302)
+            self.assertEqual(response.location, target)
+            self.assertEqual(client.get(target).status_code, 200)
+
     def test_visit_and_settlement(self):
         with get_pool().connection() as db:
             self.assertEqual(db.execute("SELECT current_database() AS n").fetchone()["n"],"airitom_test")

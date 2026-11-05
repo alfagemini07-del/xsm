@@ -265,6 +265,10 @@ def add_security_headers(response):
     started = getattr(g, "request_started", None)
     if started is not None:
         elapsed_ms = (time.perf_counter() - started) * 1000
+        response.headers["Server-Timing"] = f"app;dur={elapsed_ms:.1f}"
+        if elapsed_ms > 1000 and request.endpoint != "static":
+            app.logger.warning("SLOW REQUEST endpoint=%s method=%s duration_ms=%.0f",
+                               request.endpoint, request.method, elapsed_ms)
         with _request_metrics_lock:
             _request_count += 1
             if response.status_code >= 500:
@@ -578,7 +582,7 @@ def favicon():
 @app.route("/login", methods=["GET", "POST"])
 def login():
     if g.user:
-        return redirect(url_for("index"))
+        return redirect(url_for("index" if g.user["role"] == "operator" else "zone_home"))
     error = None
     if request.method == "POST":
         username = (request.form.get("username") or "").strip().lower()
@@ -603,13 +607,13 @@ def login():
                     session.permanent = True
                     session["user_id"] = user["id"]
                     csrf_token()
-                    next_url = request.args.get("next", "")
-                    if not next_url.startswith("/") or next_url.startswith("//"):
-                        next_url = url_for("index")
+                    # Land on the workspace allowed for this role, even when login
+                    # was opened from another employee's admin link.
+                    next_url = url_for("index" if user["role"] == "operator" else "zone_home")
                     return redirect(next_url)
                 register_login_failure(conn, identifier)
                 error = "Login yoki parol noto'g'ri"
-    return render_template("login.html", error=error)
+    return render_template("login.html", error=error, username=request.form.get("username", ""))
 
 
 @app.post("/logout")
@@ -637,7 +641,8 @@ def index():
 def admin_page():
     allowed_tabs = {"monitor", "users", "reports", "analytics", "search", "history", "transfer", "tech"}
     requested_tab = request.args.get("tab", "")
-    default_tab = requested_tab if g.user["role"] == "techadmin" and requested_tab in allowed_tabs else (
+    permitted_tabs = allowed_tabs if g.user["role"] == "techadmin" else {"reports", "analytics", "search", "history", "transfer"}
+    default_tab = requested_tab if requested_tab in permitted_tabs else (
         "monitor" if g.user["role"] == "techadmin" else "dashboard"
     )
     return render_template(

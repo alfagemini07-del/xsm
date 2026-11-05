@@ -234,16 +234,11 @@ def register_zone(app, pool, roles, clean_plate, qr):
             pages=max(1,(total+29)//30)
             pg=min(pg,pages)
             active=conn.execute("SELECT * FROM zone_visits"+where+" ORDER BY id LIMIT 30 OFFSET %s",[*params,(pg-1)*30]).fetchall()
-            tariff_rows=conn.execute(
-                "SELECT key,value FROM settings WHERE key IN ('zone_daily_rate','zone_daily_enabled')"
-            ).fetchall()
-            tariff={row["key"]:row["value"] for row in tariff_rows}
-            rate=tariff.get("zone_daily_rate","30000")
         stats={"border":0,"zone":0,"transfer":0,"inside":0}
         for r in counts:
             stats[r["purpose"] if r["location"]=="parking" else r["location"]]+=r["n"]
         return page(mode="dashboard",summary=summary,rows=rows,active=active,stats=stats,pg=pg,pages=pages,
-                    start=start.date(),end=end.date()-timedelta(days=1),rate=rate,selected=selected,
+                    start=start.date(),end=end.date()-timedelta(days=1),selected=selected,
                     total=sum(r["total"] for r in summary))
 
 

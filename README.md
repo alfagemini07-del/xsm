@@ -1,8 +1,26 @@
 # Airitom Free Zone — nazorat markazi
 
+## Interfeys yangilanishi
+
+Darvoza xodimi avval **Kirish** yoki **Chiqish** tugmasini tanlaydi, keyingi
+bosqichda raqamni kiritadi, so‘ng hisobni tekshirib tasdiqlaydi. Tashqi parkovkada
+kirish maqsadi raqam bilan birga tanlanadi. Enter davom etadi, Esc amal tanlashga qaytaradi.
+Login sahifasida parolni ko‘rsatish va Caps Lock ogohlantirishi bor. Login muvaffaqiyatli
+bo‘lsa xodim o‘z roliga mos sahifaga bevosita o‘tadi; boshqa rolning eski havolasi 403 ga olib bormaydi.
+
+Mavjud servisni yangilashda `app.py`, `freezone.py`, `templates/` va `static/`
+fayllarini birga GitHub’ga yuklang. Yangi `static/interface.css` va
+`static/interface.js` ham kirishi shart. Baza yoki parollarni qayta yaratish talab qilinmaydi.
+Bir soniyadan uzoq server so‘rovlari logda `SLOW REQUEST` va davomiyligi bilan chiqadi.
+Bu o‘lchov brauzer tarmog‘i yoki hostingning server uyg‘onish vaqtini qamramaydi.
+
+`test_ui.cjs` Jinja2 va Playwright yordamida sahifalarni bazasiz render qiladi,
+kirish/chiqish bosqichlari va mobil ekranlarni tekshiradi. Ilova serveri ishga tushmaydi.
+PostgreSQL bilan to‘liq login va to‘lov testlari `test_freezone.py` ichida.
+
 ## GitHub va Render orqali ishga tushirish
 
-1. Yetkazilgan ZIP ichidagi fayllarni ochib, GitHub repository **ildiziga** yuklang. Shu darajada `app.py`, `freezone.py`, `schema.sql`, `requirements.txt` va `render.yaml` ko‘rinishi kerak. `templates/`, `static/` va test uchun `.github/` papkalarini ichidagi fayllari bilan saqlang.
+1. Papkadagi fayllarni GitHub repository **ildiziga** yuklang. Shu darajada `app.py`, `freezone.py`, `schema.sql`, `requirements.txt` va `render.yaml` ko‘rinishi kerak. `templates/`, `static/` va test uchun `.github/` papkalarini ichidagi fayllari bilan saqlang.
 2. Mavjud tarozi tarixini davom ettirish uchun shu bazaning PostgreSQL zaxirasini oling va uning `DATABASE_URL` manzilini ishlating. Yangi o‘rnatishda bo‘sh PostgreSQL baza ishlatish mumkin.
 3. Render → New → Blueprint orqali repository’ni ulang. `DATABASE_URL`ga Supabase pooler manzilini kiriting. `INITIAL_TECHADMIN_PASSWORD` ixtiyoriy: kamida 8 belgili qiymat bersangiz birinchi parol shu bo‘ladi; bo‘sh qolsa dastur xavfsiz tasodifiy vaqtinchalik parol yaratib, Render logida `AIRITOM FIRST LOGIN` qatorida bir marta ko‘rsatadi. Blueprint yangi servis uchun `SECRET_KEY` yaratadi. Mavjud servisda amaldagi kalitni saqlang. `/health` birinchi ishga tushishda sxemani qo‘llaydi. Avvaldan foydalanuvchilar bo‘lsa, mavjud texnik administrator bilan kiring.
 4. Techadmin bilan **Tarozi va boshqaruv → Foydalanuvchilar** orqali har xodimga alohida login bering. `parkovka_tashqi` tashqi parkovka, `kpp2` O‘zbekiston darvozasi, `ayritom` post tomondagi darvoza, `operator` tarozi uchun. `admin` umumiy hisobotlarni ko‘radi. Barcha narxlar **Sozlamalar → Markaziy tariflar** bo‘limida boshqariladi.
@@ -110,6 +128,8 @@ Qolgan muhim qiymatlar `render.yaml`da tayyor:
 - `SUPABASE_DB_LIMIT_BYTES=524288000`
 
 `SUPABASE_DB_LIMIT_BYTES` monitoringdagi “limit/qolgan joy” hisobiga ishlatiladi. Supabase tarifingizdagi real limit boshqacha bo'lsa shu qiymatni baytlarda almashtiring. Haqiqiy ishlatilgan hajm bevosita PostgreSQL `pg_database_size`dan olinadi.
+
+`INITIAL_TECHADMIN_PASSWORD` kamida 8 belgidan iborat bo‘lishi shart. Agar birinchi deployda qisqa yoki xato qiymat berilgan va techadmin hali tizimga biror marta muvaffaqiyatli kirmagan bo‘lsa, ENV qiymatini to‘g‘rilab qayta deploy qiling. Dastur uni bir marta sinxronlaydi, avvalgi xato urinishlar blokini tozalaydi va logda `AIRITOM FIRST LOGIN RECOVERY` yozuvi chiqadi. Birinchi muvaffaqiyatli logindan keyin deploylar amaldagi parolni o‘zgartirmaydi.
 
 Render servisini qo'lda yaratgan bo'lsangiz, **Settings → Start Command** qiymati aynan quyidagicha bo'lsin:
 
