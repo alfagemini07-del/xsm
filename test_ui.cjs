@@ -79,8 +79,14 @@ function assert(value, message){if(!value)throw new Error(message);}
         }
         assert(await page.locator('[data-kpi="outside"]').textContent()==="20","Outside is split by its two real queues");
         assert(await page.locator('[data-kpi="inside"]').textContent()==="24","Inside counts confirmed arrivals");
-        assert(await page.locator('[data-key="inside_kpp2"] .node-count').textContent()==="14","KPP2 gate count");
-        assert(await page.locator('[data-key="inside_ayritom"] .node-count').textContent()==="10","Ayritom gate count");
+        assert(await page.locator('.plot-node').count()===3,"Chart shows two queues and one inside total");
+        for (const trigger of ['.plot-item[data-key="inside"]','.inside-card a']){
+          await page.locator(trigger).click();
+          assert(await page.locator('#inside-gates').isVisible(),"Inside details opened");
+          assert(await page.locator('[data-kpi="inside_kpp2"]').textContent()==="14","KPP2 gate count");
+          assert(await page.locator('[data-kpi="inside_ayritom"]').textContent()==="10","Ayritom gate count");
+          await page.keyboard.press("Escape");
+        }
       }
       if(name==="receipt"){
         await page.emulateMedia({media:"print"});
