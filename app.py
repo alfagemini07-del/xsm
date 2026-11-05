@@ -436,8 +436,8 @@ def can_access_weighing(row: dict) -> bool:
     return business_date in {now_local().date(), now_local().date() - timedelta(days=1)}
 
 
-def make_qr_base64(text: str) -> str:
-    qr = qrcode.QRCode(version=1, box_size=5, border=2, error_correction=qrcode.constants.ERROR_CORRECT_M)
+def make_qr_base64(text: str, *, border: int = 2) -> str:
+    qr = qrcode.QRCode(version=1, box_size=5, border=border, error_correction=qrcode.constants.ERROR_CORRECT_M)
     qr.add_data(text)
     qr.make(fit=True)
     image = qr.make_image(fill_color="black", back_color="white")

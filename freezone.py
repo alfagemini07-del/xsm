@@ -14,7 +14,7 @@ from openpyxl.utils import get_column_letter
 TZ = ZoneInfo("Asia/Tashkent")
 POINTS = {"parkovka_tashqi": "Tashqi parkovka", "kpp2": "KPP2 · O‘zbekiston", "ayritom": "Ayritom darvozasi"}
 LABEL = {**POINTS, "scale": "Tarozi", "border": "Ayritom postiga navbat", "zone": "Free Zone",
-         "parking": "Parkovkada", "transfer": "KPP2 yo‘lida", "inside": "Hudud ichida",
+         "outside": "Tashqaridagi barchasi", "parking": "Parkovkada", "transfer": "KPP2 yo‘lida", "inside": "Hudud ichida",
          "closed": "Tashrif yakunlandi", "in": "Kirish", "out": "Chiqish", "weigh": "Tarozi xizmati",
          "cash": "Naqd", "card": "Karta", "bank": "Hisob raqam", "none": "To‘lovsiz"}
 ADMINS = ("admin", "techadmin")
@@ -185,7 +185,8 @@ def register_zone(app, pool, roles, clean_plate, qr):
                   ("Kunlik tarif",money(e["daily_rate"])),("Oldin to‘langan",money(e["previous_paid"])),
                   ("Hozir olindi",money(e["amount"])+" so‘m"),("Jami to‘langan",money(e["previous_paid"]+e["amount"])),
                   ("To‘lov turi",LABEL[e["method"]]),("Xodim",e["operator_name"])]
-        return page(mode="receipt",fields=fields,qr=qr("AIRITOM FREE ZONE\n"+"\n".join(f"{k}: {v}" for k,v in fields)))
+        return page(mode="receipt", fields=fields, receipt=e,
+                    qr=qr("Airitom Logistics Center MCHJ\n"+"\n".join(f"{k}: {v}" for k,v in fields), border=4))
 
     @app.get("/zone/report.xlsx")
     @roles(*ADMINS)
@@ -214,14 +215,19 @@ def register_zone(app, pool, roles, clean_plate, qr):
             rows=conn.execute("SELECT *"+sql+" ORDER BY ts DESC,ref"+("" if export else " LIMIT 80"),args).fetchall()
             if export:
                 return workbook(summary,rows,start,end,selected)
+            trend = conn.execute("""
+                SELECT (ts AT TIME ZONE 'Asia/Tashkent')::date AS day, sum(amount) AS revenue
+                """ + sql + " GROUP BY 1 ORDER BY 1", args).fetchall()
             counts=conn.execute("""SELECT location,purpose,count(*) n FROM zone_visits WHERE location<>'closed'
                 GROUP BY location,purpose""").fetchall()
             place=request.args.get("location","")
-            if place and place not in ("parking","transfer","inside"): abort(400)
+            if place and place not in ("parking","transfer","inside","outside"): abort(400)
             search=re.sub(r"[^0-9A-ZА-ЯЁЎҚҒҲ]","",request.args.get("plate","").upper())[:20]
             where=" WHERE location<>'closed' AND plate_key LIKE %s"
             params=["%"+search+"%"]
-            if place:
+            if place == "outside":
+                where += " AND location IN ('parking','transfer')"
+            elif place:
                 where+=" AND location=%s"
                 params.append(place)
             purpose=request.args.get("purpose","")
@@ -233,11 +239,14 @@ def register_zone(app, pool, roles, clean_plate, qr):
             total=conn.execute("SELECT count(*) n FROM zone_visits"+where,params).fetchone()["n"]
             pages=max(1,(total+29)//30)
             pg=min(pg,pages)
-            active=conn.execute("SELECT * FROM zone_visits"+where+" ORDER BY id LIMIT 30 OFFSET %s",[*params,(pg-1)*30]).fetchall()
+            sort = request.args.get("sort", "queue")
+            ordering = {"queue": "id", "latest": "started DESC, id DESC", "plate": "plate_key, id"}
+            active=conn.execute("SELECT * FROM zone_visits"+where+" ORDER BY "+ordering.get(sort, "id")
+                                +" LIMIT 30 OFFSET %s",[*params,(pg-1)*30]).fetchall()
         stats={"border":0,"zone":0,"transfer":0,"inside":0}
         for r in counts:
             stats[r["purpose"] if r["location"]=="parking" else r["location"]]+=r["n"]
-        return page(mode="dashboard",summary=summary,rows=rows,active=active,stats=stats,pg=pg,pages=pages,
+        return page(mode="dashboard",summary=summary,trend=trend,rows=rows,active=active,stats=stats,pg=pg,pages=pages,
                     start=start.date(),end=end.date()-timedelta(days=1),selected=selected,
                     total=sum(r["total"] for r in summary))
 
