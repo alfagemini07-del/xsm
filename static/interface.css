@@ -196,6 +196,7 @@ body.admin-page,body.kiosk-page{--bg:#101e29;--surface:#152631;--surface-2:#1a2e
   .event-feed i {font-style:normal;color:var(--green);background:#1b3439;border-radius:8px;padding:5px 9px}
   .event-feed b,.event-feed small {display:block}.event-feed time {margin-left:auto;font:12px Consolas,monospace;color:#afbfcc}
   .empty-feed {padding:28px 0;color:var(--muted);font-size:14px}
+  .legacy-gate {margin:14px 0 0;padding:10px 12px;border:1px solid #80683a;background:#392f1e;color:#f3d79f;border-radius:9px;font-size:12px}
   #place-detail {width:min(420px,90vw);padding:28px;color:var(--text);background:var(--surface);border:1px solid var(--border);border-radius:16px}
   #place-detail form {float:right}#place-detail p {font-size:22px}#place-detail .outline {display:inline-block}
   #place-detail::backdrop {background:#050a10bc}
