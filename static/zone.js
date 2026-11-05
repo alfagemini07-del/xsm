@@ -46,74 +46,15 @@ if (document.body.dataset.mode === "receipt" && new URL(location.href).searchPar
   window.addEventListener("load", () => window.print(), {once:true});
 }
 if (document.body.dataset.mode === "dashboard") {
-  const panel = document.querySelector(".network-panel");
-  const switcher = panel.querySelector(".view-switch");
-  const detail = document.querySelector("#place-detail");
   const status = document.querySelector("#refresh-status");
-  function chooseView(view) {
-    panel.dataset.view = view;
-    for (const button of switcher.querySelectorAll("button")) {
-      button.setAttribute("aria-pressed", String(button.dataset.view === view));
-    }
-  }
-  function enableChart() {
-    switcher.hidden = false;
-    chooseView(matchMedia("(min-width: 761px)").matches ? "depth" : "flat");
-  }
-  if ("IntersectionObserver" in window) {
-    const observer = new IntersectionObserver(entries => {
-      if (entries.some(entry => entry.isIntersecting)) { enableChart(); observer.disconnect(); }
-    });
-    observer.observe(panel);
-  } else { enableChart(); }
-  switcher.addEventListener("click", event => {
-    if (event.target.dataset.view) chooseView(event.target.dataset.view);
-  });
-  document.addEventListener("click", event => {
-    const link = event.target.closest(".network-plot a[data-count], .inside-card a[data-key]");
-    if (!link || !detail.showModal || event.ctrlKey || event.metaKey) return;
-    event.preventDefault();
-    detail.querySelector("h2").textContent = link.dataset.name;
-    const inside = link.dataset.key === "inside";
-    const count = inside ? document.querySelector('[data-kpi="inside"]').textContent : link.dataset.count;
-    detail.querySelector("[data-detail-total]").textContent = count + " ta transport";
-    detail.querySelector("#inside-gates").hidden = !inside;
-    const list = detail.querySelector("[data-detail-list]");
-    list.href = link.getAttribute("href");
-    list.textContent = inside ? "Ichkaridagi barcha mashinalar" : "Ro‘yxatni ko‘rish";
-    detail.showModal();
-  });
   const liveKeys = ["outside", "inside", "border", "zone", "inside_kpp2", "inside_ayritom", "inside_unknown"];
   function updateLiveStats(stats) {
     stats.outside = Number(stats.border || 0) + Number(stats.zone || 0);
     for (const key of liveKeys) {
       const value = Number(stats[key] || 0);
       document.querySelectorAll(`[data-kpi="${key}"]`).forEach(node => { node.textContent = String(value); });
-      document.querySelectorAll(`.plot-item[data-key="${key}"]`).forEach(item => {
-        item.dataset.count = String(value);
-        item.querySelector("b").textContent = String(value);
-        const progress = item.querySelector("progress");
-        if (progress) progress.value = value;
-      });
     }
-    detail.querySelector("#unknown-gate").hidden = !Number(stats.inside_unknown);
-    const maximum = Math.max(1, stats.border, stats.zone, stats.inside);
-    document.querySelectorAll(".plot-node[data-key]").forEach(node => {
-      const key = node.dataset.key;
-      const value = Number(stats[key] || 0);
-      const x = Number(node.dataset.x);
-      const top = Math.round(191 - (value / maximum) * 132);
-      node.dataset.count = String(value);
-      node.setAttribute("aria-label", `${node.dataset.name}: ${value} ta transport`);
-      node.querySelector("title").textContent = `${node.dataset.name} · ${value} ta`;
-      node.querySelector(".front").setAttribute("d", `M${x} 191V${top}h67V191Z`);
-      node.querySelector(".side").setAttribute("d", `M${x + 67} 191V${top}l20 -16V175Z`);
-      node.querySelector(".top").setAttribute("d", `M${x} ${top}l20 -16h67l-20 16Z`);
-      const count = node.querySelector(".node-count");
-      count.textContent = String(value);
-      count.setAttribute("y", String(Math.max(38, top - 13)));
-    });
-    document.querySelectorAll(".plot-item progress").forEach(progress => { progress.max = maximum; });
+    document.querySelector("#unknown-gate").hidden = !Number(stats.inside_unknown);
   }
   function updateFeed(events) {
     const feed = document.querySelector(".event-feed");
@@ -145,7 +86,7 @@ if (document.body.dataset.mode === "dashboard") {
   }
   let busy = false;
   setInterval(async () => {
-    if (busy || document.hidden || detail.open) return;
+    if (busy || document.hidden) return;
     busy = true;
     try {
       const response = await fetch("/api/zone/live", {cache:"no-store", signal:AbortSignal.timeout(8000), headers:{Accept:"application/json"}});

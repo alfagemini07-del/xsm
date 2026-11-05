@@ -244,3 +244,28 @@ body.admin-page,body.kiosk-page{--bg:#101e29;--surface:#152631;--surface-2:#1a2e
   .station-heading {min-height:156px;padding:20px}.zone-page .action-tile {min-height:160px}
   .zone-page .action-tile strong {font-size:40px}.command-title h1 {font-size:28px}
 }
+@media screen {
+  .location-panels {display:grid;grid-template-columns:repeat(auto-fit,minmax(min(290px,100%),1fr));gap:16px;align-items:start;margin-bottom:20px}
+  .location-box {--accent:#f4c382;border:1px solid var(--border);border-top:4px solid var(--accent);border-radius:16px;background:var(--surface);overflow:hidden}
+  #group-inside {--accent:#77dfc6}
+  .location-box summary {display:grid;grid-template-columns:auto 1fr;gap:4px 12px;align-items:baseline;padding:20px;cursor:pointer}
+  .location-box summary span:first-child {grid-column:1/-1;font-size:22px;font-weight:650}
+  .location-box summary strong {font:650 44px/1.25 Consolas,monospace;color:var(--accent)}
+  .location-box summary small {font-size:16px}
+  .expand-label {grid-column:1/-1;color:var(--accent);font-size:16px}
+  .expand-label::after {content:"Tafsilotlarni ochish ▾"}
+  .location-box[open] .expand-label::after {content:"Tafsilotlarni yopish ▴"}
+  .location-links {padding:0 20px 12px}
+  .location-links a {display:flex;align-items:center;gap:10px;border-top:1px solid var(--border);min-height:50px;font-size:17px;color:#dcfff5}
+  .location-links b {margin-left:auto}
+  .zone-page[data-mode=dashboard] :is(td, input, select, .filters button, .chips a, .event-feed b, .nav-link, .list-search summary) {font-size:16px}
+  .zone-page[data-mode=dashboard] :is(th, .filters label, .event-feed small, #refresh-status, .panel-title small) {font-size:14px}
+  #active,#events {scroll-margin-top:95px}
+  .list-search {margin:0 0 16px}
+  #active .vehicle-list {min-width:min(560px,100%);width:100%;white-space:normal}
+  #active .vehicle-list summary {font-weight:700;font-size:18px}
+  #active .vehicle-list dl {display:block;min-width:0}
+  #active .vehicle-list dt {font-size:14px}
+  #active .vehicle-list dd {margin:0 0 8px}
+  .activity-panel {margin-bottom:20px}
+}
