@@ -127,16 +127,16 @@ def get_pool() -> ConnectionPool:
                 conninfo += ("&" if "?" in conninfo else "?") + "sslmode=require"
             _pool = ConnectionPool(
                 conninfo=conninfo,
-                min_size=0,
+                min_size=1,
                 max_size=DB_POOL_SIZE,
                 timeout=15,
                 max_idle=300,
                 kwargs={
+                    "connect_timeout": 8,
                     "autocommit": False,
                     "prepare_threshold": None,
                     "row_factory": dict_row,
                 },
-                check=ConnectionPool.check_connection,
                 open=True,
             )
     return _pool
@@ -230,6 +230,10 @@ def load_request_context():
     g.user = None
     if request.endpoint in {"static", "health", "favicon"}:
         return None
+    if request.endpoint=="index" and request.method in {"GET","HEAD"} and not session.get("user_id") and not request.headers.get("Authorization"):
+        return redirect(url_for("login",next="/"))
+    if request.endpoint=="login" and request.method in {"GET","HEAD"} and not session.get("user_id"):
+        return None
     ensure_schema()
     from devices import authenticate_device, PUBLIC_DEVICE_ENDPOINTS
     if request.endpoint in PUBLIC_DEVICE_ENDPOINTS:
@@ -245,22 +249,21 @@ def load_request_context():
         with get_pool().connection() as conn:
             user = conn.execute(
                 """
-                SELECT id, username, role, is_active, password_hash
-                FROM users
-                WHERE id = %s
+                SELECT u.id,u.username,u.role,u.is_active,u.password_hash,
+                       d.approved AS device_approved,d.blocked AS device_blocked,d.role AS device_role
+                FROM users u LEFT JOIN devices d ON d.id=%s
+                WHERE u.id = %s
                 """,
-                (user_id,),
+                (session.get("device_id"),user_id),
             ).fetchone()
         if user and user["is_active"] and session.get("auth_version") == hashlib.sha256(user["password_hash"].encode()).hexdigest():
             g.user = user
             if session.get("device_id"):
-                with get_pool().connection() as conn:
-                    device = conn.execute("SELECT blocked,approved,role FROM devices WHERE id=%s", (session["device_id"],)).fetchone()
-                if not device or device["blocked"] or not device["approved"] or device["role"] != user["role"]:
+                if not user["device_approved"] or user["device_blocked"] or user["device_role"] != user["role"]:
                     session.clear()
                     abort(403)
             if user["role"] in POINTS and request.endpoint not in {
-                "index", "login", "logout", "zone_home", "zone_quote", "zone_commit", "zone_receipt", "kpp_select", "kpp_entry", "web_heartbeat"
+                "index", "login", "logout", "zone_home", "zone_quote", "zone_commit", "zone_receipt", "kpp_select", "kpp_entry", "web_heartbeat", "kpp_journal", "kpp_stats"
             }:
                 abort(403)
         else:
@@ -582,16 +585,26 @@ def register_login_failure(conn, identifier: str) -> None:
     )
 
 
+_health_lock = threading.Lock()
+_health_success = 0.0
+
+
 @app.get("/health")
 def health():
-    try:
-        ensure_schema()
-        with get_pool().connection() as conn:
-            conn.execute("SELECT 1").fetchone()
-        return jsonify(status="ok")
-    except Exception as exc:
-        app.logger.error("Health check failed: %s", exc)
-        return jsonify(status="error"), 503
+    global _health_success
+    # Reuse a recent successful check so platform probes do not open extra DB transactions.
+    with _health_lock:
+        if time.monotonic() - _health_success < 20:
+            return jsonify(status="ok")
+        try:
+            ensure_schema()
+            with get_pool().connection() as conn:
+                conn.execute("SELECT 1").fetchone()
+            _health_success = time.monotonic()
+            return jsonify(status="ok")
+        except Exception as error:
+            app.logger.error("Health check failed: %s",error)
+            return jsonify(status="error"),503
 
 
 @app.get("/favicon.ico")
@@ -635,7 +648,7 @@ def login():
                         did, device_cookie, device_error = web_device_login(conn, user, app)
                         if device_error:
                             response = make_response(render_template("login.html", error=device_error, username=username), 403)
-                            return set_web_device_cookie(response, device_cookie, app)
+                            return set_web_device_cookie(response, device_cookie, app, user["role"])
                     session.clear()
                     session.permanent = True
                     session["user_id"] = user["id"]
@@ -652,7 +665,7 @@ def login():
                     if user["role"] in {"ayritom", "kpp2"}:
                         next_url = url_for("kpp_entry", number=1 if user["role"] == "ayritom" else 2)
                     response = redirect(next_url)
-                    return set_web_device_cookie(response, device_cookie, app) if device_cookie else response
+                    return set_web_device_cookie(response, device_cookie, app, user["role"]) if device_cookie else response
                 register_login_failure(conn, identifier)
                 error = "Login yoki parol noto'g'ri"
     return render_template("login.html", error=error, username=request.form.get("username", ""))
@@ -680,9 +693,9 @@ def index():
 @app.get("/admin")
 @roles_required("admin", "techadmin")
 def admin_page():
-    allowed_tabs = {"monitor", "users", "reports", "analytics", "search", "history", "transfer", "tech"}
-    requested_tab = request.args.get("tab", "")
-    permitted_tabs = allowed_tabs if g.user["role"] == "techadmin" else {"reports", "analytics", "search", "history", "transfer"}
+    allowed_tabs = {"monitor", "users", "reports", "analytics", "search", "history", "transfer", "tech", "devices"}
+    requested_tab = "devices" if request.endpoint == "devices_page" else request.args.get("tab", "")
+    permitted_tabs = allowed_tabs if g.user["role"] == "techadmin" else {"reports", "analytics", "search", "history", "transfer", "devices"}
     default_tab = requested_tab if requested_tab in permitted_tabs else (
         "monitor" if g.user["role"] == "techadmin" else "dashboard"
     )
@@ -2255,34 +2268,38 @@ def system_status():
     today = now_local().date()
     period_start = today - timedelta(days=13)
     with get_pool().connection() as conn:
-        database = conn.execute(
-            """
-            SELECT
-                current_database() AS database_name,
-                pg_database_size(current_database()) AS used_bytes,
-                (SELECT COUNT(*) FROM pg_stat_activity WHERE datname = current_database()) AS connections,
-                (SELECT COUNT(*) FROM weighings) AS weighing_rows,
-                (SELECT COUNT(*) FROM users WHERE is_active) AS active_users
-            """
-        ).fetchone()
-        activity_rows = conn.execute(
-            """
-            SELECT business_date, COUNT(*) AS count, COALESCE(SUM(price), 0) AS total
-            FROM weighings
-            WHERE business_date BETWEEN %s AND %s AND status = 'paid'
-            GROUP BY business_date
-            ORDER BY business_date
-            """,
-            (period_start, today),
-        ).fetchall()
-        last_import = conn.execute(
-            """
-            SELECT filename, imported_at, total_rows, inserted_rows, skipped_rows
-            FROM import_batches
-            ORDER BY imported_at DESC
-            LIMIT 1
-            """
-        ).fetchone()
+        with conn.pipeline():
+            database = conn.execute(
+                """
+                SELECT
+                    current_database() AS database_name,
+                    pg_database_size(current_database()) AS used_bytes,
+                    (SELECT COUNT(*) FROM pg_stat_activity WHERE datname = current_database()) AS connections,
+                    (SELECT COUNT(*) FROM weighings) AS weighing_rows,
+                    (SELECT COUNT(*) FROM users WHERE is_active) AS active_users
+                """
+            )
+            activity_rows = conn.execute(
+                """
+                SELECT business_date, COUNT(*) AS count, COALESCE(SUM(price), 0) AS total
+                FROM weighings
+                WHERE business_date BETWEEN %s AND %s AND status = 'paid'
+                GROUP BY business_date
+                ORDER BY business_date
+                """,
+                (period_start, today),
+            )
+            last_import = conn.execute(
+                """
+                SELECT filename, imported_at, total_rows, inserted_rows, skipped_rows
+                FROM import_batches
+                ORDER BY imported_at DESC
+                LIMIT 1
+                """
+            )
+        database = database.fetchone()
+        activity_rows = activity_rows.fetchall()
+        last_import = last_import.fetchone()
     db_latency_ms = round((time.perf_counter() - db_started) * 1000, 2)
 
     by_date = {row["business_date"]: row for row in activity_rows}
@@ -2369,6 +2386,8 @@ def download_backup():
 
 from reports import register_reports
 from devices import register_devices
+from station_sync import register_station
+register_station(app, get_pool, get_service_prices, clean_plate)
 register_devices(app, get_pool, roles_required, get_service_prices, clean_plate,
                  login_identifier, check_login_limit, register_login_failure)
 register_zone(app, get_pool, roles_required, clean_plate, make_qr_base64)

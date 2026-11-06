@@ -395,3 +395,5 @@ dialog .buttons {
   justify-content: space-around;
   gap: 8px;
 }
+#receipt-dialog {max-width:min(96vw,760px);width:max-content;max-height:96dvh;padding:10px;overflow:hidden}#receipt-dialog .receipt-layout{width:auto}#receipt-dialog .screen-only{display:block;margin:6px 0 0}
+@media print{#receipt-dialog{display:block;position:static;border:0;padding:0;margin:0;max-height:none;max-width:none;width:auto;background:white}#receipt-dialog::backdrop{background:transparent}#receipt-dialog .screen-only{display:none}}

@@ -1,0 +1,34 @@
+name: KPP planshet APK
+on:
+  workflow_dispatch:
+    inputs:
+      server_url:
+        description: 'Markaziy serverning HTTPS manzili'
+        required: true
+        default: 'https://xsm.onrender.com'
+        type: string
+permissions:
+  contents: read
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: android-actions/setup-android@v3
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.9'
+      - run: sdkmanager "platforms;android-35" "build-tools;35.0.0"
+      - name: Ikkala sinov APK faylini yig‘ish
+        working-directory: android
+        env:
+          AIRITOM_URL: ${{ inputs.server_url }}
+        run: gradle assembleDebug "-PserverUrl=$AIRITOM_URL"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: airitom-kpp-sinov-apk
+          path: android/build/outputs/apk/*/debug/*.apk

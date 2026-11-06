@@ -30,11 +30,18 @@
     headers.set("Accept", "application/json");
     if (options.body && !(options.body instanceof FormData)) headers.set("Content-Type", "application/json");
     if (options.method && options.method !== "GET") headers.set("X-CSRF-Token", csrf);
-    const response = await fetch(url, { credentials: "same-origin", ...options, headers });
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 20000);
+    try {
+    const response = await fetch(url, { credentials: "same-origin", ...options, headers, signal: options.signal || controller.signal });
     const data = await response.json().catch(() => ({ success: false, message: "Server javobi noto'g'ri" }));
     if (response.status === 401) { window.location.href = "/login"; throw new Error("Kirish talab qilinadi"); }
     if (!response.ok || data.success === false) throw new Error(data.message || "So'rov bajarilmadi");
     return data;
+    } catch (error) {
+      if (error.name === "AbortError") throw new Error("Server javobi kechikdi. Aloqani tekshirib, qayta urinib ko‘ring.");
+      throw error;
+    } finally { clearTimeout(timer); }
   }
 
   function showToast(message, error = false) {
@@ -296,11 +303,13 @@
     const target = document.getElementById(`tab-${name}`); if (!target) return;
     activeTab = name;
     document.querySelectorAll(".nav-link").forEach(link => link.classList.toggle("active", link.dataset.tab === name)); document.querySelectorAll(".admin-tab").forEach(tab => tab.classList.toggle("hidden", tab !== target));
-    clearInterval(monitorTimer); monitorTimer = null; if (loaders[name]) loaders[name](); if (name === "monitor") monitorTimer = setInterval(loadMonitor, 30000); window.scrollTo(0, 0);
+    history.replaceState(null,"","/admin?tab="+encodeURIComponent(name));
+    document.dispatchEvent(new CustomEvent("admin:tab",{detail:name}));
+    clearInterval(monitorTimer); monitorTimer = null; if (loaders[name]) loaders[name](); if (name === "monitor") monitorTimer = setInterval(()=>{if(!document.hidden)loadMonitor();}, 30000); window.scrollTo(0, 0);
   }
 
   async function pollSync() {
-    if (syncBusy || document.hidden) return; syncBusy = true;
+    if (syncBusy || document.hidden || !["history","dashboard","reports","search"].includes(activeTab)) return; syncBusy = true;
     const indicator = document.getElementById("sync-status");
     try {
       const data = await api("/api/sync/state");
@@ -339,5 +348,5 @@
   if (role === "techadmin") { document.getElementById("btn-refresh-monitor").addEventListener("click", () => loadMonitor()); document.getElementById("btn-create-user").addEventListener("click", createUser); document.getElementById("btn-reset-password").addEventListener("click", resetPassword); document.getElementById("btn-create-token").addEventListener("click", createToken); document.getElementById("users-page-size").addEventListener("change", () => { usersPage = 1; loadUsers(); }); document.getElementById("users-prev").addEventListener("click", () => { if (usersPage > 1) { usersPage -= 1; loadUsers(); } }); document.getElementById("users-next").addEventListener("click", () => { if (usersPage < usersPages) { usersPage += 1; loadUsers(); } }); document.getElementById("tariff-history-size").addEventListener("change", () => { tariffHistoryPage = 1; loadTech(); }); document.getElementById("tariff-history-prev").addEventListener("click", () => { if (tariffHistoryPage > 1) { tariffHistoryPage -= 1; loadTech(); } }); document.getElementById("tariff-history-next").addEventListener("click", () => { if (tariffHistoryPage < tariffHistoryPages) { tariffHistoryPage += 1; loadTech(); } }); document.getElementById("tokens-size").addEventListener("change", () => { tokensPage = 1; loadTech(); }); document.getElementById("tokens-prev").addEventListener("click", () => { if (tokensPage > 1) { tokensPage -= 1; loadTech(); } }); document.getElementById("tokens-next").addEventListener("click", () => { if (tokensPage < tokensPages) { tokensPage += 1; loadTech(); } }); document.getElementById("btn-open-clear-data").addEventListener("click", openClearDataModal); document.getElementById("clear-data-password").addEventListener("input", validateClearDataConfirmation); document.getElementById("clear-data-confirmation").addEventListener("input", validateClearDataConfirmation); document.getElementById("btn-confirm-clear-data").addEventListener("click", clearOperationalData); }
   document.getElementById("manual-backup-name").textContent = `${new Date().toLocaleDateString("uz-UZ")} 00-00 holatiga backup.db`;
   window.addEventListener("resize", () => { if (weeklyData.length) drawBarChart("weekly-chart", weeklyData, { highlightLast: true }); if (reportData.length) drawBarChart("report-chart", reportData); if (systemData.length) drawBarChart("system-chart", systemData, { highlightLast: true }); });
-  setClock(); setInterval(setClock, 1000); checkAgent(); if (localAgentEnabled) setInterval(checkAgent, 30000); setReportRange("week"); activateTab(activeTab); pollSync(); setInterval(pollSync, 12000); document.addEventListener("visibilitychange", () => { if (!document.hidden) pollSync(); });
+  setClock(); setInterval(setClock, 1000); checkAgent(); if (localAgentEnabled) setInterval(checkAgent, 30000); setReportRange("week"); activateTab(activeTab); setInterval(pollSync, 30000); document.addEventListener("visibilitychange", () => { if (!document.hidden) pollSync(); });
 })();

@@ -164,6 +164,37 @@ class SystemFlow(unittest.TestCase):
             ).status_code,
             303,
         )
+        # A committed payment remains recoverable after its quote expires.
+        import time
+        from unittest.mock import patch
+        from itsdangerous import URLSafeTimedSerializer
+
+        headers = {"X-CSRF-Token": csrf}
+        retry = kpp.post("/zone/confirm", json=dict(ticket=ticket), headers=headers)
+        self.assertEqual(retry.status_code, 200)
+        uncommitted = kpp.post(
+            "/zone/quote",
+            json=dict(plate="90" + suffix.upper(), action="out"),
+            headers=headers,
+        ).json["ticket"]
+        signer = URLSafeTimedSerializer(app.secret_key, salt="zone-confirm-v1")
+        with patch(
+            "itsdangerous.timed.TimestampSigner.get_timestamp",
+            return_value=int(time.time()) - 901,
+        ):
+            old_committed = signer.dumps(signer.loads(ticket))
+            old_uncommitted = signer.dumps(signer.loads(uncommitted))
+        expired_retry = kpp.post(
+            "/zone/confirm", json=dict(ticket=old_committed), headers=headers
+        )
+        self.assertEqual(expired_retry.status_code, 200)
+        self.assertEqual(expired_retry.json["id"], retry.json["id"])
+        self.assertEqual(
+            kpp.post(
+                "/zone/confirm", json=dict(ticket=old_uncommitted), headers=headers
+            ).status_code,
+            409,
+        )
         self.assertEqual(
             kpp.post("/logout", data=dict(csrf_token=csrf)).status_code, 302
         )
@@ -175,6 +206,87 @@ class SystemFlow(unittest.TestCase):
                 "UPDATE devices SET last_seen=NOW()-INTERVAL '3 minutes' WHERE id=%s",
                 (devices["operator"],),
             )
+        self.assertEqual(
+            clients["techadmin"].get("/api/admin/system-status").status_code, 200
+        )
+        import os
+
+        if os.environ.get("XSM_UI_TEST"):
+            import json, subprocess, threading
+            from pathlib import Path
+            from werkzeug.serving import make_server
+
+            web = make_server("127.0.0.1", 0, app, threaded=True)
+            threading.Thread(target=web.serve_forever, daemon=True).start()
+            try:
+                cookie = app.config["SESSION_COOKIE_NAME"]
+                subprocess.run(
+                    ["node", str(Path(__file__).with_name("test_admin_ui.cjs"))],
+                    input=json.dumps(
+                        dict(
+                            url=f"http://127.0.0.1:{web.server_port}",
+                            name=cookie,
+                            value=clients["techadmin"].get_cookie(cookie).value,
+                        )
+                    ),
+                    text=True,
+                    check=True,
+                )
+                # Real browser: both checkpoints, a lost commit response, reload,
+                # retry of the same signed operation, receipt, journal and exit.
+                for role, station in (("kpp2", kpp), ("ayritom", clients["ayritom"])):
+                    did = str(uuid.uuid4())
+                    with get_pool().connection() as db:
+                        db.execute(
+                            "INSERT INTO devices(id,name,role,approved) VALUES(%s,%s,%s,TRUE)",
+                            (did, "browser test", role),
+                        )
+                    with station.session_transaction() as s:
+                        s["device_id"] = did
+                    plate = "UI" + uuid.uuid4().hex[:10].upper()
+                    if role == "kpp2":
+                        queued = c.post(
+                            "/api/device/parking/quote",
+                            json=dict(action="in", plate=plate, purpose="zone"),
+                            headers=ph,
+                        ).json
+                        self.assertEqual(
+                            c.post(
+                                "/api/device/parking/commit",
+                                json=dict(
+                                    ticket=queued["ticket"],
+                                    method="cash",
+                                    received=True,
+                                ),
+                                headers=ph,
+                            ).status_code,
+                            200,
+                        )
+                    subprocess.run(
+                        ["node", str(Path(__file__).with_name("test_kpp_ui.cjs"))],
+                        input=json.dumps(
+                            dict(
+                                url=f"http://127.0.0.1:{web.server_port}",
+                                name=cookie,
+                                value=station.get_cookie(cookie).value,
+                                plate=plate,
+                                role=role,
+                            )
+                        ),
+                        text=True,
+                        check=True,
+                    )
+                    with get_pool().connection() as db:
+                        count = db.execute(
+                            "SELECT COUNT(*) n FROM zone_events e JOIN zone_visits v ON v.id=e.visit_id WHERE v.plate_key=%s AND e.point=%s",
+                            (plate, role),
+                        ).fetchone()["n"]
+                    self.assertEqual(
+                        count, 2, "Retry must not duplicate entry or money"
+                    )
+            finally:
+                web.shutdown()
+
         self.assertEqual(clients["techadmin"].get("/zone").status_code, 200)
         self.assertEqual(clients["techadmin"].get("/admin/devices").status_code, 200)
         self.assertEqual(

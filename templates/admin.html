@@ -5,6 +5,7 @@
   <title>Boshqaruv paneli | Airitom</title>
   <link rel="icon" href="{{ url_for('static', filename='favicon.ico') }}"><link rel="stylesheet" href="{{ url_for('static', filename='style.css', v='20261105-1') }}">
   <link rel="stylesheet" href="/static/interface.css?v=7">
+  <link rel="stylesheet" href="/static/devices.css?v=1">
 </head>
 <body class="admin-page" data-csrf="{{ csrf_token() }}" data-role="{{ user.role }}" data-user-id="{{ user.id }}" data-default-tab="{{ default_tab }}" data-local-printer-agent="{{ '1' if local_printer_agent else '0' }}">
   <div class="industrial-grid"></div>
@@ -14,6 +15,7 @@
     <div class="admin-workspace">
       <header class="admin-topbar"><div class="topbar-brand">{{ 'TEXNIK BOSHQARUV' if user.role == 'techadmin' else 'ADMIN BOSHQARUV' }} <span>v2.6</span></div><div class="topbar-status"><span class="blue"><i></i>Printer <b id="admin-printer-status">Tekshirilmoqda</b></span><span id="sync-status"><i></i>Qurilmalar sinxron</span></div><time id="admin-clock">--:--:--</time><form method="post" action="{{ url_for('logout') }}" class="topbar-logout"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><button class="button secondary compact" type="submit">Hisobdan chiqish</button></form></header>
       <main class="admin-main">
+        {% include 'devices.html' %}
         {% if user.role == 'admin' %}<section id="tab-dashboard" class="admin-tab active">
           <header class="page-title"><div><span class="eyebrow">REAL VAQT MA'LUMOTLARI</span><h1>Operatsion Dashboard</h1><p>Bugungi tarozi jarayonlari va moliyaviy ko'rsatkichlar.</p></div><button class="button secondary compact" id="btn-refresh-dashboard" type="button">⟳ Yangilash</button></header>
           <div class="metric-grid four"><article class="metric-card green"><span>▣</span><small>Bugun o'lchandi</small><strong id="d-today-count">—</strong><em>ta avtomobil</em></article><article class="metric-card blue"><span>▤</span><small>Bugungi tushum</small><strong id="d-today-total">—</strong><em>so'm</em></article><article class="metric-card violet"><span>◫</span><small>7 kunlik o'lchash</small><strong id="d-week-count">—</strong><em>ta operatsiya</em></article><article class="metric-card orange"><span>◈</span><small>7 kunlik tushum</small><strong id="d-week-total">—</strong><em>so'm</em></article></div>
@@ -100,7 +102,8 @@
   <div id="password-modal" class="modal hidden" role="dialog" aria-modal="true"><div class="modal-card narrow"><header><div><h2>Parolni yangilash</h2><p id="password-user">—</p></div><button class="modal-close" data-close="password-modal" type="button">×</button></header><div class="modal-body"><label>Yangi parol<input id="reset-password" type="password" placeholder="Kamida 8 belgi"></label></div><footer><button class="button secondary" data-close="password-modal" type="button">Bekor qilish</button><button id="btn-reset-password" class="button primary" type="button">Parolni reset qilish</button></footer></div></div>
   {% if user.role == 'techadmin' %}<div id="clear-data-modal" class="modal hidden" role="dialog" aria-modal="true"><div class="modal-card narrow destructive-modal"><header><div><h2>Barcha operatsiyalarni o'chirish</h2><p>Bu amalni ortga qaytarib bo'lmaydi.</p></div><button class="modal-close" data-close="clear-data-modal" type="button">×</button></header><div class="modal-body"><div class="destructive-warning">Tarozi o'lchovlari, Free Zone tashriflari, cheklar, to'lovlar va import tarixi butunlay o'chadi. Loginlar, tariflar va tariflar tarixi saqlanadi. Avval backup olish tavsiya qilinadi.</div><label>Joriy techadmin paroli<input id="clear-data-password" type="password" autocomplete="current-password" placeholder="Parolingiz"></label><label>Tasdiqlash uchun <b>BARCHASINI OCHIRISH</b> deb yozing<input id="clear-data-confirmation" type="text" autocomplete="off" placeholder="BARCHASINI OCHIRISH"></label></div><footer><button class="button secondary" data-close="clear-data-modal" type="button">Bekor qilish</button><button id="btn-confirm-clear-data" class="button danger" type="button" disabled>Hammasini o'chirish</button></footer></div></div>{% endif %}
   <div id="toast" class="toast hidden" role="status"><b id="toast-icon">✓</b><span id="toast-text"></span></div>
-<script src="{{ url_for('static', filename='admin.js', v='20261105-4') }}" defer></script>
-  <script src="{{ url_for('static', filename='reports.js', v='20261002-1') }}" defer></script>
+<script src="{{ url_for('static', filename='devices.js', v='2') }}" defer></script>
+<script src="{{ url_for('static', filename='admin.js', v='20261106-2') }}" defer></script>
+<script src="{{ url_for('static', filename='reports.js', v='20261106-2') }}" defer></script>
 </body>
 </html>

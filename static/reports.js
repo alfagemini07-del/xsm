@@ -1,7 +1,7 @@
 (() => {
   "use strict";
   const el=id=>document.getElementById(id), fmt=n=>Number(n).toLocaleString("ru-RU");
-  let page=1,pages=1,sequence=0,loaded=false;
+  let page=1,pages=1,sequence=0,loaded=false,loadController;
   const today=()=>new Intl.DateTimeFormat("en-CA",{timeZone:"Asia/Tashkent",year:"numeric",month:"2-digit",day:"2-digit"}).format(new Date());
   function range(kind) {
     const end=today(), start=new Date(end+"T12:00:00Z");
@@ -14,8 +14,11 @@
   }
   async function load() {
     const ticket=++sequence;el("analytics-error").textContent="Yuklanmoqda...";
+    loadController?.abort();
+    loadController=new AbortController();
+    const controller=loadController,timer=setTimeout(()=>controller.abort(),20000);
     try {
-      const r=await fetch(`/api/admin/analytics?${params()}`), d=await r.json();
+      const r=await fetch(`/api/admin/analytics?${params()}`,{signal:controller.signal}), d=await r.json();
       if(!r.ok)throw new Error(d.message||"Hisobotni olib bo'lmadi. Sanalarni tekshiring.");
       if(ticket!==sequence)return;
       page=d.page;pages=d.pages;loaded=true;
@@ -29,14 +32,15 @@
       el("analytics-count").textContent=`${fmt(d.total)} qator`;el("analytics-page").textContent=`${page} / ${pages}`;
       el("analytics-prev").disabled=page<=1;el("analytics-next").disabled=page>=pages;
       el("analytics-error").textContent=d.total?"":"Ma'lumot topilmadi";
-    } catch(error){if(ticket===sequence)el("analytics-error").textContent=error.message;}
+    } catch(error){if(ticket===sequence)el("analytics-error").textContent=error.name==="AbortError"?"Server javobi kechikdi. Qayta urinib ko‘ring.":error.message;}
+    finally{clearTimeout(timer);}
   }
   async function download(url,filename,button) {
     if(button.disabled)return;button.disabled=true;el("analytics-error").textContent="Fayl tayyorlanmoqda...";
     try {const r=await fetch(url);if(!r.ok){const d=await r.json().catch(()=>({}));throw new Error(d.message||"Eksport bajarilmadi. Davrni yoki filtrni tekshiring.");}const blob=await r.blob();const link=document.createElement("a");link.href=URL.createObjectURL(blob);link.download=filename;document.body.append(link);link.click();link.remove();setTimeout(()=>URL.revokeObjectURL(link.href),10000);el("analytics-error").textContent="Fayl tayyor";}
     catch(error){el("analytics-error").textContent=error.message;}finally{button.disabled=false;}
   }
-  document.querySelector('[data-tab="analytics"]').addEventListener("click",()=>{if(!loaded)load();});
+
   el("analytics-load").addEventListener("click",()=>{page=1;load();});
   ["analytics-group","analytics-operator","analytics-method","analytics-size"].forEach(id=>el(id).addEventListener("change",()=>{page=1;load();}));
   document.querySelectorAll("[data-analytics-range]").forEach(b=>b.addEventListener("click",()=>{range(b.dataset.analyticsRange);page=1;load();}));
@@ -48,5 +52,10 @@
     const p=params();p.set("actual_cash",el("closing-cash").value.replace(/\D/g,""));download(`/api/admin/cash-closing.pdf?${p}`,`kassa-${el("analytics-start").value}.pdf`,event.currentTarget);
   });
   range("today");
-  fetch("/api/admin/report-operators").then(r=>r.json()).then(d=>{(d.users||[]).forEach(u=>{const option=document.createElement("option");option.value=u.id;option.textContent=u.username;el("analytics-operator").append(option);});}).catch(()=>{el("analytics-error").textContent="Operatorlar ro'yxati yuklanmadi. Sahifani yangilang.";});
+  let started=false;
+  function enter(){if(started)return;started=true;if(!loaded)load();
+  fetch("/api/admin/report-operators",{signal:AbortSignal.timeout(20000)}).then(r=>r.json()).then(d=>{(d.users||[]).forEach(u=>{const option=document.createElement("option");option.value=u.id;option.textContent=u.username;el("analytics-operator").append(option);});}).catch(()=>{el("analytics-error").textContent="Operatorlar ro'yxati yuklanmadi. Sahifani yangilang.";});
+  }
+  document.addEventListener("admin:tab",e=>{if(e.detail==="analytics")enter();});
+  if(!el("tab-analytics").classList.contains("hidden"))enter();
 })();

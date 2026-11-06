@@ -228,3 +228,12 @@ CREATE TABLE IF NOT EXISTS device_events (
 );
 CREATE INDEX IF NOT EXISTS device_events_time ON device_events(occurred DESC);
 ALTER TABLE devices ADD COLUMN IF NOT EXISTS connected BOOLEAN NOT NULL DEFAULT FALSE;
+ALTER TABLE devices ADD COLUMN IF NOT EXISTS station_hash TEXT UNIQUE;
+ALTER TABLE devices ADD COLUMN IF NOT EXISTS tablet_hash TEXT UNIQUE;
+ALTER TABLE zone_visits ADD COLUMN IF NOT EXISTS station_id UUID REFERENCES devices(id);
+ALTER TABLE zone_visits ADD COLUMN IF NOT EXISTS station_local_id BIGINT;
+CREATE UNIQUE INDEX IF NOT EXISTS zone_local_ticket ON zone_visits(station_id,station_local_id);
+CREATE TABLE IF NOT EXISTS station_events(device_id UUID REFERENCES devices(id),event_id UUID NOT NULL,
+    received_at TIMESTAMPTZ NOT NULL DEFAULT NOW(), PRIMARY KEY(device_id,event_id));
+
+CREATE INDEX IF NOT EXISTS weighings_paid_ledger_time ON weighings ((COALESCE(paid_at,created_at))) WHERE status='paid';

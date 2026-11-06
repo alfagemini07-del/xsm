@@ -1,88 +1,168 @@
 "use strict";
-const byId = (id) => document.getElementById(id);
-document.querySelectorAll("[data-action]").forEach((b) =>
-  b.addEventListener("click", () => {
-    byId("actions").hidden = true;
-    byId("vehicle").hidden = false;
-    byId("action").value = b.dataset.action;
-    byId("title").textContent =
-      b.dataset.action === "in"
-        ? "Kirayotgan avtomobil"
-        : "Chiqayotgan avtomobil";
-    byId("plate").focus();
-  }),
-);
-byId("back")?.addEventListener("click", () => {
-  byId("vehicle").hidden = true;
-  byId("actions").hidden = false;
-});
-byId("plate")?.addEventListener("input", () => {
-  byId("plate").value = byId("plate").value.toUpperCase();
-});
-let rowPage = 0;
-function showRows() {
-  const rows = [...document.querySelectorAll(".journal-list p")];
-  const size = Math.max(
-    1,
-    Math.min(8, Math.floor((innerHeight * 0.88 - 210) / 38)),
-  );
-  const pages = Math.max(1, Math.ceil(rows.length / size));
-  rowPage = Math.max(0, Math.min(rowPage, pages - 1));
-  rows.forEach(
-    (row, i) => (row.hidden = i < rowPage * size || i >= (rowPage + 1) * size),
-  );
-  byId("rows-page").textContent = rows.length
-    ? rowPage + 1 + " / " + pages
-    : "Yozuv yo‘q";
-  byId("rows-prev").disabled = rowPage === 0;
-  byId("rows-next").disabled = rowPage === pages - 1;
-}
-function openJournal() {
-  showRows();
-  byId("journal").showModal();
-}
-byId("rows-prev")?.addEventListener("click", () => {
-  rowPage--;
-  showRows();
-});
-byId("rows-next")?.addEventListener("click", () => {
-  rowPage++;
-  showRows();
-});
-window.addEventListener("resize", () => {
-  if (byId("journal")?.open) showRows();
-});
-byId("journal-open")?.addEventListener("click", openJournal);
-byId("journal-close")?.addEventListener("click", () => byId("journal").close());
-if (location.hash === "#journal" && byId("journal")) openJournal();
-byId("print")?.addEventListener("click", () => window.print());
-document.querySelectorAll("form").forEach((f) =>
-  f.addEventListener("submit", () => {
-    f.querySelectorAll("button").forEach((b) => (b.disabled = true));
-  }),
-);
-window.addEventListener("pageshow", (e) => {
-  if (e.persisted) location.reload();
-});
-async function heartbeat() {
+const el = id => document.getElementById(id);
+const money = n => Number(n || 0).toLocaleString("uz-UZ") + " so‘m";
+const storageKey = "kpp-payment:" + document.body.dataset.role + ":" + document.body.dataset.user;
+let current = null, submitting = false, heartbeatBusy = false, journalPage = 1, rowPage = 0;
+async function api(url, body) {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 20000);
   try {
-    const r = await fetch("/api/kpp/heartbeat", {
-      method: "POST",
-      headers: { "X-CSRF-Token": document.body.dataset.csrf },
-      signal: AbortSignal.timeout(8000),
+    const response = await fetch(url, {
+      method: body === undefined ? "GET" : "POST",
+      headers: {Accept:"application/json","Content-Type":"application/json","X-CSRF-Token":document.body.dataset.csrf},
+      body: body === undefined ? undefined : JSON.stringify(body),
+      signal: controller.signal, cache:"no-store"
     });
-    if (r.status === 401 || r.status === 403) {
-      location.href = "/login";
-      return;
+    if (response.redirected && new URL(response.url).pathname === "/login") {location.assign("/login"); throw Error("Qayta kirish kerak");}
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok) {
+      const error = Error(data.message || "So‘rov bajarilmadi. Qayta tekshiring.");
+      error.status = response.status;
+      throw error;
     }
-    byId("connection").textContent = r.ok ? "● Online" : "○ Aloqa kechikmoqda";
-  } catch {
-    byId("connection").textContent = "○ Server bilan aloqa yo‘q";
-  }
+    return data;
+  } catch (error) {
+    if (error.name === "AbortError" || error instanceof TypeError) throw Error("Server javobi olinmadi. Aloqani tekshirib, shu amalni qayta yuboring.");
+    throw error;
+  } finally {clearTimeout(timer);}
 }
-if (
-  ["kpp2", "ayritom"].includes(document.querySelector("header").dataset.role)
-) {
-  heartbeat();
-  setInterval(heartbeat, 30000);
+function remember() {
+  try { if(current) sessionStorage.setItem(storageKey,JSON.stringify(current)); else sessionStorage.removeItem(storageKey); } catch {}
+}
+function screen(payment) {
+  el("screen-main").classList.toggle("hidden",payment);
+  el("screen-payment").classList.toggle("hidden",!payment);
+}
+function openVehicle(action) {
+  el("action").value=action;
+  el("title").textContent=action==="in"?"Kirayotgan avtomobil":"Chiqayotgan avtomobil";
+  el("plate").value="";el("plate-error").textContent="";
+  el("vehicle").showModal();
+  el("plate").focus();
+}
+document.querySelectorAll("[data-action]").forEach(button=>button.addEventListener("click",()=>openVehicle(button.dataset.action)));
+el("back").onclick=el("plate-back").onclick=()=>el("vehicle").close();
+el("plate").addEventListener("input",()=>{el("plate").value=el("plate").value.toUpperCase();});
+function showPayment(data) {
+  current=data; remember();
+  const q=data.quote;
+  el("ticket").value=data.ticket;
+  el("pay-plate").textContent=q.plate;
+  el("payment-title").textContent=q.action==="in"?"Hududga kirish":"Hududdan chiqish";
+  el("pay-days").textContent=q.days+" kun";el("pay-rate").textContent=money(q.rate);
+  el("pay-paid").textContent=money(q.paid);el("pay-amount").textContent=money(q.amount);
+  el("paid-fields").hidden=!q.amount;el("received").required=!!q.amount;
+  el("received").checked=!!data.attempted;el("method").value=data.method||"cash";
+  el("payment-error").textContent=data.attempted?"Avvalgi amal javobini qayta tekshiring.":"";
+  el("confirm").textContent=data.attempted?"Natijani qayta tekshirish":"Tasdiqlash va chek";
+  el("payment-back").disabled=!!data.attempted;
+  screen(true);
+}
+el("plate-form").addEventListener("submit",async event=>{
+  event.preventDefault();
+  if(submitting)return;
+  submitting=true;
+  const button=event.target.querySelector('[type="submit"]');
+  button.disabled=true;el("plate-error").textContent="Tekshirilmoqda...";
+  try {
+    const data=await api("/zone/quote",{plate:el("plate").value,action:el("action").value});
+    el("vehicle").close();showPayment(data);
+  } catch(error){el("plate-error").textContent=error.message;}
+  finally {submitting=false;button.disabled=false;}
+});
+el("payment-back").onclick=()=>{if(current?.attempted)return;current=null;remember();screen(false);};
+function showReceipt(data) {
+  const fields=el("receipt-fields");fields.replaceChildren();
+  for(const [key,value] of data.fields) {
+    const dt=document.createElement("dt"),dd=document.createElement("dd");
+    dt.textContent=key;dd.textContent=value;fields.append(dt,dd);
+  }
+  el("receipt-qr").src="data:image/png;base64,"+data.qr;
+  history.replaceState(null,"","/zone/receipt/"+data.id);
+  screen(false);
+  if(!el("receipt-dialog").open)el("receipt-dialog").showModal();
+}
+el("payment-form").addEventListener("submit",async event=>{
+  event.preventDefault();
+  if(submitting||!current)return;
+  submitting=true;el("confirm").disabled=true;el("payment-back").disabled=true;
+  current.attempted=true;current.method=el("method").value;remember();
+  el("payment-error").textContent="Saqlanmoqda...";
+  try {
+    const data=await api("/zone/confirm",{ticket:current.ticket,method:current.method,received:el("received").checked?"yes":"",amount:String(current.quote.amount)});
+    current=null;remember();showReceipt(data);refreshStats();
+  } catch(error) {
+    el("payment-error").textContent=error.message;
+    if([400,403,409].includes(error.status)){current.attempted=false;remember();el("payment-back").disabled=false;}
+    el("confirm").textContent="Natijani qayta tekshirish";
+  } finally {submitting=false;el("confirm").disabled=false;}
+});
+function closeReceipt() {el("receipt-dialog").close();history.replaceState(null,"","/zone");}
+el("receipt-close").onclick=closeReceipt;
+el("receipt-dialog").addEventListener("cancel",event=>{event.preventDefault();closeReceipt();});
+el("print").onclick=()=>{
+  if(/; wv\)/.test(navigator.userAgent)||window.AiritomAndroid)location.href="airitom:print";
+  else window.print();
+};
+function showRows() {
+  const list=el("journal").querySelector(".journal-list");
+  const rows=[...list.children], size=Math.max(1,Math.floor(list.clientHeight/48));
+  const pages=Math.max(1,Math.ceil(rows.length/size));rowPage=Math.min(rowPage,pages-1);
+  rows.forEach((r,i)=>r.hidden=i<rowPage*size||i>=(rowPage+1)*size);
+  el("rows-page").textContent=rows.length?(rowPage+1)+" / "+pages:"Yozuv yo‘q";
+  el("rows-prev").disabled=rowPage===0;el("rows-next").disabled=rowPage===pages-1;
+}
+async function loadJournal(target=journalPage) {
+  el("journal-previous").disabled=el("journal-more").disabled=true;
+  el("journal-status").textContent="Yuklanmoqda...";
+  try {
+    const data=await api("/api/kpp/journal?page="+target);
+    journalPage=target;
+    const list=el("journal").querySelector(".journal-list");list.replaceChildren();
+    for(const row of data.queue) {
+      const button=document.createElement("button");button.type="button";button.textContent="Navbat #"+row.id+" · "+row.plate;
+      button.onclick=()=>{el("journal").close();openVehicle("in");el("plate").value=row.plate;};
+      list.append(button);
+    }
+    for(const row of data.recent) {
+      const button=document.createElement("button");button.type="button";button.textContent=row.plate+" · "+(row.action==="in"?"Kirish":"Chiqish")+" · "+money(row.amount);
+      button.onclick=async()=>{
+        button.disabled=true;
+        try{const receipt=await api("/zone/receipt/"+row.id);el("journal").close();showReceipt(receipt);}
+        catch(error){el("journal-status").textContent=error.message;}
+        finally{button.disabled=false;}
+      };
+      list.append(button);
+    }
+    el("journal-more").hidden=!data.more;
+    el("journal-previous").hidden=journalPage===1;
+    el("journal-status").textContent=data.recent.length||data.queue.length?"":"Yozuv yo‘q";
+    rowPage=0;showRows();
+  } catch(error){el("journal-status").textContent=error.message;}
+  finally{el("journal-previous").disabled=el("journal-more").disabled=false;}
+}
+el("journal-open").onclick=()=>{journalPage=1;el("journal").showModal();loadJournal();};
+el("journal-close").onclick=()=>el("journal").close();
+el("journal-more").onclick=()=>loadJournal(journalPage+1);
+el("journal-previous").onclick=()=>loadJournal(journalPage-1);
+el("rows-prev").onclick=()=>{rowPage--;showRows();};el("rows-next").onclick=()=>{rowPage++;showRows();};
+window.addEventListener("resize",()=>{if(el("journal").open)showRows();});
+async function refreshStats() {
+  try{const data=await api("/api/kpp/stats");el("stat-active").textContent=data.active;el("stat-count").textContent=data.count;el("stat-total").textContent=Number(data.total).toLocaleString("uz-UZ");}catch{}
+}
+async function heartbeat() {
+  if(heartbeatBusy||document.hidden||submitting)return;
+  heartbeatBusy=true;
+  try{await api("/api/kpp/heartbeat",{});el("connection").textContent="● Online";refreshStats();}
+  catch(error){el("connection").textContent="○ Server bilan aloqa yo‘q";if(error.status===401||error.status===403)location.assign("/login");}
+  finally{heartbeatBusy=false;}
+}
+function clock(){el("clock").textContent=new Date().toLocaleTimeString("uz-UZ",{timeZone:"Asia/Tashkent"});}
+clock();setInterval(clock,1000);
+if(["ayritom","kpp2"].includes(document.body.dataset.role)){heartbeat();setInterval(heartbeat,30000);}
+document.addEventListener("visibilitychange",()=>{if(!document.hidden)heartbeat();});
+if(document.body.dataset.mode==="receipt")el("receipt-dialog").showModal();
+else if(el("initial-quote"))showPayment(JSON.parse(el("initial-quote").textContent));
+else {
+  try{const saved=JSON.parse(sessionStorage.getItem(storageKey));if(saved?.ticket&&saved.quote)showPayment(saved);}catch{}
 }

@@ -1,4 +1,4 @@
-"""Central device authentication; tokens remain in desktop process memory only."""
+"""Central device enrollment and persistent terminal/browser authorization."""
 
 import hashlib
 import secrets
@@ -7,7 +7,7 @@ from datetime import datetime, timezone
 from flask import abort, g, jsonify, request, render_template
 from werkzeug.security import check_password_hash
 
-PUBLIC_DEVICE_ENDPOINTS = {"device_login"}
+PUBLIC_DEVICE_ENDPOINTS = {"device_login", "station_webhook"}
 DEVICE_ENDPOINTS = {
     "device_bootstrap",
     "device_heartbeat",
@@ -50,24 +50,37 @@ def web_device_login(conn, user, app):
     from itsdangerous import URLSafeTimedSerializer, BadData
 
     signer = URLSafeTimedSerializer(app.secret_key, salt="kpp-device")
+    stored = request.cookies.get("kpp_device_" + user["role"]) or request.cookies.get(
+        "kpp_device", ""
+    )
+    known = (
+        conn.execute(
+            "SELECT id FROM devices WHERE tablet_hash=%s AND role=%s",
+            (digest(stored), user["role"]),
+        ).fetchone()
+        if stored.startswith("kpp_")
+        else None
+    )
     try:
-        identity = signer.loads(
-            request.cookies.get("kpp_device", ""), max_age=365 * 86400
-        )
+        identity = signer.loads(stored, max_age=365 * 86400)
         did = uuid.UUID(identity["id"])
         if identity["role"] != user["role"]:
             raise ValueError()
     except (BadData, ValueError, KeyError, TypeError):
-        did = uuid.uuid4()
+        did = known["id"] if known else uuid.uuid4()
     conn.execute(
-        "INSERT INTO devices(id,name,role) VALUES(%s,%s,%s) ON CONFLICT(id) DO NOTHING",
-        (did, "Planshet · " + user["username"], user["role"]),
+        "INSERT INTO devices(id,name,role,ip) VALUES(%s,%s,%s,%s) ON CONFLICT(id) DO NOTHING",
+        (did, "Planshet · " + user["username"], user["role"], request.remote_addr),
     )
     record_timeouts(conn)
     row = conn.execute(
         "SELECT * FROM devices WHERE id=%s FOR UPDATE", (did,)
     ).fetchone()
-    cookie = signer.dumps(dict(id=str(did), role=user["role"]))
+    cookie = stored if known else "kpp_" + secrets.token_urlsafe(48)
+    if not known:
+        conn.execute(
+            "UPDATE devices SET tablet_hash=%s WHERE id=%s", (digest(cookie), did)
+        )
     error = (
         "Qurilma bloklangan. Techadminga murojaat qiling."
         if row["blocked"]
@@ -88,9 +101,9 @@ def web_device_login(conn, user, app):
     return str(did), cookie, error
 
 
-def set_web_device_cookie(response, cookie, app):
+def set_web_device_cookie(response, cookie, app, role):
     response.set_cookie(
-        "kpp_device",
+        "kpp_device_" + role,
         cookie,
         max_age=365 * 86400,
         httponly=True,
@@ -224,9 +237,14 @@ def register_devices(
                 "DELETE FROM login_attempts WHERE identifier=%s", (identifier,)
             )
             conn.execute(
-                """INSERT INTO devices(id,name,role) VALUES(%s,%s,%s)
+                """INSERT INTO devices(id,name,role,ip) VALUES(%s,%s,%s,%s)
                 ON CONFLICT(id) DO NOTHING""",
-                (device_id, str(data.get("name", "Kompyuter"))[:100], role),
+                (
+                    device_id,
+                    str(data.get("name", "Kompyuter"))[:100],
+                    role,
+                    request.remote_addr,
+                ),
             )
             record_timeouts(conn)
             device = conn.execute(
@@ -239,6 +257,25 @@ def register_devices(
                     message="Qurilma ro‘yxatga olindi. Techadmin tasdig‘ini kuting."
                 ), 403
             token = secrets.token_urlsafe(48)
+            station_key = data.get("station_key")
+            if device["station_hash"] and station_key is None:
+                return jsonify(message="Tasdiqlangan dasturdan kiring."), 403
+            if station_key is not None:
+                if (
+                    not isinstance(station_key, str)
+                    or not 40 <= len(station_key) <= 100
+                ):
+                    abort(400)
+                if device["station_hash"] and not secrets.compare_digest(
+                    device["station_hash"], digest(station_key)
+                ):
+                    return jsonify(
+                        message="Qurilma kaliti mos kelmadi. Asl Windows profilidan kiring."
+                    ), 403
+                conn.execute(
+                    "UPDATE devices SET station_hash=%s WHERE id=%s",
+                    (digest(station_key), device_id),
+                )
             conn.execute(
                 "UPDATE users SET last_login_at=NOW() WHERE id=%s", (user["id"],)
             )
@@ -260,7 +297,10 @@ def register_devices(
                 (device_id,),
             )
         return jsonify(
-            token=token, user={k: user[k] for k in ("id", "username", "role")}
+            token=token,
+            prices=prices(),
+            version=digest(user["password_hash"]),
+            user={k: user[k] for k in ("id", "username", "role")},
         )
 
     @app.get("/api/device/bootstrap")
@@ -314,40 +354,76 @@ def register_devices(
     @app.get("/admin/devices")
     @roles("admin", "techadmin")
     def devices_page():
+        return app.view_functions["admin_page"]()
+
+    @app.get("/api/admin/devices")
+    @roles("admin", "techadmin")
+    def devices_list():
         with pool().connection() as conn:
             record_timeouts(conn)
             devices = conn.execute(
-                "SELECT *,connected AS online FROM devices ORDER BY name"
+                """SELECT id,name,role,approved,blocked,last_seen,last_user,ip,connected AS online
+                   FROM devices ORDER BY LOWER(name), id"""
             ).fetchall()
             events = conn.execute(
-                "SELECT e.*,d.name FROM device_events e JOIN devices d ON d.id=e.device_id ORDER BY occurred DESC LIMIT 100"
+                """SELECT e.occurred,e.event,e.previous_seen,d.name FROM device_events e
+                   JOIN devices d ON d.id=e.device_id ORDER BY occurred DESC,e.id DESC LIMIT 100"""
             ).fetchall()
-        return render_template(
-            "devices.html", devices=devices, events=events, user=g.user
+        return jsonify(
+            devices=devices, events=events, checked_at=datetime.now(timezone.utc)
         )
 
     @app.post("/admin/devices/<uuid:device_id>")
+    @app.post("/api/admin/devices/<uuid:device_id>")
     @roles("techadmin")
     def device_manage(device_id):
         from flask import redirect
 
-        action = request.form.get("action")
-        if action not in {"approve", "block"}:
+        data = (
+            request.get_json(silent=True) if request.is_json else request.form
+        ) or {}
+        action = data.get("action")
+        if action not in {"approve", "block", "rename"}:
             abort(400)
+        name = data.get("name")
+        if action == "rename" and (
+            not isinstance(name, str) or not 1 <= len(name.strip()) <= 100
+        ):
+            return jsonify(message="Qurilma nomi 1–100 belgidan iborat bo‘lsin."), 400
         with pool().connection() as conn:
-            conn.execute(
-                "UPDATE devices SET approved=%s,blocked=%s WHERE id=%s",
-                (action == "approve", action == "block", device_id),
-            )
-            conn.execute(
-                "INSERT INTO device_events(device_id,event) VALUES(%s,%s)",
-                (device_id, action + ":" + g.user["username"]),
-            )
-            if action == "block":
+            device = conn.execute(
+                "SELECT name,approved,blocked FROM devices WHERE id=%s FOR UPDATE",
+                (device_id,),
+            ).fetchone()
+            if not device:
+                abort(404)
+            if action == "rename":
+                changed = name.strip() != device["name"]
+                if changed:
+                    conn.execute(
+                        "UPDATE devices SET name=%s WHERE id=%s",
+                        (name.strip(), device_id),
+                    )
+            else:
+                approve = action == "approve"
+                changed = device["approved"] != approve or device["blocked"] == approve
+                if changed:
+                    conn.execute(
+                        "UPDATE devices SET approved=%s,blocked=%s,connected=CASE WHEN %s THEN FALSE ELSE connected END WHERE id=%s",
+                        (approve, not approve, not approve, device_id),
+                    )
+                if action == "block":
+                    conn.execute(
+                        "DELETE FROM device_sessions WHERE device_id=%s", (device_id,)
+                    )
+            if changed:
                 conn.execute(
-                    "DELETE FROM device_sessions WHERE device_id=%s", (device_id,)
+                    "INSERT INTO device_events(device_id,event) VALUES(%s,%s)",
+                    (device_id, action + ":" + g.user["username"]),
                 )
-        return redirect("/admin/devices", 303)
+        if request.is_json:
+            return jsonify(success=True)
+        return redirect("/admin?tab=devices", 303)
 
     @app.post("/api/device/parking/quote")
     def device_parking_quote():
