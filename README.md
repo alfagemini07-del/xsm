@@ -10,7 +10,7 @@ Server fayllarini yangilash uchun Git for Windows o‘rnating, GitHub hisobingiz
 
 Build uchun `pip install -r requirements.txt`, start uchun `gunicorn app:app --workers 1 --threads 4 --timeout 120 --access-logfile -` ishlating. `DATABASE_URL`, `SECRET_KEY` va `COOKIE_SECURE=true` sozlanadi. Yangi bazaga ilk techadmin uchun `INITIAL_TECHADMIN_USERNAME` va `INITIAL_TECHADMIN_PASSWORD` kerak.
 
-/dastur/kpp sahifasi KPP1 va KPP2 manzillari hamda APK yuklash tugmalarini beradi.
+/dastur/kpp sahifasi Afg‘oniston darvozasi (KPP1) va O‘zbekiston darvozasi (KPP2) manzillari hamda APK yuklash tugmalarini beradi. Foydalanuvchi loginlari va ayritom/kpp2 ichki rollari saqlangan.
 
 Terminal birinchi kirishda online tasdiq oladi. Shundan keyin mahalliy login va to‘lovlar offline ishlaydi. Server bloklash yoki parol o‘zgarishini terminal bilan navbatdagi aloqada yetkazadi. Hisobotlar markazga kelgan yozuvlardan tuziladi. Qurilmalar holati asosiy admin menyusida, 100 soniyalik signal chegarasi bilan ko‘rsatiladi.
 
@@ -24,7 +24,7 @@ Sekinlikni kamaytirish: foydalanuvchi/qurilma tekshiruvi birlashtirilgan, KPP hi
 
 ## KPP va hisobotlar
 
-`static/apk/kpp1.apk` — **KPP Ayritom**, `static/apk/kpp2.apk` — **KPP2**. Ikkalasi SUNMI V2s Smart uchun vertikal va ichki printer ilk tanlov. KPP cheki 58 mm qog‘ozga mos 384 nuqtali rasm. Windows tarozi va parkovka cheklari 80 mm. Printer tasdiqlari qog‘ozdagi natijaga qarab qayd etiladi. Aloqasi uzilgan APK chop natijasini qayta yuboradi. KPPning kirish va chiqish amallari serverga ulanishni talab qiladi.
+`static/apk/kpp1.apk` — **Afg‘oniston darvozasi**, `static/apk/kpp2.apk` — **O‘zbekiston darvozasi**. Android launcherida ham shu nomlar ko‘rinadi. SUNMI V2s Smartda tik holatda ochiladi va ichki printerdan foydalanadi. KPP cheki 58 mm; E-navbat parkovka va tarozi Windows cheklari 80 mm. Chop natijasi hamda uzilgan aloqadagi qayta yuborishlar jurnalga yoziladi. KPP kirish-chiqishida server aloqasi zarur.
 
 Qidiruv va hisobotlar barcha to‘rtta nuqtani qamrab oladi. Excel amal va markazga kelish vaqtlarini, xodimni, to‘lov sababi va xizmatlar summalarini ko‘rsatadi. Hisobot serverdagi oxirgi ma’lumotga asoslanadi. Aloqasi yo‘q terminalning navbatidagi yozuvlar kelgach qo‘shiladi.
 

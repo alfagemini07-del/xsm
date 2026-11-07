@@ -1,5 +1,5 @@
 <!doctype html><html lang="uz"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,interactive-widget=resizes-content"><title>Kirish · Airitom</title><link rel="stylesheet" href="/static/kpp.css"></head>
-<body><header><strong>AIRITOM</strong><small>Markaziy boshqaruv</small></header><main><section class="login-panel"><h1>Tizimga kirish</h1>
+<body class="login-screen"><header><strong>AIRITOM</strong><small>Markaziy boshqaruv</small></header><main><section class="login-panel"><h1>Tizimga kirish</h1>
 {% if error %}<p role="alert">{{ error }}</p>{% endif %}
 <form method="post"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><label>Login<input name="username" value="{{ username }}" maxlength="40" autocomplete="username" autocapitalize="none" required></label><label>Parol<input name="password" type="password" maxlength="200" autocomplete="current-password" required></label><button class="primary">Kirish</button></form>
 </section></main></body></html>

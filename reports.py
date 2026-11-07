@@ -43,7 +43,7 @@ MODES = {
     "vehicle": ("Avtomobillar", "w.plate"),
     "point": (
         "Nuqtalar",
-        "CASE w.point WHEN 'scale' THEN 'Tarozi' WHEN 'parkovka_tashqi' THEN 'Parkovka' WHEN 'kpp2' THEN 'KPP2' ELSE 'KPP Ayritom' END",
+        "CASE w.point WHEN 'scale' THEN 'Tarozi' WHEN 'parkovka_tashqi' THEN 'E-navbat parkovka' WHEN 'kpp2' THEN 'O‘zbekiston darvozasi' ELSE 'Afg‘oniston darvozasi' END",
     ),
 }
 

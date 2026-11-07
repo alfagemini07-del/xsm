@@ -22,18 +22,28 @@ from openpyxl.styles import Font, PatternFill
 from openpyxl.utils import get_column_letter
 
 TZ = ZoneInfo("Asia/Tashkent")
+
+def checkpoint_stats(conn, point):
+    start = datetime.combine(datetime.now(TZ).date(), time.min, TZ)
+    return conn.execute("""SELECT transaction_timestamp() AS as_of,
+        (SELECT count(*) FROM zone_visits WHERE location='inside') AS active,
+        (SELECT count(*) FROM zone_visits WHERE location='parking' AND purpose='zone') AS waiting,
+        (SELECT count(*) FROM zone_visits WHERE location='parking' AND purpose='zone' AND parking_departed_at IS NOT NULL) AS departed,
+        count(*) FILTER(WHERE action='out') AS count,COALESCE(sum(amount),0) AS total
+        FROM zone_events WHERE point=%s AND occurred >= %s""",(point,start)).fetchone()
+
 POINTS = {
-    "parkovka_tashqi": "Tashqi parkovka",
-    "kpp2": "KPP2 · O‘zbekiston",
-    "ayritom": "Ayritom darvozasi",
+    "parkovka_tashqi": "E-navbat parkovka",
+    "kpp2": "O‘zbekiston darvozasi",
+    "ayritom": "Afg‘oniston darvozasi",
 }
 LABEL = {
     **POINTS,
     "scale": "Tarozi",
     "border": "Ayritom postiga navbat",
     "zone": "Free Zone",
-    "outside": "Tashqi parkovka",
-    "parking": "Tashqi parkovka",
+    "outside": "E-navbat parkovka",
+    "parking": "E-navbat parkovka",
     "inside": "Free Zone ichida",
     "closed": "Tashrif yakunlandi",
     "in": "Kirish",
@@ -54,7 +64,7 @@ def transition(point, action, visit, purpose):
             if visit and place == "parking" and visit["purpose"] == "zone":
                 return "inside", "kpp2", True, True
             raise ValueError(
-                "KPP2 kirishi uchun tashqi parkovkadan Free Zone navbati kerak."
+                "O‘zbekiston darvozasidan kirish uchun E-navbat parkovkadan Free Zone navbati kerak."
             )
         if visit:
             raise ValueError("Avtomobilning ochiq tashrifi bor: " + LABEL[place])
@@ -186,14 +196,15 @@ def register_zone(app, pool, roles, clean_plate, qr):
     )
 
     @app.get("/zone")
-    @roles(*POINTS, *ADMINS)
+    @roles(*POINTS, *ADMINS, "display")
     def zone_home():
         point = g.user["role"]
+        if point=="display": return redirect(url_for("queue_display"))
         if point == "parkovka_tashqi":
             abort(403, description="Kompyuterdagi Parkovka dasturidan kiring")
         if point in POINTS:
             return page(mode="station")
-        return overview(False)
+        return redirect(url_for("control_room"))
 
     @app.get("/api/kpp/journal")
     @roles("ayritom", "kpp2")
@@ -211,32 +222,23 @@ def register_zone(app, pool, roles, clean_plate, qr):
                 )
                 queue_query = conn.execute(
                     """SELECT id,plate,purpose,queue_no FROM zone_visits
-                    WHERE location='parking' AND purpose='zone' AND %s='kpp2' ORDER BY id LIMIT 25""",
-                    (point,),
+                    WHERE location='parking' AND purpose='zone' AND %s='kpp2' ORDER BY id LIMIT %s OFFSET %s""",
+                    (point,size+1,(number-1)*size),
                 )
             recent = recent_query.fetchall()
             queue = queue_query.fetchall()
         return jsonify(
             recent=[dict(r, occurred=r["occurred"].isoformat()) for r in recent[:size]],
-            queue=queue,
+            queue=queue[:size],
             page=number,
-            more=len(recent) > size,
+            more=len(recent) > size or len(queue) > size,
         )
 
     @app.get("/api/kpp/stats")
     @roles("ayritom", "kpp2")
     def kpp_stats():
-        start = datetime.combine(datetime.now(TZ).date(), time.min, TZ)
         with pool().connection() as conn:
-            result = conn.execute(
-                """SELECT
-                (SELECT count(*) FROM zone_visits WHERE location='inside') AS active,
-                (SELECT count(*) FROM zone_visits WHERE location='parking' AND purpose='zone') AS waiting,
-                (SELECT count(*) FROM zone_visits WHERE location='parking' AND purpose='zone' AND parking_departed_at IS NOT NULL) AS departed,
-                count(*) FILTER(WHERE action='out') AS count,COALESCE(sum(amount),0) AS total
-                FROM zone_events WHERE point=%s AND occurred >= %s""",
-                (g.user["role"], start),
-            ).fetchone()
+            result = checkpoint_stats(conn,g.user["role"])
         return jsonify(result)
 
     def problem(message, status):
@@ -271,6 +273,10 @@ def register_zone(app, pool, roles, clean_plate, qr):
                     data.get("purpose"),
                     datetime.now(TZ),
                 )
+                if data.get("queue_no"):
+                    matching=conn.execute("SELECT id FROM zone_visits WHERE queue_no=%s AND plate_key=%s ORDER BY id LIMIT 2",(str(data["queue_no"])[:80],key)).fetchall()
+                    if len(matching)!=1 or matching[0]["id"]!=q["visit"]:
+                        raise ValueError("QR joriy tashrifga mos kelmaydi.")
         except ValueError as exc:
             return problem(str(exc), 400)
         token = signer.dumps([g.user["id"], str(uuid.uuid4()), q])
@@ -281,6 +287,12 @@ def register_zone(app, pool, roles, clean_plate, qr):
     @app.post("/zone/confirm")
     @roles(*POINTS)
     def zone_commit():
+        result = commit_transaction()
+        if not isinstance(result,int):
+            return result
+        return zone_receipt(result) if request.is_json else redirect(url_for("zone_receipt",eid=result),303)
+
+    def commit_transaction():
         if g.user["role"] == "parkovka_tashqi":
             abort(403)
         data = request.get_json() if request.is_json else request.form
@@ -308,7 +320,7 @@ def register_zone(app, pool, roles, clean_plate, qr):
                 "SELECT id FROM zone_events WHERE request_key=%s", (rid,)
             ).fetchone()
             if existing:
-                return saved_response(conn, existing["id"])
+                return existing["id"]
             if expired:
                 return problem("Hisob muddati tugadi. Raqamni qayta kiriting.", 409)
             now = datetime.now(TZ)
@@ -398,7 +410,7 @@ def register_zone(app, pool, roles, clean_plate, qr):
                 q["action"],
                 q["amount"],
             )
-            return saved_response(conn, event["id"])
+            return event["id"]
 
     @app.get("/zone/receipt/<int:eid>")
     @roles(*POINTS, *ADMINS)

@@ -7,14 +7,17 @@ from zoneinfo import ZoneInfo
 
 from flask import abort, jsonify, request, send_file
 from openpyxl import Workbook
+from openpyxl.cell import WriteOnlyCell
+from openpyxl.utils import get_column_letter
+from openpyxl.worksheet.worksheet import Worksheet
 from openpyxl.styles import Alignment, Font, PatternFill
 
 TZ = ZoneInfo("Asia/Tashkent")
 POINTS = {
     "scale": "Tarozi",
-    "parkovka_tashqi": "Tashqi parkovka",
-    "ayritom": "KPP Ayritom",
-    "kpp2": "KPP2",
+    "parkovka_tashqi": "E-navbat parkovka",
+    "ayritom": "Afg‘oniston darvozasi",
+    "kpp2": "O‘zbekiston darvozasi",
 }
 METHODS = {"cash": "Naqd", "card": "Karta", "bank": "Hisob raqam", "none": "To‘lovsiz"}
 
@@ -80,9 +83,39 @@ def as_time(value):
 
 
 def export_book(rows, meta, start, end, print_rows):
-    book = Workbook()
-    sheet = book.active
-    sheet.title = "Operatsiyalar"
+    book = Workbook(write_only=True)
+    font=Font(name="Calibri",size=12)
+    bold=Font(name="Calibri",size=12,bold=True)
+    fill=PatternFill("solid",fgColor="DCEAF7")
+    alignment=Alignment(vertical="top",wrap_text=True)
+    sheets=[]
+
+    class StreamSheet:
+        def __init__(self,title,width,header=1):
+            self.ws=book.create_sheet(title);self.count=0;self.width=width;self.header=header
+            ws=self.ws
+            for col in range(1,width+1): ws.column_dimensions[get_column_letter(col)].width=26
+            ws.freeze_panes="A"+str(header+1)
+            ws.print_title_rows=f"1:{header}"
+            ws.sheet_properties.pageSetUpPr.fitToPage=True
+            ws.page_setup.orientation="landscape";ws.page_setup.paperSize=Worksheet.PAPERSIZE_A3
+            ws.page_setup.fitToWidth=1;ws.page_setup.fitToHeight=0
+            sheets.append(self)
+
+        def append(self,values):
+            self.count+=1;cells=[]
+            for value in values:
+                cell=WriteOnlyCell(self.ws,value=value)
+                cell.font=bold if self.count==self.header else font
+                cell.alignment=alignment
+                if self.count==self.header: cell.fill=fill
+                if isinstance(value,str): cell.data_type="s"
+                elif isinstance(value,datetime): cell.number_format="dd.mm.yyyy hh:mm:ss"
+                elif isinstance(value,(int,float)): cell.number_format="#,##0"
+                cells.append(cell)
+            self.ws.append(cells)
+
+    sheet = StreamSheet("Operatsiyalar",22,4)
     sheet.append(["UMUMIY OPERATSIYALAR HISOBOTI"])
     sheet.append([f"Davr: {start} — {end}; vaqt: Asia/Tashkent (UTC+05:00)"])
     sheet.append(
@@ -152,11 +185,11 @@ def export_book(rows, meta, start, end, print_rows):
         ("Xodimlar", workers, ["Xodim", "Nuqta", "To‘lov", "Operatsiya", "Jami so‘m"]),
         ("Nuqtalar", points, ["Nuqta", "To‘lov", "Operatsiya", "Jami so‘m"]),
     ]:
-        ws = book.create_sheet(title)
+        ws = StreamSheet(title,len(headers))
         ws.append(headers)
         for key, (count, amount) in sorted(group.items()):
             ws.append([*key, count, amount])
-    journal = book.create_sheet("Chop jurnali")
+    journal = StreamSheet("Chop jurnali",8)
     journal.append(
         [
             "Chek",
@@ -192,7 +225,7 @@ def export_book(rows, meta, start, end, print_rows):
                 str(attempt["id"]),
             ]
         )
-    note = book.create_sheet("Izoh")
+    note = StreamSheet("Izoh",2)
     note.append(["Hisob vaqti", as_time(meta["at"])])
     note.append(["Vaqt mintaqasi", "Asia/Tashkent (UTC+05:00)"])
     note.append(
@@ -213,33 +246,8 @@ def export_book(rows, meta, start, end, print_rows):
             "Serverga kelgan vaqti bo‘sh eski yozuvlarda ushbu vaqt ilgari qayd qilinmagan.",
         ]
     )
-    for ws in book:
-        header = 4 if ws == sheet else 1
-        for row in ws:
-            for cell in row:
-                cell.font = Font(name="Calibri", size=12)
-                if isinstance(cell.value, str):
-                    cell.data_type = "s"
-                if isinstance(cell.value, (int, float)):
-                    cell.number_format = "#,##0"
-                if isinstance(cell.value, datetime):
-                    cell.number_format = "dd.mm.yyyy hh:mm:ss"
-                cell.alignment = Alignment(vertical="top", wrap_text=True)
-        for cell in ws[header]:
-            cell.fill = PatternFill("solid", fgColor="DCEAF7")
-            cell.font = Font(name="Calibri", size=12, bold=True)
-        for col in ws.columns:
-            ws.column_dimensions[col[0].column_letter].width = 26
-        ws.freeze_panes = "A" + str(header + 1)
-        ws.auto_filter.ref = (
-            f"A{header}:{ws.cell(ws.max_row, ws.max_column).coordinate}"
-        )
-        ws.print_title_rows = f"1:{header}"
-        ws.sheet_properties.pageSetUpPr.fitToPage = True
-        ws.page_setup.orientation = "landscape"
-        ws.page_setup.paperSize = ws.PAPERSIZE_A3
-        ws.page_setup.fitToWidth = 1
-        ws.page_setup.fitToHeight = 0
+    for item in sheets:
+        item.ws.auto_filter.ref=f"A{item.header}:{get_column_letter(item.width)}{item.count}"
     output = io.BytesIO()
     book.save(output)
     output.seek(0)

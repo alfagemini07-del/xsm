@@ -59,7 +59,7 @@ SUPABASE_DB_LIMIT_BYTES = max(
 )
 from freezone import POINTS, register_zone
 
-ALLOWED_ROLES = {"operator", "admin", "techadmin", *POINTS}
+ALLOWED_ROLES = {"operator", "admin", "techadmin", "display", *POINTS}
 ADMIN_ROLES = {"admin", "techadmin"}
 MUTATING_METHODS = {"POST", "PUT", "PATCH", "DELETE"}
 TARIFFS = {
@@ -162,8 +162,7 @@ def ensure_schema() -> None:
             if row["count"] == 0:
                 password = configured_password
                 if len(password) < 8:
-                    password = secrets.token_urlsafe(15)
-                    generated_bootstrap = (username, password)
+                    raise RuntimeError("Yangi baza uchun INITIAL_TECHADMIN_PASSWORD kamida 8 belgidan iborat bo‘lishi kerak")
                 inserted = conn.execute(
                     """
                     INSERT INTO users (username, password_hash, role)
@@ -197,10 +196,7 @@ def ensure_schema() -> None:
         if generated_bootstrap:
             username, password = generated_bootstrap
             app.logger.warning(
-                "AIRITOM FIRST LOGIN | username=%s | temporary_password=%s | "
-                "Kirgach parolni darhol almashtiring.",
-                username,
-                password,
+                "AIRITOM FIRST LOGIN | username=%s", username,
             )
         elif synced_bootstrap:
             app.logger.warning(
@@ -258,6 +254,8 @@ def load_request_context():
             ).fetchone()
         if user and user["is_active"] and session.get("auth_version") == hashlib.sha256(user["password_hash"].encode()).hexdigest():
             g.user = user
+            if user["role"]=="display" and request.endpoint not in {"index","login","logout","zone_home","queue_display","queue_display_data"}:
+                abort(403)
             if session.get("device_id"):
                 if not user["device_approved"] or user["device_blocked"] or user["device_role"] != user["role"]:
                     session.clear()
@@ -1027,7 +1025,8 @@ def sync_state():
                     COALESCE((SELECT MAX(updated_at) FROM weighings), TIMESTAMPTZ '1970-01-01'),
                     COALESCE((SELECT MAX(updated_at) FROM settings), TIMESTAMPTZ '1970-01-01'),
                     COALESCE((SELECT MAX(updated_at) FROM users), TIMESTAMPTZ '1970-01-01'),
-                    COALESCE((SELECT MAX(imported_at) FROM import_batches), TIMESTAMPTZ '1970-01-01')
+                    COALESCE((SELECT MAX(imported_at) FROM import_batches), TIMESTAMPTZ '1970-01-01'),
+                    COALESCE((SELECT MAX(received_at) FROM zone_events), TIMESTAMPTZ '1970-01-01')
                 ) AS changed_at
             """
         ).fetchone()
@@ -2221,7 +2220,7 @@ def clear_operational_data():
             """
         ).fetchone()
         conn.execute(
-            """TRUNCATE TABLE receipt_jobs, transfer_imports, zone_events, zone_visits, print_attempts, weighings,
+            """TRUNCATE TABLE export_jobs, dispatch_tickets, dispatch_log, dispatch_numbers, receipt_jobs, transfer_imports, zone_events, zone_visits, print_attempts, weighings,
                import_batches, daily_sequences RESTART IDENTITY"""
         )
     return jsonify(
@@ -2370,6 +2369,10 @@ from printing import register_printing
 register_printing(app, get_pool, roles_required)
 from transfer import register_transfer
 register_transfer(app, get_pool, roles_required)
+from control_room import register_control_room
+register_control_room(app, get_pool, roles_required)
+from export_jobs import register_exports
+register_exports(app, get_pool, roles_required)
 
 
 @app.errorhandler(400)

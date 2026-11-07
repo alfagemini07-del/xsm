@@ -28,6 +28,7 @@
         cell(tr,device.name);cell(tr,device.role+" / "+(device.last_user||"—"));cell(tr,device.ip||"—");
         const status=cell(tr,device.blocked?"Bloklangan":!device.approved?"Tasdiq kutilmoqda":device.online?"Online":"Offline");status.className=device.online&&!device.blocked?"device-online":"device-inactive";
         cell(tr,date(device.last_seen));const actions=cell(tr,"");
+        if(device.backlog){const p=document.createElement("p");p.textContent="Oxirgi terminal hisobi: "+date(device.backlog_at)+" · "+device.backlog.count+" yozuv · "+Number(device.backlog.amount).toLocaleString()+" so‘m · "+device.backlog.rejected+" ziddiyat"+(device.backlog.oldest?" · eng eski: "+date(device.backlog.oldest):"");status.append(p);}
         if(document.body.dataset.role==="techadmin"){
           button(actions,"Tahrirlash",()=>{selected=device.id;el("device-name").value=device.name;el("device-editor").returnValue="";el("device-editor").showModal();});
           if(!device.approved || device.blocked)button(actions,"Ruxsat berish",()=>change(device.id,"approve"));

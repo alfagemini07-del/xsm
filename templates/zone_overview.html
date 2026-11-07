@@ -1,11 +1,11 @@
 <section class="location-panels" aria-label="Transport joylashuvi">
   {% for place,title,total,groups in [
-    ('parking','Tashqi parkovka',stats.border + stats.zone,[
+    ('parking','E-navbat parkovka',stats.border + stats.zone,[
       ('Ayritom navbati','border','border','',stats.border),
       ('Free Zone navbati','zone','zone','',stats.zone)]),
     ('inside','Free Zone ichida',stats.inside,[
-      ('KPP2 orqali Free Zoneda','inside_kpp2','','kpp2',stats.inside_kpp2),
-      ('Ayritom orqali Free Zoneda','inside_ayritom','','ayritom',stats.inside_ayritom)])] %}
+      ('O‘zbekiston darvozasi orqali Free Zoneda','inside_kpp2','','kpp2',stats.inside_kpp2),
+      ('Afg‘oniston darvozasi orqali Free Zoneda','inside_ayritom','','ayritom',stats.inside_ayritom)])] %}
   <details class="location-box" id="group-{{ place }}" {% if request.args.get('location')==place or (place=='parking' and request.args.get('location')=='outside') %}open{% endif %}>
     <summary><span>{{ title }}</span><strong data-kpi="{{ 'outside' if place=='parking' else 'inside' }}">{{ total }}</strong><small>ta mashina</small><span class="expand-label"></span></summary>
     <div class="location-links">

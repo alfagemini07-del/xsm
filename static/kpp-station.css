@@ -110,3 +110,42 @@
 }
 .kpp .receipt-card{height:calc(var(--visible-height,100vh) - 24px)}
 .kpp .journal-card{height:min(700px,calc(var(--visible-height,100vh) - 24px))}
+
+@media screen {
+ .kpp{font-family:Roboto,"Segoe UI",sans-serif;background:#0e1b2c}
+ .kpp .main-bg{background:#0e1b2c}
+ .kpp .main-bg::after{content:none}
+ .kpp .main-header,.kpp .stats-bar,.kpp .payment-card,.kpp .kiosk-dialog::backdrop{backdrop-filter:none}
+ .kpp .main-header{background:#15263a;border-bottom:1px solid #304056}
+ .kpp .header-logo,.kpp .logo-text{min-width:0}
+ .kpp .logo-title,.kpp .hero-text h1,.kpp .action-label{background:none;color:#f6f8fc;-webkit-text-fill-color:currentColor}
+ .kpp .hero-text{width:min(100%,1100px);text-align:left}
+ .kpp .hero-text h1{margin:0;font-weight:650;letter-spacing:-.025em}
+ .kpp .action-box{border:1px solid;border-radius:16px;transition:transform 120ms ease}
+ .kpp .entry-box,.kpp .entry-box:hover{background:#15375a;border-color:#346795;box-shadow:none}
+ .kpp .exit-box,.kpp .exit-box:hover{background:#422931;border-color:#794654;box-shadow:none}
+ .kpp .action-box:hover{transform:none}
+ .kpp .action-box:active{transform:scale(.985)}
+ .kpp .action-box-inner{flex-direction:row;justify-content:flex-start;width:100%;gap:16px;padding:14px 20px}
+ .kpp .action-icon{display:grid;place-items:center;width:1.7em;height:1.7em;font-size:26px;background:#ffffff12;color:#a9d7ff;border-radius:12px;filter:none}
+ .kpp .exit-box .action-icon{color:#ffb8bd}
+ .kpp .action-label{font-size:clamp(22px,5vw,36px);font-weight:650;letter-spacing:-.02em}
+ .kpp .queue-banner{background:#132338;color:#d7e3f2;line-height:1.35}
+ .kpp .station-footer{background:#15263a;border-top:1px solid #304056}
+ .kpp .stats-bar{border-radius:12px;background:#15263a;box-shadow:none}
+ .kpp .modal-card,.kpp .payment-card,.kpp .receipt-card,.kpp .journal-card{background:#15263a;border:1px solid #394b61;box-shadow:none}
+ .kpp #vehicle .modal-title{text-align:left;padding-right:34px}
+ .kpp #vehicle .plate-flag{font:700 14px Roboto,sans-serif;color:#a9d7ff}
+ .kpp .kiosk-dialog[open] .modal-card{animation:kpp-enter 140ms ease-out}
+ @keyframes kpp-enter{from{opacity:.4;transform:translateY(5px)}to{opacity:1;transform:none}}
+}
+@media screen and (max-width:600px){
+ .kpp .main-header{gap:7px}
+ .kpp .header-session{flex:none}
+ .kpp .station-footer button{min-height:40px}
+ /* Pin the form on opening, before the keyboard sends its first resize. */
+ .kpp #vehicle[open]{inset:auto;top:calc(var(--visible-top,0px) + 6px);left:50%;transform:translateX(-50%);margin:0;width:min(460px,calc(100vw - 16px));max-height:calc(var(--visible-height,100vh) - 12px)}
+ .kpp #vehicle .modal-card{width:100%;padding:14px;max-height:inherit;overflow-y:auto}
+ .kpp #vehicle .plate-input-wrap{margin:10px 0}
+ .kpp #vehicle .modal-actions-row{margin:6px 0 0}
+}

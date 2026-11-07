@@ -39,8 +39,10 @@ function openVehicle(action) {
   el("action").value=action;
   el("title").textContent=action==="in"?"Kirayotgan avtomobil":"Chiqayotgan avtomobil";
   el("plate").value="";el("plate-error").textContent="";
+  delete el("plate").dataset.queue;
+  if(el("scan-ticket"))el("scan-ticket").hidden=action!=="in";
   el("vehicle").showModal();
-  el("plate").focus();
+  el("plate").focus({preventScroll:true});
 }
 document.querySelectorAll("[data-action]").forEach(button=>button.addEventListener("click",()=>openVehicle(button.dataset.action)));
 el("back").onclick=el("plate-back").onclick=()=>el("vehicle").close();
@@ -67,7 +69,7 @@ el("plate-form").addEventListener("submit",async event=>{
   const button=event.target.querySelector('[type="submit"]');
   button.disabled=true;el("plate-error").textContent="Tekshirilmoqda...";
   try {
-    const data=await api("/zone/quote",{plate:el("plate").value,action:el("action").value});
+    const data=await api("/zone/quote",{plate:el("plate").value,action:el("action").value,queue_no:el("plate").dataset.queue});
     el("vehicle").close();showPayment(data);
   } catch(error){el("plate-error").textContent=error.message;}
   finally {submitting=false;button.disabled=false;}
@@ -122,11 +124,6 @@ async function loadJournal(target=journalPage) {
     const data=await api("/api/kpp/journal?page="+target);
     journalPage=target;
     const list=el("journal").querySelector(".journal-list");list.replaceChildren();
-    for(const row of data.queue) {
-      const button=document.createElement("button");button.type="button";button.textContent="Navbat "+(row.queue_no||row.id)+" · "+row.plate;
-      button.onclick=()=>{el("journal").close();openVehicle("in");el("plate").value=row.plate;};
-      list.append(button);
-    }
     for(const row of data.recent) {
       const button=document.createElement("button");button.type="button";button.textContent=row.plate+" · "+(row.action==="in"?"Kirish":"Chiqish")+" · "+money(row.amount);
       button.onclick=async()=>{
@@ -135,6 +132,11 @@ async function loadJournal(target=journalPage) {
         catch(error){el("journal-status").textContent=error.message;}
         finally{button.disabled=false;}
       };
+      list.append(button);
+    }
+    for(const row of data.queue) {
+      const button=document.createElement("button");button.type="button";button.textContent="Navbat "+(row.queue_no||row.id)+" · "+row.plate;
+      button.onclick=()=>{el("journal").close();openVehicle("in");el("plate").value=row.plate;};
       list.append(button);
     }
     el("journal-more").hidden=!data.more;
@@ -151,16 +153,18 @@ el("journal-previous").onclick=()=>loadJournal(journalPage-1);
 el("rows-prev").onclick=()=>{rowPage--;showRows();};el("rows-next").onclick=()=>{rowPage++;showRows();};
 window.addEventListener("resize",()=>{if(el("journal").open)showRows();});
 async function refreshStats() {
-  try{const data=await api("/api/kpp/stats");el("stat-active").textContent=data.active;el("stat-waiting").textContent=data.waiting;el("stat-departed").textContent=data.departed;el("stat-count").textContent=data.count;el("stat-total").textContent=Number(data.total).toLocaleString("uz-UZ");}catch{}
+  try{showStats(await api("/api/kpp/stats"));}catch{}
 }
+function showStats(data){if(!data)return;el("stat-active").textContent=data.active;el("stat-waiting").textContent=data.waiting;el("stat-departed").textContent=data.departed;el("stat-count").textContent=data.count;el("stat-total").textContent=Number(data.total).toLocaleString("uz-UZ");if(data.as_of)el("connection").title="Ma’lumot vaqti: "+new Date(data.as_of).toLocaleString("uz-UZ",{timeZone:"Asia/Tashkent"});}
 async function heartbeat() {
   if(heartbeatBusy||document.hidden||submitting)return;
   heartbeatBusy=true;
-  try{await api("/api/kpp/heartbeat",{});el("connection").textContent="● Online";refreshStats();}
+  try{const data=await api("/api/kpp/heartbeat",{});el("connection").textContent="● Online";showStats(data.stats);}
   catch(error){el("connection").textContent="○ Server bilan aloqa yo‘q";if(error.status===401||error.status===403)location.assign("/login");}
   finally{heartbeatBusy=false;}
 }
-function clock(){el("clock").textContent=new Date().toLocaleTimeString("uz-UZ",{timeZone:"Asia/Tashkent"});}
+const clockFormat = new Intl.DateTimeFormat("uz-UZ",{timeZone:"Asia/Tashkent",hour:"2-digit",minute:"2-digit",second:"2-digit"});
+function clock(){if(!document.hidden)el("clock").textContent=clockFormat.format(new Date());}
 clock();setInterval(clock,1000);
 if(["ayritom","kpp2"].includes(document.body.dataset.role)){heartbeat();setInterval(heartbeat,30000);}
 document.addEventListener("visibilitychange",()=>{if(!document.hidden)heartbeat();});
@@ -177,9 +181,11 @@ function fitKeyboard() {
   const typing = document.activeElement === el("plate") && el("vehicle").open;
   if (!typing) fullHeight = innerHeight;
   document.documentElement.style.setProperty("--visible-height", height + "px");
+  document.documentElement.style.setProperty("--visible-top", (viewport?.offsetTop || 0) + "px");
   document.body.classList.toggle("keyboard-open", typing && fullHeight - height > 100);
 }
 window.visualViewport?.addEventListener("resize", fitKeyboard);
+window.visualViewport?.addEventListener("scroll", fitKeyboard);
 window.addEventListener("resize", fitKeyboard);
 el("plate").addEventListener("focus", fitKeyboard);
 el("plate").addEventListener("blur", fitKeyboard);

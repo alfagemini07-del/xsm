@@ -65,6 +65,15 @@ def register_station(app, pool, prices, clean_plate):
                 (request.remote_addr, dev["id"]),
             )
             acknowledged, rejected = [], {}
+            backlog=data.get("backlog")
+            if isinstance(backlog,dict):
+                try:
+                    counts={key:integer(backlog,key,2**63-1) for key in ("count","amount","rejected")}
+                except (ValueError,TypeError,KeyError):
+                    abort(400,description="Yuborish navbati qiymatlari noto‘g‘ri")
+                counts["oldest"]=str(backlog.get("oldest") or "")[:40]
+                from psycopg.types.json import Jsonb
+                conn.execute("UPDATE devices SET backlog=%s,backlog_at=NOW() WHERE id=%s",(Jsonb(counts),dev["id"]))
             for event in events:
                 try:
                     eid = uuid.UUID(str(event["id"]))
@@ -111,7 +120,7 @@ def apply_event(conn, dev, eid, event, clean_plate):
     p = event["payload"]
     kind = event["kind"]
     worker = str(p["worker"])[:40]
-    u = conn.execute("SELECT id FROM users WHERE username=%s", (worker,)).fetchone()
+    u = conn.execute("SELECT id FROM users WHERE username=%s AND role=%s", (worker,dev["role"])).fetchone()
     if not u:
         raise ValueError("Xodim topilmadi")
     at = datetime.fromisoformat(p["occurred"])

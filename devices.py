@@ -153,7 +153,7 @@ def register_devices(
     check_login_limit,
     register_login_failure,
 ):
-    from freezone import quote, TZ, LABEL
+    from freezone import quote, TZ, LABEL, checkpoint_stats
     from itsdangerous import URLSafeTimedSerializer, BadData
 
     signer = URLSafeTimedSerializer(app.secret_key, salt="desktop-parking-v1")
@@ -203,7 +203,8 @@ def register_devices(
                 "UPDATE devices SET connected=TRUE,last_seen=NOW(),ip=%s WHERE id=%s",
                 (request.remote_addr, did),
             )
-        return jsonify(success=True)
+            stats=checkpoint_stats(conn,g.user["role"])
+        return jsonify(success=True,stats=stats)
 
     @app.post("/api/device/login")
     def device_login():
@@ -364,7 +365,7 @@ def register_devices(
         with pool().connection() as conn:
             record_timeouts(conn)
             devices = conn.execute(
-                """SELECT id,name,role,approved,blocked,last_seen,last_user,ip,connected AS online
+                """SELECT id,name,role,approved,blocked,last_seen,last_user,ip,connected AS online,backlog,backlog_at
                    FROM devices ORDER BY LOWER(name), id"""
             ).fetchall()
             total=conn.execute("SELECT COUNT(*) n FROM device_events").fetchone()["n"]

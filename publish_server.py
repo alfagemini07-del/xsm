@@ -85,7 +85,7 @@ def files():
             ]
             for n in names:
                 p = folder / n
-                if not p.is_symlink() and p.suffix.lower() in EXTENSIONS:
+                if not p.is_symlink() and (p.suffix.lower() in EXTENSIONS or p.name in {"three.LICENSE.txt","jsQR.LICENSE.txt"}):
                     yield p.relative_to(SOURCE)
 
 

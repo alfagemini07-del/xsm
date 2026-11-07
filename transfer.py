@@ -25,7 +25,14 @@ TABLES = {
     "station_events": None,
     "tariff_history": None,
     "daily_sequences": None,
+    "dispatch_config": None,
+    "dispatch_spots": None,
+    "dispatch_gates": None,
+    "dispatch_numbers": None,
+    "dispatch_tickets": None,
+    "dispatch_log": None,
 }
+LEGACY_TABLES = set(TABLES) - {key for key in TABLES if key.startswith("dispatch_")}
 
 
 def encode(value):
@@ -61,7 +68,7 @@ def register_transfer(app, pool, roles):
             at = conn.execute("SELECT NOW() at").fetchone()["at"]
         payload = json.dumps(
             {
-                "format": "xsm-operations-v1",
+                "format": "xsm-operations-v2",
                 "created_at": at,
                 "timezone": "Asia/Tashkent",
                 "tables": result,
@@ -87,9 +94,8 @@ def register_transfer(app, pool, roles):
             abort(400, description="Zaxira 32 MB dan oshdi")
         try:
             data = json.loads(raw)
-            if data["format"] != "xsm-operations-v1" or set(data["tables"]) != set(
-                TABLES
-            ):
+            expected = LEGACY_TABLES if data["format"] == "xsm-operations-v1" else set(TABLES)
+            if data["format"] not in ("xsm-operations-v1","xsm-operations-v2") or set(data["tables"]) != expected:
                 raise ValueError()
             if any(not isinstance(rows, list) for rows in data["tables"].values()):
                 raise ValueError()
@@ -116,6 +122,10 @@ def register_transfer(app, pool, roles):
                         message="Ushbu zaxira oldin import qilingan",
                     )
                 with conn.transaction(force_rollback=preview):
+                    # Restore stored queue numbers rather than allocating new ones in the visit trigger.
+                    conn.execute("SELECT set_config('xsm.restoring','on',true)")
+                    cfg_empty=not conn.execute("SELECT 1 FROM dispatch_tickets LIMIT 1").fetchone()
+                    conn.execute("SELECT id FROM dispatch_config WHERE id FOR UPDATE")
                     for table, allowed in TABLES.items():
                         columns = {
                             r["column_name"]
@@ -133,7 +143,7 @@ def register_transfer(app, pool, roles):
                                 (table,),
                             )
                         ]
-                        for row in data["tables"][table]:
+                        for row in data["tables"].get(table,[]):
                             if (
                                 not isinstance(row, dict)
                                 or not set(row) <= columns
@@ -151,6 +161,18 @@ def register_transfer(app, pool, roles):
                             ).fetchone()
                             if existing:
                                 canonical = normalized(existing)
+                                if table in {"dispatch_config","dispatch_gates"} and cfg_empty:
+                                    assignments={k:v for k,v in row.items() if k not in pks}
+                                    if assignments:
+                                        conn.execute(sql.SQL("UPDATE {} SET {} WHERE {}").format(sql.Identifier(table),
+                                            sql.SQL(',').join(sql.SQL('{}=%s').format(sql.Identifier(k)) for k in assignments),where),
+                                            [Jsonb(v) if isinstance(v,(dict,list)) else v for v in assignments.values()]+[row[k] for k in pks])
+                                    skipped+=1
+                                    continue
+                                if table=="dispatch_numbers":
+                                    conn.execute("UPDATE dispatch_numbers SET number=GREATEST(number,%s) WHERE day=%s AND flow=%s",(row["number"],row["day"],row["flow"]))
+                                    skipped+=1
+                                    continue
                                 # User credentials and live tariff configuration stay authoritative.
                                 keys = (
                                     ["username", "role"]
@@ -187,6 +209,17 @@ def register_transfer(app, pool, roles):
                                 ],
                             )
                             inserted += 1
+                    conn.execute("SELECT set_config('xsm.restoring','off',true)")
+                    conn.execute("""SELECT dispatch_place(v.id,v.purpose,v.location,v.started) FROM zone_visits v
+                        WHERE v.location<>'closed' AND NOT EXISTS(SELECT 1 FROM dispatch_tickets t WHERE t.visit_id=v.id)
+                        ORDER BY v.started,v.id""")
+                    conn.execute("""INSERT INTO dispatch_numbers(day,flow,number) SELECT day,flow,max(number) FROM dispatch_tickets GROUP BY day,flow
+                        ON CONFLICT(day,flow) DO UPDATE SET number=GREATEST(dispatch_numbers.number,excluded.number)""")
+                    if conn.execute("""SELECT 1 FROM dispatch_tickets t JOIN zone_visits v ON v.id=t.visit_id CROSS JOIN dispatch_config c
+                        WHERE t.area<>v.location OR t.flow<>CASE WHEN v.purpose='border' THEN 'CH' ELSE 'FZ' END
+                        OR t.slot<1 OR t.slot>CASE WHEN t.area='parking' THEN c.parking_capacity ELSE c.inside_capacity END
+                        OR EXISTS(SELECT 1 FROM dispatch_spots s WHERE s.area=t.area AND s.slot=t.slot) LIMIT 1""").fetchone():
+                        raise ValueError("Navbat joyi yoki tashrif holati mos emas. Import bekor qilindi")
                     if not preview:
                         for table in TABLES:
                             sequence = (
@@ -195,7 +228,7 @@ def register_transfer(app, pool, roles):
                                     (table,),
                                 ).fetchone()["seq"]
                                 if table
-                                not in {"settings", "daily_sequences", "station_events"}
+                                not in {"settings", "daily_sequences", "station_events", "dispatch_spots", "dispatch_tickets", "dispatch_numbers"}
                                 else None
                             )
                             if sequence:

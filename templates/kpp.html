@@ -5,8 +5,8 @@
   <meta name="viewport" content="width=device-width,initial-scale=1,interactive-widget=resizes-content">
   <title>{{ points.get(user.role,'Airitom') }}</title>
   <link rel="stylesheet" href="/static/kpp-parking.css?v=4">
-  <link rel="stylesheet" href="/static/kpp-station.css?v=4">
-  <script src="/static/kpp.js?v=4" defer></script>
+  <link rel="stylesheet" href="/static/kpp-station.css?v=5">
+  <script src="/static/kpp.js?v=5" defer></script>
 </head>
 <body class="kpp" data-csrf="{{ csrf_token() }}" data-role="{{ user.role }}" data-user="{{ user.id }}" data-mode="{{ mode }}" data-receipt-id="{{ receipt_id|default(0) }}" data-print-attempts="{{ receipt.print_attempts if receipt is defined else 0 }}">
 {% macro csrf() %}<input type="hidden" name="csrf_token" value="{{ csrf_token() }}">{% endmacro %}
@@ -18,22 +18,23 @@
     <form method="post" action="/logout">{{ csrf() }}<button class="btn-secondary compact" type="submit">Chiqish</button></form>
   </header>
   <main class="main-content">
-    <div class="hero-text"><h1>Hudud Kirish-Chiqish Tizimi</h1><p>Kirish yoki chiqishni tanlang</p></div>
+    <div class="hero-text"><h1>Transport nazorati</h1></div>
     <div class="action-boxes">
-      <button type="button" class="action-box entry-box" data-action="in"><span class="action-box-glow entry-glow"></span><span class="action-box-inner"><span class="action-icon">🔵</span><span class="action-label">KIRISH</span><span class="action-sub">Hududga kirish</span></span></button>
-      <button type="button" class="action-box exit-box" data-action="out"><span class="action-box-glow exit-glow"></span><span class="action-box-inner"><span class="action-icon">🔴</span><span class="action-label">CHIQISH</span><span class="action-sub">Hududdan chiqish</span></span></button>
+      <button type="button" class="action-box entry-box" data-action="in"><span class="action-box-inner"><span class="action-icon" aria-hidden="true">↘</span><span class="action-label">Kirish</span></span></button>
+      <button type="button" class="action-box exit-box" data-action="out"><span class="action-box-inner"><span class="action-icon" aria-hidden="true">↗</span><span class="action-label">Chiqish</span></span></button>
     </div>
     <div class="stats-bar"><div class="stat-item"><span class="stat-val" id="stat-active">—</span><span class="stat-label">Hozir hudud ichida</span></div><div class="stat-divider"></div><div class="stat-item"><span class="stat-val" id="stat-count">—</span><span class="stat-label">Bugun chiqdi</span></div><div class="stat-divider"></div><div class="stat-item"><span class="stat-val" id="stat-total">—</span><span class="stat-label">Bugungi tushum (so‘m)</span></div></div>
   </main>
-  <div class="queue-banner">KPP2 ga navbat: <strong id="stat-waiting">—</strong> ta · Parkovkadan chiqqan: <strong id="stat-departed">—</strong></div><footer class="station-footer"><button id="journal-open" class="btn-secondary compact" type="button">▤ Navbat va cheklar</button><button id="printer-settings" class="btn-secondary compact" type="button">Printer</button><small>{{ user.username }}</small></footer>
+  <div class="queue-banner">{{ 'O‘zbekiston darvozasiga' if user.role=='kpp2' else 'Afg‘oniston darvozasiga' }} navbat: <strong id="stat-waiting">—</strong> ta · E-navbat parkovkadan chiqqan: <strong id="stat-departed">—</strong></div><footer class="station-footer"><button id="journal-open" class="btn-secondary compact" type="button">▤ Navbat va cheklar</button><button id="printer-settings" class="btn-secondary compact" type="button">Printer</button><small>{{ user.username }}</small></footer>
 </div>
 
 <dialog id="vehicle" class="kiosk-dialog">
   <form id="plate-form" class="modal-card" method="post" action="/zone/quote">
     {{ csrf() }}<input type="hidden" name="action" id="action">
     <button type="button" class="modal-close" id="back" aria-label="Yopish">✕</button>
-    <div class="modal-icon">🚗</div><h2 id="title" class="modal-title">Mashina Raqamini Kiriting</h2>
-    <div class="plate-input-wrap"><div class="plate-flag">🇺🇿</div><input class="plate-input" id="plate" name="plate" placeholder="01 A 123 BA" required minlength="2" maxlength="20" autocomplete="off" spellcheck="false" aria-label="Davlat raqami"></div>
+    <h2 id="title" class="modal-title">Avtomobil raqami</h2>
+    <div class="plate-input-wrap"><div class="plate-flag">UZ</div><input class="plate-input" id="plate" name="plate" placeholder="01 A 123 BA" required minlength="2" maxlength="20" autocomplete="off" autocapitalize="characters" enterkeyhint="go" spellcheck="false" aria-label="Davlat raqami"></div>
+    {% if user.role=='kpp2' %}<button type="button" id="scan-ticket" class="btn-secondary compact">Navbat QRni o‘qish</button>{% endif %}
     <p id="plate-error" class="message" role="alert"></p>
     <div class="modal-actions-row"><button type="button" class="btn-secondary" id="plate-back">Orqaga</button><button class="btn-primary" type="submit">Davom etish →</button></div>
   </form>
@@ -71,6 +72,7 @@
   </div>
 </dialog>
 <script src="/static/kpp-printer.js?v=4" defer></script>
+{% if user.role=='kpp2' %}<dialog id="scan-window" class="kiosk-dialog"><div class="modal-card"><video id="scanner-video" playsinline muted style="width:100%;max-height:45vh"></video><p id="scan-status" role="status"></p><button type="button" id="scan-close" class="btn-secondary">Yopish</button></div></dialog><script src="/static/scan-ticket.js" defer></script>{% endif %}
 {% if mode=='confirm' %}<script type="application/json" id="initial-quote">{{ {'quote':q,'ticket':token}|tojson }}</script>{% endif %}
 {% if mode=='error' %}<dialog id="server-error" class="kiosk-dialog" open><div class="modal-card"><h2>Amal bajarilmadi</h2><p class="message" role="alert">{{ message }}</p><a href="/zone" class="btn-primary">Qayta tekshirish</a></div></dialog>{% endif %}
 </body></html>

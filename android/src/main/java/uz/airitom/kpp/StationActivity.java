@@ -20,6 +20,9 @@ import android.print.PrintManager;
 import android.util.Base64;
 import android.webkit.*;
 import android.widget.EditText;
+import android.widget.FrameLayout;
+import android.view.WindowInsets;
+import android.graphics.Color;
 import android.widget.LinearLayout;
 import android.widget.Toast;
 import com.sunmi.peripheral.printer.*;
@@ -31,6 +34,7 @@ import java.util.concurrent.*;
 
 public final class StationActivity extends Activity {
     private WebView page;
+    private PermissionRequest pendingCamera;
     private final Uri origin=Uri.parse(BuildConfig.ORIGIN);
     private final Handler ui=new Handler(Looper.getMainLooper());
     private final ExecutorService worker=Executors.newSingleThreadExecutor();
@@ -53,10 +57,36 @@ public final class StationActivity extends Activity {
         preferences.edit().remove("active").commit();
         bindPrinter();
         page=new WebView(this);
-        page.setOnApplyWindowInsetsListener((view,insets)->{view.setPadding(insets.getStableInsetLeft(),insets.getStableInsetTop(),insets.getStableInsetRight(),insets.getStableInsetBottom());return insets.consumeSystemWindowInsets();});
-        setContentView(page);
+        FrameLayout content = new FrameLayout(this);
+        content.setBackgroundColor(Color.rgb(14, 27, 44));
+        if (Build.VERSION.SDK_INT >= 30) {
+            getWindow().setDecorFitsSystemWindows(false);
+            content.setOnApplyWindowInsetsListener((view, insets) -> {
+                android.graphics.Insets safe = insets.getInsets(WindowInsets.Type.systemBars()
+                        | WindowInsets.Type.displayCutout() | WindowInsets.Type.ime());
+                view.setPadding(safe.left, safe.top, safe.right, safe.bottom);
+                return WindowInsets.CONSUMED;
+            });
+        }
+        // Older Android versions resize the decor for the IME via adjustResize.
+        content.addView(page, new FrameLayout.LayoutParams(-1, -1));
+        setContentView(content);
+        content.requestApplyInsets();
         WebSettings settings=page.getSettings();settings.setJavaScriptEnabled(true);settings.setDomStorageEnabled(true);settings.setAllowFileAccess(false);settings.setAllowContentAccess(false);settings.setMixedContentMode(WebSettings.MIXED_CONTENT_NEVER_ALLOW);
         android.webkit.CookieManager.getInstance().setAcceptThirdPartyCookies(page,false);
+        page.setWebChromeClient(new WebChromeClient(){
+            @Override public void onPermissionRequest(PermissionRequest req){
+                if (!trusted(req.getOrigin()) || !trustedPage() || !Arrays.asList(req.getResources()).contains(PermissionRequest.RESOURCE_VIDEO_CAPTURE)) {
+                    req.deny();return;
+                }
+                if(checkSelfPermission(Manifest.permission.CAMERA)==PackageManager.PERMISSION_GRANTED){
+                    req.grant(new String[]{PermissionRequest.RESOURCE_VIDEO_CAPTURE});
+                }else if(pendingCamera==null){
+                    pendingCamera=req;requestPermissions(new String[]{Manifest.permission.CAMERA},42);
+                }else req.deny();
+            }
+            @Override public void onPermissionRequestCanceled(PermissionRequest req){if(pendingCamera==req)pendingCamera=null;}
+        });
         page.setWebViewClient(new WebViewClient(){
             @Override public boolean shouldOverrideUrlLoading(WebView view,WebResourceRequest request){
                 Uri uri=request.getUrl();
@@ -194,7 +224,15 @@ public final class StationActivity extends Activity {
     }
     private void paper(){new AlertDialog.Builder(this).setTitle("Tashqi printer qog‘ozi").setItems(new String[]{"58 mm","80 mm"},(d,i)->{preferences.edit().putInt("width",i==0?384:576).apply();toast("Printer saqlandi");}).show();}
     private void toast(String text){Toast.makeText(this,text,Toast.LENGTH_LONG).show();}
-    @Override public void onRequestPermissionsResult(int code,String[] permissions,int[] results){super.onRequestPermissionsResult(code,permissions,results);if(code==41&&results.length>0&&results[0]==PackageManager.PERMISSION_GRANTED)bluetooth();else toast("Bluetooth ruxsati berilmadi");}
+    @Override public void onRequestPermissionsResult(int code,String[] permissions,int[] results){
+        super.onRequestPermissionsResult(code,permissions,results);
+        boolean granted=results.length>0&&results[0]==PackageManager.PERMISSION_GRANTED;
+        if(code==42 && pendingCamera!=null){
+            if(granted && trustedPage() && trusted(pendingCamera.getOrigin()))pendingCamera.grant(new String[]{PermissionRequest.RESOURCE_VIDEO_CAPTURE});
+            else pendingCamera.deny();
+            pendingCamera=null;
+        }else if(code==41){if(granted)bluetooth();else toast("Bluetooth ruxsati berilmadi");}
+    }
     @Override protected void onResume(){super.onResume();if(page!=null)ui.postDelayed(this::replay,600);}
     @Override protected void onDestroy(){try{InnerPrinterManager.getInstance().unBindService(this,connection);}catch(Exception ignored){}worker.shutdown();deadlines.shutdown();super.onDestroy();}
     @Override public void onBackPressed(){if(printing){toast("Chek chop etilishi tugashini kuting");return;}if(page.canGoBack())openStation();else super.onBackPressed();}

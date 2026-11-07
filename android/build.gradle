@@ -14,8 +14,8 @@ android {
         applicationId 'uz.airitom.kpp'
         minSdk 24
         targetSdk 35
-        versionCode 2
-        versionName '1.1'
+        versionCode 5
+        versionName '1.4'
         buildConfigField 'String', 'ORIGIN', groovy.json.JsonOutput.toJson(origin.replaceAll('/$', ''))
     }
     buildFeatures { buildConfig true }
@@ -38,13 +38,13 @@ android {
         kpp1 {
             dimension 'station'
             applicationIdSuffix '.ayritom'
-            resValue 'string', 'app_name', 'KPP Ayritom'
+            resValue 'string', 'app_name', 'Afg‘oniston darvozasi'
             buildConfigField 'String', 'STATION', '"/dastur/kpp/1"'
         }
         kpp2 {
             dimension 'station'
             applicationIdSuffix '.uz'
-            resValue 'string', 'app_name', 'KPP2'
+            resValue 'string', 'app_name', 'O‘zbekiston darvozasi'
             buildConfigField 'String', 'STATION', '"/dastur/kpp/2"'
         }
     }

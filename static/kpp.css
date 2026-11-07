@@ -291,6 +291,16 @@ input:focus-visible {
 .login-panel {
   max-width: 480px;
 }
+@media screen and (max-height:440px) {
+  .login-screen {grid-template-rows:0 minmax(0,1fr)}
+  .login-screen>header {visibility:hidden}
+  .login-screen main {padding:6px 12px;align-items:start}
+  .login-panel h1 {font-size:19px;margin-bottom:5px}
+  .login-panel form,.login-panel label {gap:3px}
+  .login-panel input,.login-panel button {min-height:36px;padding:6px 10px}
+  .login-panel [role=alert] {margin:4px 0;font-size:13px}
+  .login-panel {overflow:auto}
+}
 .login-panel [role="alert"] {
   color: #ffb7ba;
 }

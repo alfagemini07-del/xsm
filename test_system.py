@@ -287,7 +287,7 @@ class SystemFlow(unittest.TestCase):
             finally:
                 web.shutdown()
 
-        self.assertEqual(clients["techadmin"].get("/zone").status_code, 200)
+        self.assertEqual(clients["techadmin"].get("/zone",follow_redirects=True).status_code, 200)
         self.assertEqual(clients["techadmin"].get("/admin/devices").status_code, 200)
         self.assertEqual(
             c.post("/api/device/heartbeat", json={}, headers=h).status_code, 200

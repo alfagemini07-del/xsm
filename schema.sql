@@ -133,10 +133,11 @@ CREATE INDEX IF NOT EXISTS idx_print_created ON print_attempts(created_at DESC);
 
 -- Extend roles on existing installations as well as new databases.
 DO $$ BEGIN
-    IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conrelid='users'::regclass AND conname='users_zone_role_check') THEN
+    IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conrelid='users'::regclass AND conname='users_display_role_check') THEN
         ALTER TABLE users DROP CONSTRAINT IF EXISTS users_role_check;
-        ALTER TABLE users ADD CONSTRAINT users_zone_role_check CHECK
-            (role IN ('operator','admin','techadmin','parkovka_tashqi','kpp2','ayritom'));
+        ALTER TABLE users DROP CONSTRAINT IF EXISTS users_zone_role_check;
+        ALTER TABLE users ADD CONSTRAINT users_display_role_check CHECK
+            (role IN ('operator','admin','techadmin','parkovka_tashqi','kpp2','ayritom','display'));
     END IF;
 END $$;
 CREATE TABLE IF NOT EXISTS zone_visits (
@@ -271,3 +272,89 @@ CREATE OR REPLACE VIEW operation_ledger AS
  0::bigint,0::bigint,0::bigint,0::bigint,e.amount,v.purpose,v.started,
  CASE WHEN e.action='out' THEN e.occurred END,e.days,v.daily_rate,e.action,e.location,FALSE,FALSE,e.point
  FROM zone_events e JOIN zone_visits v ON v.id=e.visit_id LEFT JOIN users u ON u.username=e.operator_name;
+
+CREATE TABLE IF NOT EXISTS dispatch_config (
+ id boolean PRIMARY KEY DEFAULT true CHECK(id),
+ parking_capacity integer NOT NULL DEFAULT 120 CHECK(parking_capacity BETWEEN 1 AND 500),
+ inside_capacity integer NOT NULL DEFAULT 60 CHECK(inside_capacity BETWEEN 1 AND 500),
+ reset_hour integer NOT NULL DEFAULT 0 CHECK(reset_hour BETWEEN 0 AND 23)
+);
+INSERT INTO dispatch_config(id) VALUES(true) ON CONFLICT DO NOTHING;
+ALTER TABLE dispatch_config ADD COLUMN IF NOT EXISTS no_show_minutes integer NOT NULL DEFAULT 5 CHECK(no_show_minutes BETWEEN 1 AND 120);
+CREATE TABLE IF NOT EXISTS dispatch_spots (
+ area text NOT NULL CHECK(area IN ('parking','inside')), slot integer NOT NULL CHECK(slot BETWEEN 1 AND 500),
+ state text NOT NULL CHECK(state IN ('reserved','disabled')), reason text NOT NULL,
+ actor text NOT NULL, updated_at timestamptz NOT NULL DEFAULT now(), PRIMARY KEY(area,slot)
+);
+CREATE TABLE IF NOT EXISTS dispatch_gates (
+ id integer PRIMARY KEY CHECK(id IN (1,2)),
+ state text NOT NULL DEFAULT 'closed' CHECK(state IN ('open','closed','locked','fault','maintenance')),
+ updated_at timestamptz NOT NULL DEFAULT now(), actor text NOT NULL DEFAULT 'system', reason text NOT NULL DEFAULT ''
+);
+INSERT INTO dispatch_gates(id) VALUES(1),(2) ON CONFLICT DO NOTHING;
+CREATE TABLE IF NOT EXISTS dispatch_numbers (
+ day date NOT NULL, flow text NOT NULL, number integer NOT NULL, PRIMARY KEY(day,flow)
+);
+CREATE TABLE IF NOT EXISTS dispatch_tickets (
+ visit_id bigint PRIMARY KEY REFERENCES zone_visits(id) ON DELETE CASCADE,
+ day date NOT NULL, flow text NOT NULL, number integer NOT NULL, area text NOT NULL,
+ slot integer, called_at timestamptz, called_by bigint REFERENCES users(id),
+ UNIQUE(day,flow,number), UNIQUE(area,slot)
+);
+CREATE TABLE IF NOT EXISTS dispatch_log (
+ id bigserial PRIMARY KEY, visit_id bigint, at timestamptz NOT NULL DEFAULT now(),
+ action text NOT NULL, actor text NOT NULL
+);
+ALTER TABLE dispatch_tickets ADD COLUMN IF NOT EXISTS queue_state text NOT NULL DEFAULT 'waiting'
+ CHECK(queue_state IN ('waiting','called','hold','no_show','cancelled','inside','completed'));
+ALTER TABLE dispatch_tickets ADD COLUMN IF NOT EXISTS priority integer NOT NULL DEFAULT 0 CHECK(priority BETWEEN 0 AND 2);
+ALTER TABLE dispatch_tickets ADD COLUMN IF NOT EXISTS version integer NOT NULL DEFAULT 1;
+UPDATE dispatch_tickets SET queue_state=CASE WHEN area='closed' THEN 'completed' ELSE 'inside' END
+ WHERE area IN ('inside','closed') AND queue_state IN ('waiting','called');
+UPDATE dispatch_tickets SET queue_state='called' WHERE area='parking' AND called_at IS NOT NULL AND queue_state='waiting';
+CREATE INDEX IF NOT EXISTS dispatch_waiting ON dispatch_tickets(flow,priority DESC,day,number) WHERE area='parking' AND queue_state='waiting';
+ALTER TABLE dispatch_log ADD COLUMN IF NOT EXISTS detail jsonb NOT NULL DEFAULT '{}';
+ALTER TABLE dispatch_log ADD COLUMN IF NOT EXISTS command_id uuid UNIQUE;
+ALTER TABLE devices ADD COLUMN IF NOT EXISTS backlog jsonb;
+ALTER TABLE devices ADD COLUMN IF NOT EXISTS backlog_at timestamptz;
+CREATE OR REPLACE FUNCTION dispatch_place(vid bigint, purpose text, place text, started_at timestamptz)
+RETURNS void LANGUAGE plpgsql AS $$
+DECLARE cfg dispatch_config%ROWTYPE; business_day date; prefix text; n integer; space integer; old_area text;
+BEGIN
+ IF current_setting('xsm.restoring',true)='on' THEN RETURN; END IF;
+ SELECT * INTO cfg FROM dispatch_config WHERE id FOR UPDATE;
+ SELECT area INTO old_area FROM dispatch_tickets WHERE visit_id=vid;
+ IF old_area=place OR (old_area IS NULL AND place='closed') THEN RETURN; END IF;
+ IF place IN ('parking','inside') THEN
+   SELECT i INTO space FROM generate_series(1,CASE WHEN place='parking' THEN cfg.parking_capacity ELSE cfg.inside_capacity END) i
+     WHERE NOT EXISTS(SELECT 1 FROM dispatch_tickets t WHERE t.area=place AND t.slot=i)
+       AND NOT EXISTS(SELECT 1 FROM dispatch_spots s WHERE s.area=place AND s.slot=i) ORDER BY i LIMIT 1;
+ END IF;
+ IF old_area IS NULL THEN
+   business_day:=((started_at AT TIME ZONE 'Asia/Tashkent') - make_interval(hours=>cfg.reset_hour))::date;
+   prefix:=CASE WHEN purpose='border' THEN 'CH' ELSE 'FZ' END;
+   INSERT INTO dispatch_numbers VALUES(business_day,prefix,1) ON CONFLICT(day,flow)
+     DO UPDATE SET number=dispatch_numbers.number+1 RETURNING number INTO n;
+   INSERT INTO dispatch_tickets(visit_id,day,flow,number,area,slot,queue_state)
+     VALUES(vid,business_day,prefix,n,place,space,CASE WHEN place='inside' THEN 'inside' ELSE 'waiting' END);
+ ELSE
+   UPDATE dispatch_tickets SET area=place,slot=space,version=version+1,
+     queue_state=CASE WHEN place='inside' THEN 'inside' WHEN place='closed' THEN 'completed' ELSE 'waiting' END WHERE visit_id=vid;
+ END IF;
+END $$;
+CREATE OR REPLACE FUNCTION dispatch_visit_trigger() RETURNS trigger LANGUAGE plpgsql AS $$
+BEGIN PERFORM dispatch_place(NEW.id,NEW.purpose,NEW.location,NEW.started); RETURN NEW; END $$;
+CREATE OR REPLACE TRIGGER dispatch_on_visit AFTER INSERT OR UPDATE OF location ON zone_visits
+ FOR EACH ROW EXECUTE FUNCTION dispatch_visit_trigger();
+SELECT dispatch_place(v.id,v.purpose,v.location,v.started) FROM zone_visits v
+ WHERE v.location<>'closed' AND NOT EXISTS(SELECT 1 FROM dispatch_tickets t WHERE t.visit_id=v.id)
+ ORDER BY v.started,v.id;
+
+CREATE TABLE IF NOT EXISTS export_jobs (
+ id uuid PRIMARY KEY, user_id bigint NOT NULL REFERENCES users(id), filters jsonb NOT NULL,
+ state text NOT NULL DEFAULT 'queued' CHECK(state IN ('queued','running','ready','failed')),
+ created_at timestamptz NOT NULL DEFAULT now(), started_at timestamptz, finished_at timestamptz,
+ attempts integer NOT NULL DEFAULT 0, error text, content bytea,
+ CHECK(content IS NULL OR octet_length(content)<=12582912)
+);
+CREATE INDEX IF NOT EXISTS export_jobs_pending ON export_jobs(created_at) WHERE state IN ('queued','running');
