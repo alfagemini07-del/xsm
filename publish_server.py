@@ -34,6 +34,7 @@ FOLDERS = {"templates", "static", "android", ".github"}
 SKIP = {
     "build",
     ".gradle",
+    ".signing",
     ".git",
     ".venv",
     "__pycache__",

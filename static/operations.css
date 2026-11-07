@@ -1,0 +1,12 @@
+.admin-page table{font-size:15px!important;line-height:1.5}
+.admin-page th{font-size:14px!important;padding:13px 12px!important}
+.admin-page td{padding:12px!important}
+.admin-page .analytics-error,.admin-page .pagination,.admin-page .muted{font-size:14px}
+.admin-page .analytics-tools label{font-size:14px}
+.admin-page .service-revenue-strip{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr))}
+#operation-receipt{border:0;border-radius:18px;margin:auto;background:#102035;color:white;padding:14px;max-width:96vw}
+#operation-receipt::backdrop{background:#0009}
+.operation-receipt-card{display:flex;flex-direction:column;gap:12px;height:90dvh;width:min(400px,85vw)}
+#operation-receipt-image{flex:1;min-height:0;object-fit:contain;width:100%}
+#tab-transfer>.transfer-card{margin-bottom:20px;padding:22px}
+#tab-transfer>.transfer-card>*{margin-bottom:12px}

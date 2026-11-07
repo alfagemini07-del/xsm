@@ -4,11 +4,11 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1,interactive-widget=resizes-content">
   <title>{{ points.get(user.role,'Airitom') }}</title>
-  <link rel="stylesheet" href="/static/kpp-parking.css?v=2">
-  <link rel="stylesheet" href="/static/kpp-station.css?v=2">
-  <script src="/static/kpp.js?v=2" defer></script>
+  <link rel="stylesheet" href="/static/kpp-parking.css?v=4">
+  <link rel="stylesheet" href="/static/kpp-station.css?v=4">
+  <script src="/static/kpp.js?v=4" defer></script>
 </head>
-<body class="kpp" data-csrf="{{ csrf_token() }}" data-role="{{ user.role }}" data-user="{{ user.id }}" data-mode="{{ mode }}">
+<body class="kpp" data-csrf="{{ csrf_token() }}" data-role="{{ user.role }}" data-user="{{ user.id }}" data-mode="{{ mode }}" data-receipt-id="{{ receipt_id|default(0) }}" data-print-attempts="{{ receipt.print_attempts if receipt is defined else 0 }}">
 {% macro csrf() %}<input type="hidden" name="csrf_token" value="{{ csrf_token() }}">{% endmacro %}
 <div id="screen-main" class="screen active">
   <div class="main-bg"></div>
@@ -25,7 +25,7 @@
     </div>
     <div class="stats-bar"><div class="stat-item"><span class="stat-val" id="stat-active">—</span><span class="stat-label">Hozir hudud ichida</span></div><div class="stat-divider"></div><div class="stat-item"><span class="stat-val" id="stat-count">—</span><span class="stat-label">Bugun chiqdi</span></div><div class="stat-divider"></div><div class="stat-item"><span class="stat-val" id="stat-total">—</span><span class="stat-label">Bugungi tushum (so‘m)</span></div></div>
   </main>
-  <footer class="station-footer"><button id="journal-open" class="btn-secondary compact" type="button">▤ Navbat va cheklar</button><small>{{ user.username }}</small></footer>
+  <div class="queue-banner">KPP2 ga navbat: <strong id="stat-waiting">—</strong> ta · Parkovkadan chiqqan: <strong id="stat-departed">—</strong></div><footer class="station-footer"><button id="journal-open" class="btn-secondary compact" type="button">▤ Navbat va cheklar</button><button id="printer-settings" class="btn-secondary compact" type="button">Printer</button><small>{{ user.username }}</small></footer>
 </div>
 
 <dialog id="vehicle" class="kiosk-dialog">
@@ -59,8 +59,8 @@
 <dialog id="receipt-dialog" class="kiosk-dialog" aria-label="Chek nusxasi">
   <div class="receipt-card">
     <h2>🧾 Chek tayyor</h2>
-    <article class="ticket"><h3>AIRITOM LOGISTICS CENTER</h3><dl id="receipt-fields">{% if mode=='receipt' %}{% for k,v in fields %}<dt>{{ k }}</dt><dd>{{ v }}</dd>{% endfor %}{% endif %}</dl><img id="receipt-qr" {% if mode=='receipt' %}src="data:image/png;base64,{{ qr }}"{% endif %} alt="Chek QR"></article>
-    <div class="modal-actions-row"><button id="receipt-close" class="btn-secondary" type="button">Yopish</button><button id="print" class="btn-primary" type="button">▤ Chop etish</button></div>
+    <img id="receipt-image" class="receipt-image" {% if mode=='receipt' and picture %}src="data:image/png;base64,{{ picture }}"{% else %}hidden{% endif %} alt="Xizmat cheki"><article class="ticket" {% if mode=='receipt' and picture %}hidden{% endif %}><h3>AIRITOM LOGISTICS CENTER</h3><dl id="receipt-fields">{% if mode=='receipt' %}{% for k,v in fields %}<dt>{{ k }}</dt><dd>{{ v }}</dd>{% endfor %}{% endif %}</dl><img id="receipt-qr" {% if mode=='receipt' %}src="data:image/png;base64,{{ qr }}"{% endif %} alt="Chek QR"></article>
+    <p id="print-status" class="message" role="status">{% if mode=='receipt' and receipt and receipt.print_confirmed %}Chop etilgani tasdiqlangan: {{ receipt.print_confirmed }} marta{% endif %}</p><div class="modal-actions-row"><button id="receipt-close" class="btn-secondary" type="button">Yopish</button><button id="print" class="btn-primary" type="button">▤ Chop etish</button></div>
   </div>
 </dialog>
 <dialog id="journal" class="kiosk-dialog">
@@ -70,6 +70,7 @@
     <div class="modal-actions-row"><button id="journal-previous" class="btn-secondary compact" type="button" hidden>Oldingi yozuvlar</button><button id="journal-more" class="btn-secondary compact" type="button" hidden>Keyingi yozuvlar</button></div>
   </div>
 </dialog>
+<script src="/static/kpp-printer.js?v=4" defer></script>
 {% if mode=='confirm' %}<script type="application/json" id="initial-quote">{{ {'quote':q,'ticket':token}|tojson }}</script>{% endif %}
 {% if mode=='error' %}<dialog id="server-error" class="kiosk-dialog" open><div class="modal-card"><h2>Amal bajarilmadi</h2><p class="message" role="alert">{{ message }}</p><a href="/zone" class="btn-primary">Qayta tekshirish</a></div></dialog>{% endif %}
 </body></html>

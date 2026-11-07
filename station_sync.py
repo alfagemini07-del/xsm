@@ -168,9 +168,9 @@ def apply_event(conn, dev, eid, event, clean_plate):
         if amount != rate:
             raise ValueError("Birinchi kun to‘lovi")
         vid = conn.execute(
-            """INSERT INTO zone_visits(plate,plate_key,purpose,location,started,daily_rate,station_id,station_local_id)
-            VALUES(%s,%s,%s,'parking',%s,%s,%s,%s) RETURNING id""",
-            (plate, key, purpose, at, rate, dev["id"], local_id),
+            """INSERT INTO zone_visits(plate,plate_key,purpose,location,started,daily_rate,station_id,station_local_id,queue_no)
+            VALUES(%s,%s,%s,'parking',%s,%s,%s,%s,%s) RETURNING id""",
+            (plate, key, purpose, at, rate, dev["id"], local_id, str(p.get("queue_no") or p.get("receipt_no") or "")[:80]),
         ).fetchone()["id"]
         previous = 0
     else:

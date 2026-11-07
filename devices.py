@@ -359,18 +359,22 @@ def register_devices(
     @app.get("/api/admin/devices")
     @roles("admin", "techadmin")
     def devices_list():
+        page=max(1,request.args.get("event_page",1,type=int))
+        size=max(10,min(100,request.args.get("event_size",20,type=int)))
         with pool().connection() as conn:
             record_timeouts(conn)
             devices = conn.execute(
                 """SELECT id,name,role,approved,blocked,last_seen,last_user,ip,connected AS online
                    FROM devices ORDER BY LOWER(name), id"""
             ).fetchall()
+            total=conn.execute("SELECT COUNT(*) n FROM device_events").fetchone()["n"]
+            pages=max(1,(total+size-1)//size);page=min(page,pages)
             events = conn.execute(
                 """SELECT e.occurred,e.event,e.previous_seen,d.name FROM device_events e
-                   JOIN devices d ON d.id=e.device_id ORDER BY occurred DESC,e.id DESC LIMIT 100"""
+                   JOIN devices d ON d.id=e.device_id ORDER BY occurred DESC,e.id DESC LIMIT %s OFFSET %s""",(size,(page-1)*size)
             ).fetchall()
         return jsonify(
-            devices=devices, events=events, checked_at=datetime.now(timezone.utc)
+            devices=devices, events=events, event_page=page,event_pages=pages,event_total=total, checked_at=datetime.now(timezone.utc)
         )
 
     @app.post("/admin/devices/<uuid:device_id>")

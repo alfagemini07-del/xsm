@@ -110,12 +110,15 @@
       document.getElementById("d-today-count").textContent = fmt(data.today_count); document.getElementById("d-today-total").textContent = data.today_total_fmt;
       document.getElementById("d-week-count").textContent = fmt(data.week_count); document.getElementById("d-week-total").textContent = data.week_total_fmt;
       document.getElementById("d-service-weighing").textContent = `${data.today_services.weighing_fmt} so'm`; document.getElementById("d-service-entry").textContent = `${data.today_services.entry_fmt} so'm`; document.getElementById("d-service-reload").textContent = `${data.today_services.reload_fmt} so'm`;
+      document.getElementById("d-service-parking").textContent = data.today_services.parking_fmt + " so‘m";
+      document.getElementById("dashboard-time").textContent = "Hisob vaqti: " + data.as_of + " (Toshkent)";
       drawBarChart("weekly-chart", weeklyData, { highlightLast: true });
     } catch (error) { showToast(error.message, true); }
   }
 
   function actionButton(text, handler, kind = "secondary") { const button = document.createElement("button"); button.type = "button"; button.className = `button ${kind} table-action`; button.textContent = text; button.addEventListener("click", handler); return button; }
   function buildRow(item, index, page, perPage) {
+    if(item.kind==='zone'){const row=document.createElement("tr");row.append(td((page-1)*perPage+index+1),td(item.queue_no||item.receipt_no),td(item.plate_number,"plate-cell"),td(item.price_fmt+" so‘m"),td(item.point+" · "+item.reason),td(item.created_at),td(item.operator));const action=td("");action.append(actionButton("Chek",()=>window.showZoneReceipt(item.id)));row.append(action);return row;}
     const row = document.createElement("tr"); row.append(td((page - 1) * perPage + index + 1), td(item.receipt_no, "receipt-id"), td(item.plate_number, "plate-cell"), td(`${item.price_fmt} so'm`));
     const statusCell = document.createElement("td"); statusCell.append(badge(item.status)); row.append(statusCell, td(item.created_at), td(item.operator));
     const action = document.createElement("td"); action.append(actionButton("Ko'rish", () => openDetail(item))); if (item.status === "paid") action.append(actionButton("▤ Chek", event => reprint(item.id, event.currentTarget), "secondary")); row.append(action); return row;
@@ -124,21 +127,21 @@
   async function loadHistory(silent = false) {
     const body = document.getElementById("history-body"); if (!silent) emptyRow(body, 8, "Yuklanmoqda...");
     const perPage = Number(document.getElementById("history-page-size").value || 15);
-    try { const data = await api(`/api/admin/weighings?page=${historyPage}&per_page=${perPage}`); historyPages = data.total_pages; body.replaceChildren(); if (!data.results.length) emptyRow(body, 8, "Ma'lumot topilmadi"); else data.results.forEach((item, i) => body.append(buildRow(item, i, historyPage, data.per_page))); document.getElementById("history-page-info").textContent = `${data.page} / ${data.total_pages}`; document.getElementById("history-count-label").textContent = `${data.total} ta yozuv`; document.getElementById("history-prev").disabled = data.page <= 1; document.getElementById("history-next").disabled = data.page >= data.total_pages; }
+    try { const data = await api(`/api/admin/operations?page=${historyPage}&per_page=${perPage}`); historyPages = data.total_pages; body.replaceChildren(); if (!data.results.length) emptyRow(body, 8, "Ma'lumot topilmadi"); else data.results.forEach((item, i) => body.append(buildRow(item, i, historyPage, data.per_page))); document.getElementById("history-page-info").textContent = `${data.page} / ${data.total_pages}`; document.getElementById("history-count-label").textContent = `${data.total} ta yozuv`; document.getElementById("history-prev").disabled = data.page <= 1; document.getElementById("history-next").disabled = data.page >= data.total_pages; }
     catch (error) { emptyRow(body, 8, error.message); }
   }
 
   function searchParams() {
     const params = new URLSearchParams({ page: searchPage, per_page: document.getElementById("search-page-size").value || 15 });
-    const values = { plate: document.getElementById("search-plate").value.trim(), start: document.getElementById("search-start").value, end: document.getElementById("search-end").value, status: document.getElementById("search-status").value };
+    const values = { point: document.getElementById("search-point").value, plate: document.getElementById("search-plate").value.trim(), start: document.getElementById("search-start").value, end: document.getElementById("search-end").value, status: document.getElementById("search-status").value };
     Object.entries(values).forEach(([key, value]) => { if (value) params.set(key, value); }); return params;
   }
   async function doSearch(silent = false) {
     const body = document.getElementById("search-body"); if (!silent) emptyRow(body, 8, "Qidirilmoqda...");
     try {
-      const data = await api(`/api/admin/weighings?${searchParams()}`); searchPages = data.total_pages; body.replaceChildren(); if (!data.results.length) emptyRow(body, 8, "Ma'lumot topilmadi"); else data.results.forEach((item, i) => body.append(buildRow(item, i, searchPage, data.per_page)));
+      const data = await api(`/api/admin/operations?${searchParams()}`); searchPages = data.total_pages; body.replaceChildren(); if (!data.results.length) emptyRow(body, 8, "Ma'lumot topilmadi"); else data.results.forEach((item, i) => body.append(buildRow(item, i, searchPage, data.per_page)));
       document.getElementById("search-page-info").textContent = `${data.page} / ${data.total_pages}`; document.getElementById("search-prev").disabled = data.page <= 1; document.getElementById("search-next").disabled = data.page >= data.total_pages;
-      document.getElementById("search-total-count").textContent = fmt(data.total); document.getElementById("search-total-sum").textContent = fmt(data.results.filter(i => i.status === "paid").reduce((sum, item) => sum + Number(item.price), 0)); document.getElementById("search-current-page").textContent = data.page; document.getElementById("search-state-label").textContent = document.getElementById("search-status").selectedOptions[0].textContent; document.getElementById("search-count-label").textContent = `${data.total} ta yozuv`;
+      document.getElementById("search-total-count").textContent = fmt(data.total); document.getElementById("search-total-sum").textContent = fmt(data.amount); document.getElementById("search-current-page").textContent = data.page; document.getElementById("search-state-label").textContent = document.getElementById("search-status").selectedOptions[0].textContent; document.getElementById("search-count-label").textContent = `${data.total} ta yozuv · Hisob: ${data.as_of} (Toshkent)`;
     } catch (error) { emptyRow(body, 8, error.message); }
   }
 
@@ -177,15 +180,15 @@
   async function runReport(silent = false) {
     const button = document.getElementById("btn-report"); const start = document.getElementById("report-start").value; const end = document.getElementById("report-end").value; if (!start || !end) return; if (!silent) setBusy(button, true);
     try {
-      const perPage = Number(document.getElementById("report-page-size").value || 15); const data = await api(`/api/admin/report?start=${start}&end=${end}&page=${reportPage}&per_page=${perPage}`); reportPages = data.total_pages; reportData = [...data.daily].reverse(); document.getElementById("report-count").textContent = fmt(data.total_count); document.getElementById("report-total").textContent = data.total_fmt; document.getElementById("report-average").textContent = data.total_days ? Math.round(data.total_count / data.total_days) : 0;
-      const cash = data.payment_methods.cash?.count || 0; const card = data.payment_methods.card?.count || 0; document.getElementById("report-methods").textContent = `${cash} / ${card}`; document.getElementById("report-period-label").textContent = `${start} — ${end}`;
-      document.getElementById("report-service-weighing").textContent = `${data.service_totals.weighing_fmt} so'm`; document.getElementById("report-service-entry").textContent = `${data.service_totals.entry_fmt} so'm`; document.getElementById("report-service-reload").textContent = `${data.service_totals.reload_fmt} so'm`;
+      const perPage = Number(document.getElementById("report-page-size").value || 15); const data = await api(`/api/admin/operations/report?start=${start}&end=${end}&page=${reportPage}&per_page=${perPage}`); reportPages = data.total_pages; reportData = [...data.daily].reverse(); document.getElementById("report-count").textContent = fmt(data.total_count); document.getElementById("report-total").textContent = data.total_fmt; document.getElementById("report-average").textContent = data.total_days ? Math.round(data.total_count / data.total_days) : 0;
+      const cash = data.payment_methods.cash?.count || 0; const card = data.payment_methods.card?.count || 0; document.getElementById("report-methods").textContent = `${cash} / ${card}`; document.getElementById("report-period-label").textContent = `${start} — ${end} · Hisob: ${data.as_of} (Toshkent) · Oxirgi kelgan: ${data.last_received}`;
+      document.getElementById("report-service-weighing").textContent = `${data.service_totals.weighing_fmt} so'm`; document.getElementById("report-service-entry").textContent = `${data.service_totals.entry_fmt} so'm`; document.getElementById("report-service-reload").textContent = `${data.service_totals.reload_fmt} so'm`; document.getElementById("report-service-parking").textContent=`${data.service_totals.parking_fmt} so‘m`;
       const body = document.getElementById("report-body"); body.replaceChildren(); if (!data.daily.length) emptyRow(body, 4, "Bu oraliqda ma'lumot yo'q"); else data.daily.forEach(item => { const row = document.createElement("tr"); row.append(td(item.date), td(`${item.count} ta`), td(`${item.total_fmt} so'm`), td(item.count ? `${fmt(Math.round(item.total / item.count))} so'm` : "0")); body.append(row); }); document.getElementById("report-count-label").textContent = `${data.total_days} kun`; document.getElementById("report-page-info").textContent = `${data.page} / ${data.total_pages}`; document.getElementById("report-prev").disabled = data.page <= 1; document.getElementById("report-next").disabled = data.page >= data.total_pages; drawBarChart("report-chart", reportData);
     } catch (error) { if (!silent) showToast(error.message, true); } finally { if (!silent) setBusy(button, false); }
   }
 
   function exportCsv(source) {
-    const params = source === "report" ? new URLSearchParams({ start: document.getElementById("report-start").value, end: document.getElementById("report-end").value }) : searchParams(); params.delete("page"); params.delete("per_page"); window.location.href = `/api/admin/export.csv?${params}`;
+    const params = source === "report" ? new URLSearchParams({ start: document.getElementById("report-start").value, end: document.getElementById("report-end").value }) : searchParams(); params.delete("page"); params.delete("per_page"); window.location.href = `/api/admin/operations/export.xlsx?${params}`;
   }
 
   async function importDatabase() {

@@ -14,24 +14,39 @@ android {
         applicationId 'uz.airitom.kpp'
         minSdk 24
         targetSdk 35
-        versionCode 1
-        versionName '1.0'
+        versionCode 2
+        versionName '1.1'
         buildConfigField 'String', 'ORIGIN', groovy.json.JsonOutput.toJson(origin.replaceAll('/$', ''))
     }
     buildFeatures { buildConfig true }
-    flavorDimensions 'station'
+    def signingFile = file('.signing/release.properties')
+    if (signingFile.exists()) {
+        def credentials = new Properties()
+        signingFile.withInputStream { credentials.load(it) }
+        signingConfigs {
+            localRelease {
+                storeFile file('.signing/kpp-release.keystore')
+                storePassword credentials.getProperty('password')
+                keyAlias 'xsm-kpp'
+                keyPassword credentials.getProperty('password')
+            }
+        }
+        buildTypes { release { signingConfig signingConfigs.localRelease } }
+    }
+    flavorDimensions 'station' 
     productFlavors {
         kpp1 {
             dimension 'station'
             applicationIdSuffix '.ayritom'
-            resValue 'string', 'app_name', 'KPP1 · Ayritom'
+            resValue 'string', 'app_name', 'KPP Ayritom'
             buildConfigField 'String', 'STATION', '"/dastur/kpp/1"'
         }
         kpp2 {
             dimension 'station'
             applicationIdSuffix '.uz'
-            resValue 'string', 'app_name', 'KPP2 · O‘zbekiston'
+            resValue 'string', 'app_name', 'KPP2'
             buildConfigField 'String', 'STATION', '"/dastur/kpp/2"'
         }
     }
 }
+dependencies { implementation 'com.sunmi:printerlibrary:1.0.18' }

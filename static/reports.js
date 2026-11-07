@@ -10,7 +10,7 @@
     el("analytics-start").value=start.toISOString().slice(0,10);el("analytics-end").value=end;
   }
   function params() {
-    return new URLSearchParams({start:el("analytics-start").value,end:el("analytics-end").value,group:el("analytics-group").value,operator:el("analytics-operator").value,method:el("analytics-method").value,page,per_page:el("analytics-size").value});
+    return new URLSearchParams({point:el("analytics-point").value,start:el("analytics-start").value,end:el("analytics-end").value,group:el("analytics-group").value,operator:el("analytics-operator").value,method:el("analytics-method").value,page,per_page:el("analytics-size").value});
   }
   async function load() {
     const ticket=++sequence;el("analytics-error").textContent="Yuklanmoqda...";
@@ -22,7 +22,7 @@
       if(!r.ok)throw new Error(d.message||"Hisobotni olib bo'lmadi. Sanalarni tekshiring.");
       if(ticket!==sequence)return;
       page=d.page;pages=d.pages;loaded=true;
-      el("analytics-title").textContent=d.title;
+      el("analytics-title").textContent=d.title;el("analytics-error").dataset.asof="Hisob: "+d.as_of+" (Toshkent) · Oxirgi kelgan: "+d.last_received;
       const head=document.createElement("tr");
       d.headers.forEach(text=>{const th=document.createElement("th");th.textContent=text;head.append(th);});el("analytics-head").replaceChildren(head);
       el("analytics-body").replaceChildren();
@@ -31,7 +31,7 @@
       for(const [key,label] of [["paid","To'langan"],["cancelled","Bekor"],["total","Tushum"],["cash","Naqd"],["card","Karta"],["bank","Hisob raqam"]]) {const span=document.createElement("span");span.textContent=`${label}: ${fmt(d.totals[key])}`;el("analytics-summary").append(span);}
       el("analytics-count").textContent=`${fmt(d.total)} qator`;el("analytics-page").textContent=`${page} / ${pages}`;
       el("analytics-prev").disabled=page<=1;el("analytics-next").disabled=page>=pages;
-      el("analytics-error").textContent=d.total?"":"Ma'lumot topilmadi";
+      el("analytics-error").textContent=(d.total?"":"Ma’lumot topilmadi. ")+el("analytics-error").dataset.asof;
     } catch(error){if(ticket===sequence)el("analytics-error").textContent=error.name==="AbortError"?"Server javobi kechikdi. Qayta urinib ko‘ring.":error.message;}
     finally{clearTimeout(timer);}
   }
@@ -42,7 +42,7 @@
   }
 
   el("analytics-load").addEventListener("click",()=>{page=1;load();});
-  ["analytics-group","analytics-operator","analytics-method","analytics-size"].forEach(id=>el(id).addEventListener("change",()=>{page=1;load();}));
+  ["analytics-point","analytics-group","analytics-operator","analytics-method","analytics-size"].forEach(id=>el(id).addEventListener("change",()=>{page=1;load();}));
   document.querySelectorAll("[data-analytics-range]").forEach(b=>b.addEventListener("click",()=>{range(b.dataset.analyticsRange);page=1;load();}));
   el("analytics-prev").addEventListener("click",()=>{if(page>1){page--;load();}});el("analytics-next").addEventListener("click",()=>{if(page<pages){page++;load();}});
   document.querySelectorAll("[data-analytics-export]").forEach(b=>b.addEventListener("click",()=>download(`/api/admin/analytics/export/${b.dataset.analyticsExport}?${params()}`,`hisobot.${b.dataset.analyticsExport}`,b)));

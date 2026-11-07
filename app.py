@@ -263,7 +263,7 @@ def load_request_context():
                     session.clear()
                     abort(403)
             if user["role"] in POINTS and request.endpoint not in {
-                "index", "login", "logout", "zone_home", "zone_quote", "zone_commit", "zone_receipt", "kpp_select", "kpp_entry", "web_heartbeat", "kpp_journal", "kpp_stats"
+                "index", "login", "logout", "zone_home", "zone_quote", "zone_commit", "zone_receipt", "kpp_select", "kpp_entry", "web_heartbeat", "kpp_journal", "kpp_stats", "kpp_print"
             }:
                 abort(403)
         else:
@@ -1107,66 +1107,38 @@ def receipt_print_status(weighing_id):
 @app.get("/api/admin/dashboard")
 @roles_required("admin", "techadmin")
 def admin_dashboard():
+    from operations import TZ, as_time, stamp
     today = now_local().date()
-    week_start = today - timedelta(days=6)
+    first = today - timedelta(days=6)
     with get_pool().connection() as conn:
-        summary = conn.execute(
-            """
-            SELECT
-                COUNT(*) FILTER (WHERE business_date = %s AND status = 'paid') AS today_count,
-                COALESCE(SUM(price) FILTER (WHERE business_date = %s AND status = 'paid'), 0) AS today_total,
-                COALESCE(SUM(weighing_fee) FILTER (WHERE business_date = %s AND status = 'paid'), 0) AS today_weighing_total,
-                COALESCE(SUM(entry_fee) FILTER (WHERE business_date = %s AND status = 'paid'), 0) AS today_entry_total,
-                COALESCE(SUM(reload_fee) FILTER (WHERE business_date = %s AND status = 'paid'), 0) AS today_reload_total,
-                COUNT(*) FILTER (WHERE business_date BETWEEN %s AND %s AND status = 'paid') AS week_count,
-                COALESCE(SUM(price) FILTER (
-                    WHERE business_date BETWEEN %s AND %s AND status = 'paid'
-                ), 0) AS week_total
-            FROM weighings
-            """,
-            (today, today, today, today, today, week_start, today, week_start, today),
-        ).fetchone()
+        conn.execute("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY")
         rows = conn.execute(
-            """
-            SELECT business_date, COUNT(*) AS count, COALESCE(SUM(price), 0) AS total
-            FROM weighings
-            WHERE business_date BETWEEN %s AND %s AND status = 'paid'
-            GROUP BY business_date
-            ORDER BY business_date
-            """,
-            (week_start, today),
+            """SELECT (occurred AT TIME ZONE 'Asia/Tashkent')::date AS day,
+                    COUNT(*) AS count, SUM(amount) AS total, SUM(weighing_fee) AS weighing,
+                    SUM(entry_fee) AS entry, SUM(reload_fee) AS reload, SUM(parking_fee) AS parking
+               FROM operation_ledger
+               WHERE status='paid' AND occurred >= %s AND occurred < %s GROUP BY 1""",
+            (datetime.combine(first, datetime.min.time(), TZ),
+             datetime.combine(today + timedelta(days=1), datetime.min.time(), TZ)),
         ).fetchall()
-    by_date = {row["business_date"]: row for row in rows}
+        meta = stamp(conn)
+    by_date = {row["day"]: row for row in rows}
     weekly = []
     for offset in range(7):
-        day = week_start + timedelta(days=offset)
-        row = by_date.get(day, {"count": 0, "total": 0})
-        weekly.append(
-            {
-                "date": day.isoformat(),
-                "label": day.strftime("%d.%m"),
-                "count": row["count"],
-                "total": row["total"],
-                "total_fmt": money(row["total"]),
-            }
-        )
-    return jsonify(
-        today_count=summary["today_count"],
-        today_total=summary["today_total"],
-        today_total_fmt=money(summary["today_total"]),
-        today_services={
-            "weighing": summary["today_weighing_total"],
-            "weighing_fmt": money(summary["today_weighing_total"]),
-            "entry": summary["today_entry_total"],
-            "entry_fmt": money(summary["today_entry_total"]),
-            "reload": summary["today_reload_total"],
-            "reload_fmt": money(summary["today_reload_total"]),
-        },
-        week_count=summary["week_count"],
-        week_total=summary["week_total"],
-        week_total_fmt=money(summary["week_total"]),
-        weekly=weekly,
-    )
+        day = first + timedelta(days=offset)
+        row = by_date.get(day, {})
+        amount = int(row.get("total", 0))
+        weekly.append(dict(date=day.isoformat(), label=day.strftime("%d.%m"),
+                           count=row.get("count", 0), total=amount, total_fmt=money(amount)))
+    services = {}
+    for key in ("weighing", "entry", "reload", "parking"):
+        services[key] = int(by_date.get(today, {}).get(key, 0))
+        services[key + "_fmt"] = money(services[key])
+    week_total = sum(row["total"] for row in weekly)
+    return jsonify(today_count=weekly[-1]["count"], today_total=weekly[-1]["total"],
+                   today_total_fmt=weekly[-1]["total_fmt"], today_services=services,
+                   week_count=sum(row["count"] for row in weekly), week_total=week_total,
+                   week_total_fmt=money(week_total), weekly=weekly, as_of=as_time(meta["at"]))
 
 
 @app.get("/api/admin/weighings")
@@ -2249,7 +2221,7 @@ def clear_operational_data():
             """
         ).fetchone()
         conn.execute(
-            """TRUNCATE TABLE zone_events, zone_visits, print_attempts, weighings,
+            """TRUNCATE TABLE receipt_jobs, transfer_imports, zone_events, zone_visits, print_attempts, weighings,
                import_batches, daily_sequences RESTART IDENTITY"""
         )
     return jsonify(
@@ -2392,6 +2364,12 @@ register_devices(app, get_pool, roles_required, get_service_prices, clean_plate,
                  login_identifier, check_login_limit, register_login_failure)
 register_zone(app, get_pool, roles_required, clean_plate, make_qr_base64)
 register_reports(app, get_pool, roles_required, now_local, parse_date, str(APP_TIMEZONE), COMPANY_NAME)
+from operations import register_operations
+register_operations(app, get_pool, roles_required)
+from printing import register_printing
+register_printing(app, get_pool, roles_required)
+from transfer import register_transfer
+register_transfer(app, get_pool, roles_required)
 
 
 @app.errorhandler(400)

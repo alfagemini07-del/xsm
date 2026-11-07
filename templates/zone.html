@@ -27,7 +27,7 @@
 <td>{% if v.location=='parking' %}{{ 'Ayritom navbati' if v.purpose=='border' else 'Free Zone navbati' }}{% else %}{{ labels[v.entry_gate] if v.entry_gate else 'Darvozasi aniqlanmagan' }}{% endif %}</td>
 <td>{{ v.started|zone_time }}</td></tr>{% else %}<tr><td colspan="3">Bu tanlovda mashina yo‘q.</td></tr>{% endfor %}</table></div>
 <nav class="chips table-pagination">{% for n,title in [(pg-1,'← Oldingi'),(pg+1,'Keyingi →')] %}{% if 1<=n<=pages %}<a href="{{ url_for('zone_home', period='custom', start=start,end=end, point=selected,location=request.args.get('location',''),purpose=request.args.get('purpose',''),gate=request.args.get('gate',''),plate=request.args.get('plate',''),sort=request.args.get('sort','queue'),p=n,ep=event_page) }}#active">{{ title }}</a>{% endif %}{% endfor %}<span>{{ pg }} / {{ pages }}</span></nav></section>
-<section class="card" id="cash"><div class="heading"><div><p class="eyebrow">KASSA / {{ start }} — {{ end }}</p><h2 class="amount">{{ total|som }} <small>so‘m</small></h2></div><a class="outline" href="{{ url_for('zone_export',period='custom',start=start,end=end,point=selected) }}">Excel yuklash ↓</a></div>
+<section class="card" id="cash"><div class="heading"><div><p class="eyebrow">KASSA / {{ start }} — {{ end }}</p><h2 class="amount">{{ total|som }} <small>so‘m</small></h2></div><a class="outline" href="{{ url_for('operations_export',start=start,end=end,point=selected) }}">Excel yuklash ↓</a></div>
 <div class="cash-breakdown" data-refresh="breakdown">
 {% if trend %}{% set peak=trend|map(attribute='revenue')|max or 1 %}
 <div><h3>Kunlik tushum</h3><small>{{ start }} — {{ end }} · so‘m</small>

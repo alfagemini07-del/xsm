@@ -1,3 +1,5 @@
+if(!AbortSignal.timeout)AbortSignal.timeout=ms=>{const c=new AbortController();setTimeout(()=>c.abort(),ms);return c.signal;};
+if(!crypto.randomUUID)crypto.randomUUID=()=>{const a=crypto.getRandomValues(new Uint8Array(16));a[6]=(a[6]&15)|64;a[8]=(a[8]&63)|128;const h=Array.from(a,x=>x.toString(16).padStart(2,'0')).join('');return h.slice(0,8)+'-'+h.slice(8,12)+'-'+h.slice(12,16)+'-'+h.slice(16,20)+'-'+h.slice(20);};
 "use strict";
 const el = id => document.getElementById(id);
 const money = n => Number(n || 0).toLocaleString("uz-UZ") + " so‘m";
@@ -72,6 +74,11 @@ el("plate-form").addEventListener("submit",async event=>{
 });
 el("payment-back").onclick=()=>{if(current?.attempted)return;current=null;remember();screen(false);};
 function showReceipt(data) {
+  document.body.dataset.receiptId=data.id;document.body.dataset.printAttempts=data.print_attempts||0;
+  el("receipt-image").hidden=!data.image;
+  el("receipt-image").src=data.image?"data:image/png;base64,"+data.image:"";
+  el("receipt-fields").closest("article").hidden=!!data.image;
+  el("print-status").textContent=data.print_confirmed?"Chop etilgani tasdiqlangan: "+data.print_confirmed+" marta":data.print_attempts?"Oldingi chop natijasi tasdiqlanmagan. Qog‘ozni tekshiring.":"";
   const fields=el("receipt-fields");fields.replaceChildren();
   for(const [key,value] of data.fields) {
     const dt=document.createElement("dt"),dd=document.createElement("dd");
@@ -100,10 +107,6 @@ el("payment-form").addEventListener("submit",async event=>{
 function closeReceipt() {el("receipt-dialog").close();history.replaceState(null,"","/zone");}
 el("receipt-close").onclick=closeReceipt;
 el("receipt-dialog").addEventListener("cancel",event=>{event.preventDefault();closeReceipt();});
-el("print").onclick=()=>{
-  if(/; wv\)/.test(navigator.userAgent)||window.AiritomAndroid)location.href="airitom:print";
-  else window.print();
-};
 function showRows() {
   const list=el("journal").querySelector(".journal-list");
   const rows=[...list.children], size=Math.max(1,Math.floor(list.clientHeight/48));
@@ -120,7 +123,7 @@ async function loadJournal(target=journalPage) {
     journalPage=target;
     const list=el("journal").querySelector(".journal-list");list.replaceChildren();
     for(const row of data.queue) {
-      const button=document.createElement("button");button.type="button";button.textContent="Navbat #"+row.id+" · "+row.plate;
+      const button=document.createElement("button");button.type="button";button.textContent="Navbat "+(row.queue_no||row.id)+" · "+row.plate;
       button.onclick=()=>{el("journal").close();openVehicle("in");el("plate").value=row.plate;};
       list.append(button);
     }
@@ -148,7 +151,7 @@ el("journal-previous").onclick=()=>loadJournal(journalPage-1);
 el("rows-prev").onclick=()=>{rowPage--;showRows();};el("rows-next").onclick=()=>{rowPage++;showRows();};
 window.addEventListener("resize",()=>{if(el("journal").open)showRows();});
 async function refreshStats() {
-  try{const data=await api("/api/kpp/stats");el("stat-active").textContent=data.active;el("stat-count").textContent=data.count;el("stat-total").textContent=Number(data.total).toLocaleString("uz-UZ");}catch{}
+  try{const data=await api("/api/kpp/stats");el("stat-active").textContent=data.active;el("stat-waiting").textContent=data.waiting;el("stat-departed").textContent=data.departed;el("stat-count").textContent=data.count;el("stat-total").textContent=Number(data.total).toLocaleString("uz-UZ");}catch{}
 }
 async function heartbeat() {
   if(heartbeatBusy||document.hidden||submitting)return;
@@ -166,3 +169,18 @@ else if(el("initial-quote"))showPayment(JSON.parse(el("initial-quote").textConte
 else {
   try{const saved=JSON.parse(sessionStorage.getItem(storageKey));if(saved?.ticket&&saved.quote)showPayment(saved);}catch{}
 }
+
+let fullHeight = innerHeight;
+function fitKeyboard() {
+  const viewport = window.visualViewport;
+  const height = viewport ? viewport.height : innerHeight;
+  const typing = document.activeElement === el("plate") && el("vehicle").open;
+  if (!typing) fullHeight = innerHeight;
+  document.documentElement.style.setProperty("--visible-height", height + "px");
+  document.body.classList.toggle("keyboard-open", typing && fullHeight - height > 100);
+}
+window.visualViewport?.addEventListener("resize", fitKeyboard);
+window.addEventListener("resize", fitKeyboard);
+el("plate").addEventListener("focus", fitKeyboard);
+el("plate").addEventListener("blur", fitKeyboard);
+fitKeyboard();

@@ -210,7 +210,7 @@ def register_zone(app, pool, roles, clean_plate, qr):
                     (point, size + 1, (number - 1) * size),
                 )
                 queue_query = conn.execute(
-                    """SELECT id,plate,purpose FROM zone_visits
+                    """SELECT id,plate,purpose,queue_no FROM zone_visits
                     WHERE location='parking' AND purpose='zone' AND %s='kpp2' ORDER BY id LIMIT 25""",
                     (point,),
                 )
@@ -231,6 +231,8 @@ def register_zone(app, pool, roles, clean_plate, qr):
             result = conn.execute(
                 """SELECT
                 (SELECT count(*) FROM zone_visits WHERE location='inside') AS active,
+                (SELECT count(*) FROM zone_visits WHERE location='parking' AND purpose='zone') AS waiting,
+                (SELECT count(*) FROM zone_visits WHERE location='parking' AND purpose='zone' AND parking_departed_at IS NOT NULL) AS departed,
                 count(*) FILTER(WHERE action='out') AS count,COALESCE(sum(amount),0) AS total
                 FROM zone_events WHERE point=%s AND occurred >= %s""",
                 (g.user["role"], start),
@@ -407,7 +409,11 @@ def register_zone(app, pool, roles, clean_plate, qr):
 
     def read_receipt(conn, eid):
         return conn.execute(
-            """SELECT e.*,v.plate,v.started,v.daily_rate,v.purpose,v.entry_gate FROM zone_events e
+            """SELECT e.*,v.plate,v.started,v.daily_rate,v.purpose,v.entry_gate,v.queue_no,
+            (SELECT COUNT(*) FROM receipt_jobs j WHERE j.event_id=e.id) print_attempts,
+            (SELECT COUNT(*) FROM receipt_jobs j WHERE j.event_id=e.id AND j.state='confirmed') print_confirmed,
+            (SELECT concat_ws(' · ',j.method,j.state,NULLIF(j.detail,'')) FROM receipt_jobs j WHERE j.event_id=e.id ORDER BY j.created_at DESC LIMIT 1) print_last
+            FROM zone_events e
             JOIN zone_visits v ON v.id=e.visit_id WHERE e.id=%s""",
             (eid,),
         ).fetchone()
@@ -418,7 +424,7 @@ def register_zone(app, pool, roles, clean_plate, qr):
         eid = e["id"]
         fields = [
             ("Chek", f"AFZ-{eid}"),
-            ("Navbat / tashrif", str(e["visit_id"])),
+            ("Navbat / tashrif", e["queue_no"] or str(e["visit_id"])),
             ("Avtomobil", e["plate"]),
             ("Maqsad", LABEL[e["purpose"]]),
             ("Nuqta", LABEL[e["point"]]),
@@ -441,9 +447,11 @@ def register_zone(app, pool, roles, clean_plate, qr):
             + "\n".join(f"{k}: {v}" for k, v in fields),
             border=4,
         )
+        from printing import artwork
+        picture = artwork(fields, code)
         if request.is_json or request.accept_mimetypes.best == "application/json":
-            return jsonify(id=eid, fields=fields, qr=code, plate=e["plate"])
-        return page(mode="receipt", fields=fields, receipt=e, qr=code)
+            return jsonify(id=eid, fields=fields, qr=code, plate=e["plate"], image=picture,print_attempts=e["print_attempts"],print_confirmed=e["print_confirmed"],print_last=e["print_last"])
+        return page(mode="receipt", fields=fields, receipt=e, qr=code, picture=picture, receipt_id=eid)
 
     @app.get("/zone/report.xlsx")
     @roles(*ADMINS)

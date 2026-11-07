@@ -75,3 +75,38 @@
   .kpp .ticket{padding:0;border-radius:0}.kpp .ticket dl{font-size:10px;gap:3px 5px}
   .kpp .ticket h3{font-size:12px}.kpp .ticket img{width:35mm;height:35mm;image-rendering:pixelated}
 }
+/* Portrait POS: the receipt keeps its paper ratio at every orientation. */
+.kpp{height:var(--visible-height,100dvh)}
+.kpp .screen{height:var(--visible-height,100dvh);bottom:auto}
+.kpp .queue-banner{position:relative;z-index:1;text-align:center;font-size:14px;padding:7px;background:#10233b;color:#c9ddf6}
+.kpp .receipt-card{height:94dvh;max-height:var(--visible-height,94dvh);width:min(430px,96vw);align-items:stretch}
+.kpp .receipt-image{display:block;flex:1;min-height:0;width:100%;height:1px;object-fit:contain;background:transparent}
+.kpp .receipt-card>h2,.kpp .receipt-card>.message{flex:none}
+.kpp .kiosk-dialog{max-height:var(--visible-height,100dvh)}
+.kpp #vehicle .modal-card{max-height:var(--visible-height,96dvh);overflow:hidden}
+.kpp .payment-container{height:var(--visible-height,100dvh);max-height:var(--visible-height,100dvh)}
+@media(orientation:portrait){
+ .kpp .action-boxes{flex-direction:column;max-height:none;gap:12px}
+ .kpp .action-box-inner{gap:2px}
+ .kpp .action-icon{font-size:28px}
+ .kpp .action-label{font-size:clamp(28px,8vw,44px)}
+ .kpp .hero-text h1{font-size:22px}
+ .kpp .main-header{padding:8px 10px}
+ .kpp .header-time{font-size:16px}
+ .kpp .logo-title{font-size:14px}
+ .kpp .station-footer{gap:6px;padding:6px}
+ .kpp .station-footer small{max-width:80px;overflow:hidden;text-overflow:ellipsis}
+ .kpp .stats-bar{gap:5px;padding:10px 6px}
+}
+.keyboard-open #vehicle{top:8px;bottom:auto;margin:0 auto}
+.keyboard-open #vehicle .modal-icon{display:none}
+.keyboard-open #vehicle .modal-card{padding:12px}
+.keyboard-open #vehicle .plate-input-wrap{margin:8px 0}
+@media print{
+ @page{size:58mm auto;margin:0}
+ html,.kpp,.kpp #receipt-dialog,.kpp .receipt-card{width:58mm!important;height:auto!important;max-height:none!important}
+ .kpp .receipt-image{display:block!important;width:48mm!important;height:auto!important;margin:0 auto;object-fit:contain}
+ .kpp .receipt-card>.message,.kpp .receipt-card>.modal-actions-row,.kpp .receipt-card>h2{display:none!important}
+}
+.kpp .receipt-card{height:calc(var(--visible-height,100vh) - 24px)}
+.kpp .journal-card{height:min(700px,calc(var(--visible-height,100vh) - 24px))}

@@ -237,3 +237,37 @@ CREATE TABLE IF NOT EXISTS station_events(device_id UUID REFERENCES devices(id),
     received_at TIMESTAMPTZ NOT NULL DEFAULT NOW(), PRIMARY KEY(device_id,event_id));
 
 CREATE INDEX IF NOT EXISTS weighings_paid_ledger_time ON weighings ((COALESCE(paid_at,created_at))) WHERE status='paid';
+ALTER TABLE zone_visits ADD COLUMN IF NOT EXISTS queue_no TEXT;
+ALTER TABLE weighings ADD COLUMN IF NOT EXISTS received_at TIMESTAMPTZ;
+ALTER TABLE weighings ALTER COLUMN received_at SET DEFAULT NOW();
+ALTER TABLE zone_events ADD COLUMN IF NOT EXISTS received_at TIMESTAMPTZ;
+ALTER TABLE zone_events ALTER COLUMN received_at SET DEFAULT NOW();
+CREATE TABLE IF NOT EXISTS receipt_jobs (
+ id UUID PRIMARY KEY, event_id BIGINT NOT NULL REFERENCES zone_events(id),
+ user_id BIGINT NOT NULL REFERENCES users(id), device_id UUID REFERENCES devices(id),
+ state TEXT NOT NULL CHECK(state IN ('requested','sent','confirmed','failed','cancelled','unknown')),
+ method TEXT NOT NULL DEFAULT 'android', detail TEXT NOT NULL DEFAULT '',
+ created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(), updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS receipt_jobs_event ON receipt_jobs(event_id,created_at DESC);
+CREATE TABLE IF NOT EXISTS transfer_imports (digest TEXT PRIMARY KEY, imported_at TIMESTAMPTZ DEFAULT NOW(), imported_by BIGINT REFERENCES users(id));
+CREATE INDEX IF NOT EXISTS weighings_received_time ON weighings(received_at DESC);
+CREATE INDEX IF NOT EXISTS zone_received_time ON zone_events(received_at DESC);
+CREATE INDEX IF NOT EXISTS weighing_operation_time ON weighings ((COALESCE(paid_at,cancelled_at,created_at)));
+CREATE OR REPLACE VIEW operation_ledger AS
+ SELECT 'S-'||w.id AS operation_id,w.id,'scale'::text AS kind,w.receipt_no,''::text AS queue_no,
+ w.plate_number AS plate,COALESCE(w.paid_at,w.cancelled_at,w.created_at) AS occurred,w.received_at,
+ 'scale'::text AS point,w.created_by AS operator_id,COALESCE(u.username,'Import') AS operator_name,
+ w.payment_method AS method,w.price AS amount,w.status,
+ CONCAT_WS(', ','Vazn o‘lchash',CASE WHEN w.entry_service THEN 'Hududga kirish' END,CASE WHEN w.reload_service THEN 'Qayta yuklash' END) AS reason,
+ w.weight_kg,w.weighing_fee,w.entry_fee,w.reload_fee,0::bigint AS parking_fee,
+ ''::text AS purpose,w.created_at AS entry_time,w.paid_at AS exit_time,1::integer AS days,0::bigint AS daily_rate,
+ 'weigh'::text AS action,''::text AS location,w.entry_service,w.reload_service,w.source
+ FROM weighings w LEFT JOIN users u ON u.id=w.created_by
+ UNION ALL
+ SELECT 'Z-'||e.id,e.id,'zone','AFZ-'||e.id,COALESCE(v.queue_no,'AFZ-V'||v.id),v.plate,e.occurred,e.received_at,
+ e.point,u.id,e.operator_name,e.method,e.amount,'paid',
+ CASE WHEN e.point='parkovka_tashqi' THEN 'Parkovka' ELSE 'Hudud' END||' — '||CASE WHEN e.action='in' THEN 'Kirish' ELSE 'Chiqish' END||' — '||CASE WHEN v.purpose='zone' THEN 'Free Zone' ELSE 'Ayritom navbati' END,
+ 0::bigint,0::bigint,0::bigint,0::bigint,e.amount,v.purpose,v.started,
+ CASE WHEN e.action='out' THEN e.occurred END,e.days,v.daily_rate,e.action,e.location,FALSE,FALSE,e.point
+ FROM zone_events e JOIN zone_visits v ON v.id=e.visit_id LEFT JOIN users u ON u.username=e.operator_name;

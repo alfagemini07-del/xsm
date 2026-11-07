@@ -21,3 +21,11 @@ GitHub 403 bersa, `GitHub-kirish.cmd` orqali **alfagemini07-del** hisobiga kirin
 KPP oynalari asl parkovka uslubida: raqam, to‘lov, navbat va chek bitta sahifada. Javobi yo‘qolgan amal qayta yuborilganda aynan oldingi chek qaytariladi. KPP uchun internet kerak; kompyuter terminallari esa ilk tasdiqdan keyin offline ishlaydi.
 
 Sekinlikni kamaytirish: foydalanuvchi/qurilma tekshiruvi birlashtirilgan, KPP hisobi bitta so‘rovda olinadi, hisobot so‘rovlari guruhlangan, health natijasi 20 soniya saqlanadi. Admin so‘rovlari faqat kerakli menyuda bajariladi. Render va baza hududlarini tekshiring. Free tarifdagi uyqu cheklovi: https://render.com/docs/free .
+
+## KPP va hisobotlar
+
+`static/apk/kpp1.apk` — **KPP Ayritom**, `static/apk/kpp2.apk` — **KPP2**. Ikkalasi SUNMI V2s Smart uchun vertikal va ichki printer ilk tanlov. KPP cheki 58 mm qog‘ozga mos 384 nuqtali rasm. Windows tarozi va parkovka cheklari 80 mm. Printer tasdiqlari qog‘ozdagi natijaga qarab qayd etiladi. Aloqasi uzilgan APK chop natijasini qayta yuboradi. KPPning kirish va chiqish amallari serverga ulanishni talab qiladi.
+
+Qidiruv va hisobotlar barcha to‘rtta nuqtani qamrab oladi. Excel amal va markazga kelish vaqtlarini, xodimni, to‘lov sababi va xizmatlar summalarini ko‘rsatadi. Hisobot serverdagi oxirgi ma’lumotga asoslanadi. Aloqasi yo‘q terminalning navbatidagi yozuvlar kelgach qo‘shiladi.
+
+Import va backup menyusida umumiy JSON eksport, faylni tekshirish va techadmin importi mavjud. Mavjud yozuv ustiga yozilmaydi. Maxfiy kalit va parollar ko‘chirilmaydi. Eski tarozi SQLite fayli alohida import qilinadi. Qurilmalar menyusida ulanish tarixi sahifalarga bo‘lingan. Tasdiqlangan Windows terminali o‘sha Windows foydalanuvchisi bilan keyingi ishga tushirishda avtomatik kiradi.
