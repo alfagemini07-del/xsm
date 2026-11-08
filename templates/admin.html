@@ -3,17 +3,17 @@
 <head>
   <meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Boshqaruv paneli | Airitom</title>
-  <link rel="icon" href="{{ url_for('static', filename='favicon.ico') }}"><link rel="stylesheet" href="{{ url_for('static', filename='style.css', v='20261105-1') }}">
-  <link rel="stylesheet" href="/static/interface.css?v=7">
-  <link rel="stylesheet" href="/static/devices.css?v=2">
-<link rel="stylesheet" href="/static/operations.css?v=1"></head>
+  <link rel="icon" href="{{ url_for('static', filename='favicon.ico') }}"><link rel="stylesheet" href="{{ url_for('static', filename='style.css', v='20261108-2') }}">
+  <link rel="stylesheet" href="/static/interface.css?v=8">
+  <link rel="stylesheet" href="/static/devices.css?v=4">
+<link rel="stylesheet" href="/static/operations.css?v=2"></head>
 <body class="admin-page" data-csrf="{{ csrf_token() }}" data-role="{{ user.role }}" data-user-id="{{ user.id }}" data-default-tab="{{ default_tab }}" data-local-printer-agent="{{ '1' if local_printer_agent else '0' }}">
   <div class="industrial-grid"></div>
   <div class="admin-layout">
     {% include 'admin_nav.html' %}
 
     <div class="admin-workspace">
-      <header class="admin-topbar"><div class="topbar-brand">{{ 'TEXNIK BOSHQARUV' if user.role == 'techadmin' else 'ADMIN BOSHQARUV' }} <span>v2.6</span></div><div class="topbar-status"><span class="blue"><i></i>Printer <b id="admin-printer-status">Tekshirilmoqda</b></span><span id="sync-status"><i></i>Qurilmalar sinxron</span></div><time id="admin-clock">--:--:--</time><form method="post" action="{{ url_for('logout') }}" class="topbar-logout"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><button class="button secondary compact" type="submit">Hisobdan chiqish</button></form></header>
+      <header class="admin-topbar"><div class="topbar-brand">{{ 'TEXNIK BOSHQARUV' if user.role == 'techadmin' else 'ADMIN BOSHQARUV' }} <span>v2.8 Pro</span></div><div class="topbar-status"><span class="blue"><i></i>Printer <b id="admin-printer-status">Tekshirilmoqda</b></span><span id="sync-status"><i></i>Qurilmalar sinxron</span></div><time id="admin-clock">--:--:--</time><form method="post" action="{{ url_for('logout') }}" class="topbar-logout"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><button class="button secondary compact" type="submit">Hisobdan chiqish</button></form></header>
       <main class="admin-main">
         {% include 'devices.html' %}
         {% if user.role == 'admin' %}<section id="tab-dashboard" class="admin-tab active">
@@ -37,40 +37,264 @@
         </section>{% endif %}
 
         <section id="tab-reports" class="admin-tab hidden">
-          <header class="page-title"><div><span class="eyebrow">HISOBOTLAR VA TAHLILLAR</span><h1>Kengaytirilgan Hisobotlar</h1><p>Tanlangan davr bo'yicha kunlik operatsiyalar va tushum tahlili.</p></div><div class="title-actions"><button id="btn-export-report" class="button primary compact" type="button">⇩ Excel eksport</button><button id="btn-print-report" class="button secondary compact" type="button">▤ Chop etish</button></div></header>
-          <article class="industrial-card report-filters"><div class="quick-ranges"><button data-range="today" type="button">Bugun</button><button data-range="yesterday" type="button">Kecha</button><button class="active" data-range="week" type="button">Oxirgi 7 kun</button><button data-range="month" type="button">Joriy oy</button></div><label>Boshlanish sanasi<input id="report-start" type="date"></label><span class="range-arrow">→</span><label>Tugash sanasi<input id="report-end" type="date"></label><button id="btn-report" class="button primary" type="button">Hisobotni shakllantirish</button></article>
-          <div id="report-summary" class="metric-grid four"><article class="metric-card blue"><small>Jami operatsiya</small><strong id="report-count">—</strong><em>ta avtomobil</em></article><article class="metric-card green"><small>Jami tushum</small><strong id="report-total">—</strong><em>so'm</em></article><article class="metric-card violet"><small>Kunlik o'rtacha</small><strong id="report-average">—</strong><em>ta / kun</em></article><article class="metric-card orange"><small>Naqd / karta</small><strong id="report-methods">—</strong><em>tranzaksiyalar</em></article></div>
-          <article class="industrial-card service-revenue-strip"><div><small>Vazn o'lchash tushumi</small><strong id="report-service-weighing">—</strong></div><div><small>Hududga kirish tushumi</small><strong id="report-service-entry">—</strong></div><div><small>Qayta yuklash tushumi</small><strong id="report-service-reload">—</strong></div><div><small>Parkovka va KPP tushumi</small><strong id="report-service-parking">—</strong></div></article>
-          <article class="industrial-card chart-card"><div class="section-heading"><div><h2>Kunlik operatsiyalar va tushum dinamikasi</h2><p>Yashil — tushum, ko'k — avtomobillar soni</p></div></div><canvas id="report-chart" height="270"></canvas></article>
-          <article class="industrial-card table-card"><div class="section-heading"><div><h2>Kunlik hisobot reyestri</h2><p id="report-period-label">Tanlangan davr</p></div></div><div class="table-scroll"><table><thead><tr><th>Sana</th><th>Operatsiyalar</th><th>Tushum</th><th>Kunlik o'rtacha</th></tr></thead><tbody id="report-body"></tbody></table></div><div class="pagination"><label>Sahifada <select id="report-page-size"><option value="10">10 ta</option><option value="15" selected>15 ta</option><option value="20">20 ta</option><option value="50">50 ta</option><option value="100">100 ta</option></select></label><span id="report-count-label">0 kun</span><button id="report-prev" type="button">Oldingi</button><b id="report-page-info">1 / 1</b><button id="report-next" type="button">Keyingi</button></div></article>
+          <header class="page-title">
+            <div>
+              <span class="eyebrow">KO‘P QIRRALI MOLIYAVIY VA OPERATSION TAHLIL</span>
+              <h1>Kengaytirilgan Hisobotlar</h1>
+              <p>Tanlangan davr, nuqta va to‘lov usuli bo‘yicha kunlik, soatlik, postlar va xodimlar kesimidagi tahlil.</p>
+            </div>
+            <div class="title-actions">
+              <button id="btn-export-report" class="button success compact" type="button">⇩ Excel eksport (5 varaq .xlsx)</button>
+              <button id="btn-print-report" class="button secondary compact" type="button">▤ Chop etish</button>
+            </div>
+          </header>
+
+          <article class="industrial-card report-filters">
+            <div class="quick-ranges">
+              <button data-range="today" type="button">Bugun</button>
+              <button data-range="yesterday" type="button">Kecha</button>
+              <button class="active" data-range="week" type="button">Oxirgi 7 kun</button>
+              <button data-range="month" type="button">Joriy oy</button>
+            </div>
+            <label>Boshlanish sanasi<input id="report-start" type="date"></label>
+            <span class="range-arrow">→</span>
+            <label>Tugash sanasi<input id="report-end" type="date"></label>
+            <label>Nuqta / Post
+              <select id="report-point">
+                <option value="">Barcha nuqtalar</option>
+                <option value="scale">Tarozi (Free Zone)</option>
+                <option value="parkovka_tashqi">E-navbat parkovka</option>
+                <option value="kpp2">O‘zbekiston darvozasi (KPP2)</option>
+                <option value="ayritom">Afg‘oniston darvozasi (KPP1)</option>
+              </select>
+            </label>
+            <label>To‘lov usuli
+              <select id="report-method">
+                <option value="">Barcha to‘lovlar</option>
+                <option value="cash">Naqd pul</option>
+                <option value="card">Plastik karta</option>
+                <option value="bank">Hisob raqam</option>
+              </select>
+            </label>
+            <button id="btn-report" class="button primary" type="button">⟳ Hisobotni shakllantirish</button>
+          </article>
+
+          <div id="report-summary" class="metric-grid four">
+            <article class="metric-card blue"><span>▣</span><small>Jami operatsiyalar</small><strong id="report-count">—</strong><em id="report-count-sub">ta to‘langan amal</em></article>
+            <article class="metric-card green"><span>▤</span><small>Jami tushum</small><strong id="report-total">—</strong><em>so‘m</em></article>
+            <article class="metric-card violet"><span>◫</span><small>Kunlik o‘rtacha</small><strong id="report-average">—</strong><em id="report-avg-check">ta / kun</em></article>
+            <article class="metric-card orange"><span>◈</span><small>Naqd / Karta / Bank</small><strong id="report-methods">—</strong><em id="report-methods-sum">tranzaksiyalar soni</em></article>
+          </div>
+
+          <article class="industrial-card service-revenue-strip four-cols">
+            <div><small>⚖ Vazn o‘lchash (Tarozi)</small><strong id="report-service-weighing">—</strong></div>
+            <div><small>🚛 Hududga kirish xizmati</small><strong id="report-service-entry">—</strong></div>
+            <div><small>⇄ Qayta yuklash xizmati</small><strong id="report-service-reload">—</strong></div>
+            <div><small>🅿 Parkovka va KPP darvozalari</small><strong id="report-service-parking">—</strong></div>
+          </article>
+
+          <div class="report-view-switcher" role="tablist" aria-label="Hisobot ko‘rinishini tanlash">
+            <button type="button" class="rep-view-btn active" data-rep-view="overview">📊 Grafiklar va Umumiy kesim</button>
+            <button type="button" class="rep-view-btn" data-rep-view="daily">📅 Kunlik batafsil reyestr</button>
+            <button type="button" class="rep-view-btn" data-rep-view="points">🏢 Nuqtalar (Postlar) kesimi</button>
+            <button type="button" class="rep-view-btn" data-rep-view="operators">👤 Xodimlar (Operatorlar) kesimi</button>
+          </div>
+
+          <div id="rep-pane-overview" class="rep-view-pane">
+            <div class="rep-dual-grid">
+              <article class="industrial-card chart-card">
+                <div class="section-heading">
+                  <div>
+                    <h2>Kunlik operatsiyalar va tushum dinamikasi</h2>
+                    <p>Yashil ustun — tushum (so‘m), ko‘k ustun — avtomobillar soni</p>
+                  </div>
+                </div>
+                <canvas id="report-chart" height="260"></canvas>
+              </article>
+              <article class="industrial-card chart-card">
+                <div class="section-heading">
+                  <div>
+                    <h2>Soatlik faollik (00:00 — 23:00)</h2>
+                    <p>Kun davomida eng tig‘iz va serdaromad soatlar</p>
+                  </div>
+                </div>
+                <canvas id="report-hourly-chart" height="260"></canvas>
+              </article>
+            </div>
+
+            <div class="rep-dual-grid">
+              <article class="industrial-card table-card">
+                <div class="section-heading"><div><h2>Nuqtalar (Postlar) ulushi</h2><p>Har bir post bo‘yicha tushum taqsimoti</p></div></div>
+                <div id="report-points-bars" class="rep-bars-list"></div>
+              </article>
+              <article class="industrial-card table-card">
+                <div class="section-heading"><div><h2>To‘lov usullari taqsimoti</h2><p>Naqd pul, Plastik karta va Bank hisob raqami</p></div></div>
+                <div id="report-methods-bars" class="rep-bars-list"></div>
+              </article>
+            </div>
+          </div>
+
+          <article id="rep-pane-daily" class="industrial-card table-card rep-view-pane">
+            <div class="section-heading">
+              <div>
+                <h2>Kunlik batafsil hisobot reyestri</h2>
+                <p id="report-period-label">Tanlangan davr</p>
+              </div>
+            </div>
+            <div class="table-scroll">
+              <table>
+                <thead>
+                  <tr>
+                    <th>Sana</th>
+                    <th>Amallar</th>
+                    <th>Tarozi</th>
+                    <th>Hudud / Qayta yuklash</th>
+                    <th>Parkovka / KPP</th>
+                    <th>Naqd pul</th>
+                    <th>Plastik karta</th>
+                    <th>Hisob raqam</th>
+                    <th>Jami tushum</th>
+                    <th>O‘rtacha chek</th>
+                  </tr>
+                </thead>
+                <tbody id="report-body"></tbody>
+              </table>
+            </div>
+            <div class="pagination">
+              <label>Sahifada <select id="report-page-size"><option value="10">10 ta</option><option value="15" selected>15 ta</option><option value="20">20 ta</option><option value="50">50 ta</option><option value="100">100 ta</option></select></label>
+              <span id="report-count-label">0 kun</span>
+              <button id="report-prev" type="button">Oldingi</button>
+              <b id="report-page-info">1 / 1</b>
+              <button id="report-next" type="button">Keyingi</button>
+            </div>
+          </article>
+
+          <article id="rep-pane-points" class="industrial-card table-card rep-view-pane hidden">
+            <div class="section-heading"><div><h2>Nuqtalar (Postlar) kesimida batafsil jadval</h2><p>Tarozi, E-navbat parkovka, O‘zbekiston va Afg‘oniston darvozalari</p></div></div>
+            <div class="table-scroll">
+              <table>
+                <thead>
+                  <tr>
+                    <th>Nuqta / Post nomi</th>
+                    <th>Operatsiyalar soni</th>
+                    <th>Naqd pul (so‘m)</th>
+                    <th>Plastik karta (so‘m)</th>
+                    <th>Hisob raqam (so‘m)</th>
+                    <th>Jami tushum (so‘m)</th>
+                    <th>Ulushi (%)</th>
+                  </tr>
+                </thead>
+                <tbody id="report-points-body"></tbody>
+              </table>
+            </div>
+          </article>
+
+          <article id="rep-pane-operators" class="industrial-card table-card rep-view-pane hidden">
+            <div class="section-heading"><div><h2>Xodimlar (Operatorlar) kesimida samaradorlik</h2><p>Har bir xodim qabul qilgan to‘lovlar va operatsiyalar</p></div></div>
+            <div class="table-scroll">
+              <table>
+                <thead>
+                  <tr>
+                    <th>Xodim (Operator)</th>
+                    <th>Nuqta / Post</th>
+                    <th>Operatsiyalar soni</th>
+                    <th>Naqd pul (so‘m)</th>
+                    <th>Plastik karta (so‘m)</th>
+                    <th>Hisob raqam (so‘m)</th>
+                    <th>Jami tushum (so‘m)</th>
+                    <th>Ulushi (%)</th>
+                  </tr>
+                </thead>
+                <tbody id="report-operators-body"></tbody>
+              </table>
+            </div>
+          </article>
         </section>
 
         <section id="tab-analytics" class="admin-tab hidden">
-          <header class="page-title"><div><span class="eyebrow">BARCHA KESIMLAR</span><h1>Tahlil va eksport</h1><p>Tushum faqat to'langan operatsiyalardan hisoblanadi. Sana — to‘lov/amaldagi hodisa vaqti, Toshkent (UTC+05:00). Barcha nuqtalar hisobga olinadi.</p></div></header>
-          <article class="industrial-card table-card">
-            <div class="analytics-tools">
-              <label>Boshlanish<input id="analytics-start" type="date"></label><label>Tugash<input id="analytics-end" type="date"></label>
-              <label>Hisobot turi<select id="analytics-group"><option value="hour">Soatlik</option><option value="day" selected>Kunlik</option><option value="week">Haftalik</option><option value="month">Oylik</option><option value="point">Nuqtalar</option><option value="operator">Xodimlar</option><option value="method">To'lov turi</option><option value="services">Xizmatlar</option><option value="vehicle">Eng ko'p kelgan avtomobillar</option><option value="cancelled">Bekor qilingan cheklar</option><option value="reprints">Qayta chop urinishlari</option></select></label>
-              <label>Nuqta<select id="analytics-point"><option value="">Barcha nuqtalar</option><option value="scale">Tarozi</option><option value="parkovka_tashqi">E-navbat parkovka</option><option value="ayritom">Afg‘oniston darvozasi</option><option value="kpp2">O‘zbekiston darvozasi</option></select></label><label>Operator<select id="analytics-operator"><option value="">Barchasi</option></select></label>
-              <label>To'lov<select id="analytics-method"><option value="">Barchasi</option><option value="cash">Naqd</option><option value="card">Karta</option><option value="bank">Hisob raqam</option></select></label>
-              <button id="analytics-load" class="button primary" type="button">Ko'rsatish</button>
+          <header class="page-title">
+            <div>
+              <span class="eyebrow">BARCHA KESIMLAR VA PROFESSIONAL EKSPORT</span>
+              <h1>Tahlil va Eksport Markazi</h1>
+              <p>Tushum faqat to‘langan operatsiyalardan hisoblanadi. Sana — Toshkent vaqti (UTC+05:00). Barcha postlar hisobga olinadi.</p>
             </div>
-            <div class="analytics-export"><button class="button secondary" data-analytics-range="today" type="button">Bugun</button><button class="button secondary" data-analytics-range="week" type="button">7 kun</button><button class="button secondary" data-analytics-range="month" type="button">Joriy oy</button><button class="button success" data-analytics-export="xlsx" type="button">Excel .xlsx</button><button class="button primary" data-analytics-export="pdf" type="button">PDF</button></div>
-            <p id="analytics-error" class="analytics-error" role="status"></p><div id="analytics-summary" class="analytics-summary"></div><h2 id="analytics-title">Hisobot</h2>
+            <div class="title-actions">
+              <button class="button success compact" data-analytics-export="full_xlsx" type="button" title="5 varaqli to‘liq moliyaviy kitob (Xulosa, Kunlik, Xodimlar, Batafsil, Chop)">⇩ To‘liq 5-varaqli Excel (.xlsx)</button>
+              <button class="button primary compact" data-analytics-export="xlsx" type="button">⇩ Tanlangan jadval (.xlsx)</button>
+              <button class="button secondary compact" data-analytics-export="pdf" type="button">▤ PDF hisobot</button>
+            </div>
+          </header>
+          <article class="industrial-card table-card">
+            <div class="analytics-filter-console">
+              <div class="quick-ranges">
+                <button type="button" data-analytics-range="today">Bugun</button>
+                <button type="button" data-analytics-range="yesterday">Kecha</button>
+                <button type="button" class="active" data-analytics-range="week">Oxirgi 7 kun</button>
+                <button type="button" data-analytics-range="month">Joriy oy</button>
+              </div>
+              <div class="analytics-tools">
+                <label>Boshlanish<input id="analytics-start" type="date"></label>
+                <label>Tugash<input id="analytics-end" type="date"></label>
+                <label>Hisobot kesimi (Ko‘rinish)
+                  <select id="analytics-group">
+                    <option value="day" selected>📅 Kunlik tushum va xizmatlar</option>
+                    <option value="hour">🕒 Soatlik oqim va tushum</option>
+                    <option value="week">📆 Haftalik dinamika</option>
+                    <option value="month">🗓 Oylik dinamika</option>
+                    <option value="point">🏢 Nuqtalar (Postlar) kesimida</option>
+                    <option value="operator">👤 Xodimlar (Operatorlar) kesimida</option>
+                    <option value="method">💳 To‘lov turlari kesimida</option>
+                    <option value="services">⚙ Xizmat turlari kesimida</option>
+                    <option value="detailed">📋 Batafsil operatsiyalar ro‘yxati</option>
+                    <option value="vehicle">🚛 Eng ko‘p kelgan avtomobillar</option>
+                    <option value="cancelled">⊘ Bekor qilingan cheklar</option>
+                    <option value="reprints">🖨 Qayta chop urinishlari</option>
+                  </select>
+                </label>
+                <label>Nuqta / Post
+                  <select id="analytics-point">
+                    <option value="">Barcha nuqtalar</option>
+                    <option value="scale">Tarozi (Free Zone)</option>
+                    <option value="parkovka_tashqi">E-navbat parkovka</option>
+                    <option value="ayritom">Afg‘oniston darvozasi (KPP1)</option>
+                    <option value="kpp2">O‘zbekiston darvozasi (KPP2)</option>
+                  </select>
+                </label>
+                <label>Operator<select id="analytics-operator"><option value="">Barchasi</option></select></label>
+                <label>To‘lov usuli
+                  <select id="analytics-method">
+                    <option value="">Barchasi</option>
+                    <option value="cash">Naqd pul</option>
+                    <option value="card">Plastik karta</option>
+                    <option value="bank">Hisob raqam</option>
+                  </select>
+                </label>
+                <button id="analytics-load" class="button primary" type="button">⟳ Ko‘rsatish</button>
+              </div>
+            </div>
+
+            <p id="analytics-error" class="analytics-error" role="status"></p>
+            <div id="analytics-summary" class="analytics-kpi-grid"></div>
+
+            <div class="analytics-chart-card">
+              <canvas id="analytics-chart" height="230"></canvas>
+            </div>
+
+            <h2 id="analytics-title" style="margin:14px 0 10px">Hisobot</h2>
             <div class="table-scroll"><table><thead id="analytics-head"></thead><tbody id="analytics-body"></tbody></table></div>
             <div class="pagination"><label>Sahifada<select id="analytics-size"><option>10</option><option>15</option><option selected>20</option><option>50</option><option>100</option></select></label><span id="analytics-count"></span><button id="analytics-prev" type="button">Oldingi</button><b id="analytics-page">1 / 1</b><button id="analytics-next" type="button">Keyingi</button></div>
             <div class="analytics-closing"><h2>Kunlik kassa yopilish dalolatnomasi</h2><p>Bitta kunni va kerakli operatorni tanlang. To'lov filtri “Barchasi” bo'lsin.</p><div class="analytics-tools"><label>Kassadagi haqiqiy naqd pul (so'm)<input id="closing-cash" type="text" inputmode="numeric" placeholder="Masalan: 500 000"></label><button id="closing-download" class="button success" type="button">Dalolatnoma PDF</button></div><p class="muted">Yaratilgan paytdagi hisob va haqiqiy pul farqi, topshiruvchi hamda qabul qiluvchi imzosi uchun joy.</p></div>
           </article>
         </section>
         <section id="tab-search" class="admin-tab hidden">
-          <header class="page-title"><div><span class="eyebrow">TEZKOR QIDIRUV</span><h1>Avtomobil va chek qidiruvi</h1><p>Davlat raqami, chek identifikatori yoki sana oralig'i bo'yicha izlang.</p></div><div class="title-actions"><button id="btn-refresh-search" class="button secondary compact" type="button">⟳ Yangilash</button><button id="btn-export-search" class="button primary compact" type="button">⇩ Excel eksport</button></div></header>
+          <header class="page-title"><div><span class="eyebrow">TEZKOR QIDIRUV</span><h1>Avtomobil va chek qidiruvi</h1><p>Davlat raqami, chek identifikatori yoki sana oralig'i bo'yicha izlang.</p></div><div class="title-actions"><button id="btn-refresh-search" class="button secondary compact" type="button">⟳ Yangilash</button><button id="btn-export-search" class="button success compact" type="button">⇩ Excel eksport (.xlsx)</button></div></header>
           <article class="industrial-card search-filters"><label class="grow">Mashina raqami yoki Chek ID<div class="input-with-prefix"><span>UZ</span><select id="search-point" aria-label="Nuqta"><option value="">Barcha nuqtalar</option><option value="scale">Tarozi</option><option value="parkovka_tashqi">E-navbat parkovka</option><option value="ayritom">Afg‘oniston darvozasi</option><option value="kpp2">O‘zbekiston darvozasi</option></select><input id="search-plate" type="text" placeholder="01 A 777 BA yoki chek raqami"></div></label><label>Boshlanish sanasi<input id="search-start" type="date"></label><label>Tugash sanasi<input id="search-end" type="date"></label><label>To'lov holati<select id="search-status"><option value="">Barchasi</option><option value="paid">To'langan</option><option value="pending">Kutilmoqda</option><option value="cancelled">Bekor qilingan</option></select></label><button id="btn-search" class="button primary" type="button">⌕ Qidirish</button><button id="btn-reset-search" class="icon-button" type="button">⟳</button><div class="quick-search"><span>Tezkor namunalar:</span><button type="button" data-search-sample="01 A 777 BA">01 A 777 BA</button><button type="button" data-search-sample="10 882 AA">10 882 AA</button></div></article>
           <div class="metric-grid four search-summary"><article class="metric-card green"><small>Topildi</small><strong id="search-total-count">—</strong><em>ta reys</em></article><article class="metric-card blue"><small>Ko'rsatilgan tushum</small><strong id="search-total-sum">—</strong><em>so'm</em></article><article class="metric-card violet"><small>Joriy sahifa</small><strong id="search-current-page">1</strong><em>sahifa</em></article><article class="metric-card orange"><small>Holat</small><strong id="search-state-label">Barchasi</strong><em>filtr</em></article></div>
           <article class="industrial-card table-card"><div class="section-heading"><h2>Operatsiyalar ro‘yxati</h2><button id="btn-print-table" class="button secondary compact" type="button">▤ Barchasini chop qilish</button></div><div class="table-scroll"><table><thead><tr><th>#</th><th>Chek ID</th><th>Davlat raqami</th><th>Jami summa</th><th>To'lov</th><th>Sana &amp; vaqt</th><th>Operator</th><th>Amallar</th></tr></thead><tbody id="search-body"></tbody></table></div><div id="search-pages" class="pagination"><label>Sahifada <select id="search-page-size"><option value="10">10 ta</option><option value="15" selected>15 ta</option><option value="20">20 ta</option><option value="50">50 ta</option><option value="100">100 ta</option></select></label><span id="search-count-label">0 ta yozuv</span><button id="search-prev" type="button">Oldingi</button><b id="search-page-info">1 / 1</b><button id="search-next" type="button">Keyingi</button></div></article>
         </section>
 
         <section id="tab-history" class="admin-tab hidden">
-          <header class="page-title"><div><span class="eyebrow">OPERATSIYALAR</span><h1>Oxirgi operatsiyalar</h1><p>Eng yangi tarozi tranzaksiyalari.</p></div><button id="btn-refresh-history" class="button primary compact" type="button">⟳ Yangilash</button></header>
+          <header class="page-title"><div><span class="eyebrow">OPERATSIYALAR</span><h1>Oxirgi operatsiyalar</h1><p>Eng yangi tarozi va post tranzaksiyalari.</p></div><button id="btn-refresh-history" class="button primary compact" type="button">⟳ Yangilash</button></header>
           <article class="industrial-card table-card"><div class="table-scroll"><table><thead><tr><th>#</th><th>Chek ID</th><th>Davlat raqami</th><th>Jami summa</th><th>To'lov</th><th>Sana &amp; vaqt</th><th>Operator</th><th>Amallar</th></tr></thead><tbody id="history-body"></tbody></table></div><div class="pagination"><label>Sahifada <select id="history-page-size"><option value="10">10 ta</option><option value="15" selected>15 ta</option><option value="20">20 ta</option><option value="50">50 ta</option><option value="100">100 ta</option></select></label><span id="history-count-label">0 ta yozuv</span><button id="history-prev" type="button">Oldingi</button><b id="history-page-info">1 / 1</b><button id="history-next" type="button">Keyingi</button></div></article>
         </section>
 
@@ -160,7 +384,7 @@
             <article class="industrial-card"><div class="section-heading"><div><h2>Dastur tezkorligi</h2><p>Joriy worker telemetriyasi</p></div></div><div class="monitor-metrics"><div><span>O'rtacha javob</span><strong id="avg-response">—</strong></div><div><span>P95 javob</span><strong id="p95-response">—</strong></div><div><span>So'rovlar</span><strong id="request-count">—</strong></div><div><span>Server xatolari</span><strong id="error-count">—</strong></div></div></article>
           </div>
           <article class="industrial-card chart-card"><div class="section-heading"><div><h2>14 kunlik dastur faolligi</h2><p>To'langan operatsiyalar va tushum dinamikasi</p></div></div><canvas id="system-chart" height="280"></canvas></article>
-          <article class="industrial-card import-status"><div><small>Oxirgi import</small><strong id="last-import">Hali import qilinmagan</strong></div><div><small>Dastur versiyasi</small><strong id="app-version">2.6 Pro</strong></div><div><small>Muhit</small><strong id="app-environment">—</strong></div></article>
+          <article class="industrial-card import-status"><div><small>Oxirgi import</small><strong id="last-import">Hali import qilinmagan</strong></div><div><small>Dastur versiyasi</small><strong id="app-version">2.8 Pro</strong></div><div><small>Muhit</small><strong id="app-environment">—</strong></div></article>
         </section>
 
         <section id="tab-users" class="admin-tab hidden">
@@ -260,9 +484,9 @@
   </div>
 
   <div id="toast" class="toast hidden" role="status"><b id="toast-icon">✓</b><span id="toast-text"></span></div>
-<script src="{{ url_for('static', filename='devices.js', v='2') }}" defer></script>
+<script src="{{ url_for('static', filename='devices.js', v='4') }}" defer></script>
 <link rel="stylesheet" href="/static/export-jobs.css"><script src="/static/export-jobs.js" defer></script>
-<script src="{{ url_for('static', filename='admin.js', v='20261107-4') }}" defer></script>
-<script src="{{ url_for('static', filename='reports.js', v='20261107-4') }}" defer></script>
+<script src="{{ url_for('static', filename='admin.js', v='20261108-2') }}" defer></script>
+<script src="{{ url_for('static', filename='reports.js', v='20261108-2') }}" defer></script>
 <dialog id="operation-receipt"><div class="operation-receipt-card"><h2>Xizmat cheki</h2><img id="operation-receipt-image" alt="Chek"><p id="operation-print-state"></p><button id="operation-receipt-close" class="button secondary" type="button">Yopish</button></div></dialog><script src="/static/operations.js?v=1" defer></script></body>
 </html>

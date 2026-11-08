@@ -5,6 +5,7 @@
   const localAgentEnabled = document.body.dataset.localPrinterAgent === "1";
   let weeklyData = [];
   let reportData = [];
+  let reportHourlyData = [];
   let reportPage = 1;
   let reportPages = 1;
   let systemData = [];
@@ -87,20 +88,25 @@
 
   function drawBarChart(canvasId, data, options = {}) {
     const canvas = document.getElementById(canvasId); if (!canvas || !data.length) return;
-    const ratio = window.devicePixelRatio || 1; const width = Math.max(320, canvas.clientWidth); const height = Number(canvas.getAttribute("height")) || 280;
+    const ratio = window.devicePixelRatio || 1; const width = Math.max(320, canvas.clientWidth || 560); const height = Number(canvas.getAttribute("height")) || 260;
     canvas.width = width * ratio; canvas.height = height * ratio; const ctx = canvas.getContext("2d"); ctx.scale(ratio, ratio); ctx.clearRect(0, 0, width, height);
-    const pad = { top: 28, right: 18, bottom: 43, left: 40 }; const graphW = width - pad.left - pad.right; const graphH = height - pad.top - pad.bottom;
+    const pad = { top: 26, right: 16, bottom: 40, left: 36 }; const graphW = width - pad.left - pad.right; const graphH = height - pad.top - pad.bottom;
     const maxCount = Math.max(1, ...data.map(item => Number(item.count || 0))); const maxTotal = Math.max(1, ...data.map(item => Number(item.total || 0)));
     ctx.strokeStyle = "rgba(148,163,184,.13)"; ctx.fillStyle = "#8795a8"; ctx.font = "10px Segoe UI";
     for (let i = 0; i <= 4; i += 1) { const y = pad.top + graphH * i / 4; ctx.beginPath(); ctx.moveTo(pad.left, y); ctx.lineTo(width - pad.right, y); ctx.stroke(); }
-    const slot = graphW / data.length; const barWidth = Math.min(50, slot * .52);
+    const slot = graphW / data.length; const barWidth = Math.min(46, Math.max(6, slot * .56));
+    const colorTop = options.colorTop || "#4edea3";
+    const colorBot = options.colorBot || "rgba(16,185,129,.35)";
+    const subColor = options.subColor || "#0876e8";
     data.forEach((item, index) => {
       const countH = graphH * Number(item.count || 0) / maxCount; const totalH = graphH * Number(item.total || 0) / maxTotal;
       const x = pad.left + slot * index + (slot - barWidth) / 2; const countY = pad.top + graphH - countH; const totalY = pad.top + graphH - totalH;
-      const gradient = ctx.createLinearGradient(0, totalY, 0, pad.top + graphH); gradient.addColorStop(0, "#4edea3"); gradient.addColorStop(1, "rgba(16,185,129,.38)"); ctx.fillStyle = gradient; roundRect(ctx, x, totalY, barWidth, Math.max(totalH, 2), 6); ctx.fill();
-      ctx.fillStyle = "#0876e8"; roundRect(ctx, x + barWidth * .62, countY, barWidth * .38, Math.max(countH, 2), 4); ctx.fill();
-      ctx.textAlign = "center"; ctx.fillStyle = options.highlightLast && index === data.length - 1 ? "#4edea3" : "#9caabd"; ctx.fillText(item.label, x + barWidth / 2, height - 15);
-      if (item.count) { ctx.fillStyle = "#dce2f8"; ctx.fillText(String(item.count), x + barWidth / 2, Math.max(12, Math.min(countY, totalY) - 7)); }
+      const gradient = ctx.createLinearGradient(0, totalY, 0, pad.top + graphH); gradient.addColorStop(0, colorTop); gradient.addColorStop(1, colorBot); ctx.fillStyle = gradient; roundRect(ctx, x, totalY, barWidth, Math.max(totalH, 2), 5); ctx.fill();
+      ctx.fillStyle = subColor; roundRect(ctx, x + barWidth * .62, countY, Math.max(3, barWidth * .38), Math.max(countH, 2), 3); ctx.fill();
+      if (data.length <= 16 || index % 2 === 0) {
+        ctx.textAlign = "center"; ctx.fillStyle = options.highlightLast && index === data.length - 1 ? "#4edea3" : "#9caabd"; ctx.fillText(item.label, x + barWidth / 2, height - 14);
+      }
+      if (item.count) { ctx.textAlign = "center"; ctx.fillStyle = "#dce2f8"; ctx.fillText(String(item.count), x + barWidth / 2, Math.max(12, Math.min(countY, totalY) - 6)); }
     }); ctx.textAlign = "left";
   }
 
@@ -208,18 +214,232 @@
     document.getElementById("report-start").value = isoDate(start); document.getElementById("report-end").value = isoDate(end);
     document.querySelectorAll("[data-range]").forEach(button => button.classList.toggle("active", button.dataset.range === type));
   }
-  async function runReport(silent = false) {
-    const button = document.getElementById("btn-report"); const start = document.getElementById("report-start").value; const end = document.getElementById("report-end").value; if (!start || !end) return; if (!silent) setBusy(button, true);
-    try {
-      const perPage = Number(document.getElementById("report-page-size").value || 15); const data = await api(`/api/admin/operations/report?start=${start}&end=${end}&page=${reportPage}&per_page=${perPage}`); reportPages = data.total_pages; reportData = [...data.daily].reverse(); document.getElementById("report-count").textContent = fmt(data.total_count); document.getElementById("report-total").textContent = data.total_fmt; document.getElementById("report-average").textContent = data.total_days ? Math.round(data.total_count / data.total_days) : 0;
-      const cash = data.payment_methods.cash?.count || 0; const card = data.payment_methods.card?.count || 0; document.getElementById("report-methods").textContent = `${cash} / ${card}`; document.getElementById("report-period-label").textContent = `${start} — ${end} · Hisob: ${data.as_of} (Toshkent) · Oxirgi kelgan: ${data.last_received}`;
-      document.getElementById("report-service-weighing").textContent = `${data.service_totals.weighing_fmt} so'm`; document.getElementById("report-service-entry").textContent = `${data.service_totals.entry_fmt} so'm`; document.getElementById("report-service-reload").textContent = `${data.service_totals.reload_fmt} so'm`; document.getElementById("report-service-parking").textContent = `${data.service_totals.parking_fmt} so‘m`;
-      const body = document.getElementById("report-body"); body.replaceChildren(); if (!data.daily.length) emptyRow(body, 4, "Bu oraliqda ma'lumot yo'q"); else data.daily.forEach(item => { const row = document.createElement("tr"); row.append(td(item.date), td(`${item.count} ta`), td(`${item.total_fmt} so'm`), td(item.count ? `${fmt(Math.round(item.total / item.count))} so'm` : "0")); body.append(row); }); document.getElementById("report-count-label").textContent = `${data.total_days} kun`; document.getElementById("report-page-info").textContent = `${data.page} / ${data.total_pages}`; document.getElementById("report-prev").disabled = data.page <= 1; document.getElementById("report-next").disabled = data.page >= data.total_pages; drawBarChart("report-chart", reportData);
-    } catch (error) { if (!silent) showToast(error.message, true); } finally { if (!silent) setBusy(button, false); }
+
+  function renderProgressBars(containerId, items, colors) {
+    const box = document.getElementById(containerId);
+    if (!box) return;
+    box.replaceChildren();
+    if (!items.length) {
+      box.textContent = "Ma’lumot yo‘q";
+      return;
+    }
+    items.forEach((item, idx) => {
+      const row = document.createElement("div");
+      row.className = "rep-bar-item";
+      const head = document.createElement("div");
+      head.className = "rep-bar-head";
+      const title = document.createElement("strong");
+      title.textContent = item.label;
+      const meta = document.createElement("span");
+      meta.textContent = `${fmt(item.total)} so‘m · ${fmt(item.count)} ta (${item.share_pct}%)`;
+      head.append(title, meta);
+
+      const track = document.createElement("div");
+      track.className = "rep-bar-track";
+      const fill = document.createElement("i");
+      fill.style.width = Math.max(2, item.share_pct) + "%";
+      fill.style.background = colors[idx % colors.length];
+      track.append(fill);
+
+      row.append(head, track);
+      box.append(row);
+    });
   }
 
-  function exportCsv(source) {
-    const params = source === "report" ? new URLSearchParams({ start: document.getElementById("report-start").value, end: document.getElementById("report-end").value }) : searchParams(); params.delete("page"); params.delete("per_page"); window.XSMExports.start(params);
+  function reportFilterParams() {
+    const start = document.getElementById("report-start").value;
+    const end = document.getElementById("report-end").value;
+    const point = document.getElementById("report-point")?.value || "";
+    const method = document.getElementById("report-method")?.value || "";
+    const perPage = Number(document.getElementById("report-page-size").value || 15);
+    const p = new URLSearchParams({ start, end, page: reportPage, per_page: perPage });
+    if (point) p.set("point", point);
+    if (method) p.set("method", method);
+    return p;
+  }
+
+  async function runReport(silent = false) {
+    const button = document.getElementById("btn-report");
+    const start = document.getElementById("report-start").value;
+    const end = document.getElementById("report-end").value;
+    if (!start || !end) return;
+    if (!silent) setBusy(button, true);
+    try {
+      const data = await api(`/api/admin/operations/report?${reportFilterParams()}`);
+      reportPages = data.total_pages;
+      reportData = [...data.daily].reverse();
+      reportHourlyData = data.hourly || [];
+
+      document.getElementById("report-count").textContent = fmt(data.total_count);
+      if (document.getElementById("report-count-sub")) {
+        document.getElementById("report-count-sub").textContent = `Tarozi: ${fmt(data.service_totals.scale_count || 0)} · Postlar: ${fmt(data.service_totals.zone_count || 0)}`;
+      }
+      document.getElementById("report-total").textContent = data.total_fmt;
+      document.getElementById("report-average").textContent = data.total_days ? Math.round(data.total_count / data.total_days) : 0;
+      if (document.getElementById("report-avg-check")) {
+        const avgCheck = data.total_count ? Math.round(data.total / data.total_count) : 0;
+        document.getElementById("report-avg-check").textContent = `ta/kun · O‘rtacha chek: ${fmt(avgCheck)} so‘m`;
+      }
+
+      const cashObj = data.payment_methods.cash || { count: 0, total: 0, share_pct: 0 };
+      const cardObj = data.payment_methods.card || { count: 0, total: 0, share_pct: 0 };
+      const bankObj = data.payment_methods.bank || { count: 0, total: 0, share_pct: 0 };
+      document.getElementById("report-methods").textContent = `${cashObj.count} / ${cardObj.count} / ${bankObj.count}`;
+      if (document.getElementById("report-methods-sum")) {
+        document.getElementById("report-methods-sum").textContent = `Naqd: ${fmt(cashObj.total)} · Karta: ${fmt(cardObj.total)}`;
+      }
+      document.getElementById("report-period-label").textContent = `${start} — ${end} · Hisob: ${data.as_of} (Toshkent) · Oxirgi kelgan: ${data.last_received}`;
+
+      document.getElementById("report-service-weighing").textContent = `${data.service_totals.weighing_fmt} so‘m`;
+      document.getElementById("report-service-entry").textContent = `${data.service_totals.entry_fmt} so‘m`;
+      document.getElementById("report-service-reload").textContent = `${data.service_totals.reload_fmt} so‘m`;
+      document.getElementById("report-service-parking").textContent = `${data.service_totals.parking_fmt} so‘m`;
+
+      // 1. Daily Table
+      const body = document.getElementById("report-body");
+      body.replaceChildren();
+      if (!data.daily.length) {
+        emptyRow(body, 10, "Bu oraliqda ma'lumot yo'q");
+      } else {
+        data.daily.forEach(item => {
+          const row = document.createElement("tr");
+          const avg = item.count ? Math.round(item.total / item.count) : 0;
+          row.append(
+            td(item.date, "bold-cell"),
+            td(`${fmt(item.count)} ta`),
+            td(`${fmt(item.weighing || 0)} so‘m`),
+            td(`${fmt((item.entry || 0) + (item.reload || 0))} so‘m`),
+            td(`${fmt(item.parking || 0)} so‘m`),
+            td(`${fmt(item.cash || 0)} so‘m`),
+            td(`${fmt(item.card || 0)} so‘m`),
+            td(`${fmt(item.bank || 0)} so‘m`),
+            td(`${item.total_fmt} so‘m`, "green-cell"),
+            td(`${fmt(avg)} so‘m`)
+          );
+          body.append(row);
+        });
+      }
+
+      // 2. Points Table & Bars
+      const ptsBody = document.getElementById("report-points-body");
+      if (ptsBody) {
+        ptsBody.replaceChildren();
+        (data.by_point || []).forEach(p => {
+          const row = document.createElement("tr");
+          row.append(
+            td(p.label, "bold-cell"),
+            td(`${fmt(p.count)} ta`),
+            td(`${fmt(p.cash)} so‘m`),
+            td(`${fmt(p.card)} so‘m`),
+            td(`${fmt(p.bank)} so‘m`),
+            td(`${p.total_fmt} so‘m`, "green-cell"),
+            td(`${p.share_pct}%`)
+          );
+          ptsBody.append(row);
+        });
+      }
+      renderProgressBars("report-points-bars", data.by_point || [], ["#38bdf8", "#a78bfa", "#4edea3", "#fbbf24"]);
+
+      // 3. Payment Methods Bars
+      const methodItems = [
+        { label: "💵 Naqd pul", count: cashObj.count, total: cashObj.total, share_pct: cashObj.share_pct },
+        { label: "💳 Plastik karta (Uzcard / Humo)", count: cardObj.count, total: cardObj.total, share_pct: cardObj.share_pct },
+        { label: "🏦 Bank hisob raqami", count: bankObj.count, total: bankObj.total, share_pct: bankObj.share_pct }
+      ];
+      renderProgressBars("report-methods-bars", methodItems, ["#10b981", "#38bdf8", "#a78bfa"]);
+
+      // 4. Operators Table
+      const opsBody = document.getElementById("report-operators-body");
+      if (opsBody) {
+        opsBody.replaceChildren();
+        if (!data.by_operator || !data.by_operator.length) {
+          emptyRow(opsBody, 8, "Ushbu davrda operatorlar bo‘yicha ma’lumot yo‘q");
+        } else {
+          data.by_operator.forEach(op => {
+            const row = document.createElement("tr");
+            row.append(
+              td(op.operator, "bold-cell"),
+              td(op.point),
+              td(`${fmt(op.count)} ta`),
+              td(`${fmt(op.cash)} so‘m`),
+              td(`${fmt(op.card)} so‘m`),
+              td(`${fmt(op.bank)} so‘m`),
+              td(`${op.total_fmt} so‘m`, "green-cell"),
+              td(`${op.share_pct}%`)
+            );
+            opsBody.append(row);
+          });
+        }
+      }
+
+      document.getElementById("report-count-label").textContent = `${data.total_days} kun`;
+      document.getElementById("report-page-info").textContent = `${data.page} / ${data.total_pages}`;
+      document.getElementById("report-prev").disabled = data.page <= 1;
+      document.getElementById("report-next").disabled = data.page >= data.total_pages;
+
+      drawBarChart("report-chart", reportData);
+      drawBarChart("report-hourly-chart", reportHourlyData, { colorTop: "#38bdf8", colorBot: "rgba(56,189,248,0.28)", subColor: "#a78bfa" });
+    } catch (error) {
+      if (!silent) showToast(error.message, true);
+    } finally {
+      if (!silent) setBusy(button, false);
+    }
+  }
+
+  // Report View Switcher Tabs
+  document.querySelectorAll("[data-rep-view]").forEach(btn => {
+    btn.addEventListener("click", () => {
+      const view = btn.dataset.repView;
+      document.querySelectorAll("[data-rep-view]").forEach(b => b.classList.toggle("active", b === btn));
+      const overview = document.getElementById("rep-pane-overview");
+      const daily = document.getElementById("rep-pane-daily");
+      const points = document.getElementById("rep-pane-points");
+      const ops = document.getElementById("rep-pane-operators");
+      if (overview) overview.classList.toggle("hidden", view !== "overview");
+      if (daily) daily.classList.toggle("hidden", !["overview", "daily"].includes(view));
+      if (points) points.classList.toggle("hidden", view !== "points");
+      if (ops) ops.classList.toggle("hidden", view !== "operators");
+      if (view === "overview") {
+        requestAnimationFrame(() => {
+          if (reportData.length) drawBarChart("report-chart", reportData);
+          if (reportHourlyData.length) drawBarChart("report-hourly-chart", reportHourlyData, { colorTop: "#38bdf8", colorBot: "rgba(56,189,248,0.28)", subColor: "#a78bfa" });
+        });
+      }
+    });
+  });
+
+  async function exportExcelDirect(source, btn) {
+    const params = source === "report" ? reportFilterParams() : searchParams();
+    params.delete("page");
+    params.delete("per_page");
+    setBusy(btn, true, "Excel tayyorlanmoqda...");
+    try {
+      const r = await fetch(`/api/admin/operations/export.xlsx?${params}`);
+      if (!r.ok) {
+        // Fallback to background job if huge
+        if (window.XSMExports) {
+          window.XSMExports.start(params);
+          return;
+        }
+        const err = await r.json().catch(() => ({}));
+        throw new Error(err.message || "Excel eksport bajarilmadi");
+      }
+      const blob = await r.blob();
+      const link = document.createElement("a");
+      link.href = URL.createObjectURL(blob);
+      const s = params.get("start") || "barchasi";
+      const e = params.get("end") || "hozirgacha";
+      link.download = `AIRITOM-Hisobot-${s}-${e}.xlsx`;
+      document.body.append(link);
+      link.click();
+      link.remove();
+      setTimeout(() => URL.revokeObjectURL(link.href), 10000);
+      showToast("5-varaqli Excel hisobot yuklab olindi ✓");
+    } catch (error) {
+      showToast(error.message, true);
+    } finally {
+      setBusy(btn, false);
+    }
   }
 
   async function importDatabase() {
@@ -539,20 +759,39 @@
   document.getElementById("kpi-late-devices")?.addEventListener("click", () => activateTab("devices"));
   document.getElementById("kpi-unsent")?.addEventListener("click", () => activateTab("devices"));
   document.getElementById("kpi-conflicts")?.addEventListener("click", () => activateTab("devices"));
-  document.getElementById("btn-report").addEventListener("click", () => { reportPage = 1; runReport(); }); document.querySelectorAll("[data-range]").forEach(button => button.addEventListener("click", () => { setReportRange(button.dataset.range); reportPage = 1; runReport(); }));
-  document.getElementById("report-page-size").addEventListener("change", () => { reportPage = 1; runReport(); }); document.getElementById("report-prev").addEventListener("click", () => { if (reportPage > 1) { reportPage -= 1; runReport(); } }); document.getElementById("report-next").addEventListener("click", () => { if (reportPage < reportPages) { reportPage += 1; runReport(); } });
-  document.getElementById("btn-export-report").addEventListener("click", () => exportCsv("report")); document.getElementById("btn-print-report").addEventListener("click", () => window.print());
-  document.getElementById("btn-search").addEventListener("click", () => { searchPage = 1; doSearch(); }); document.getElementById("btn-refresh-search").addEventListener("click", () => doSearch()); document.getElementById("btn-export-search").addEventListener("click", () => exportCsv("search")); document.getElementById("btn-print-table").addEventListener("click", () => window.print());
-  document.getElementById("search-plate").addEventListener("keydown", event => { if (event.key === "Enter") { searchPage = 1; doSearch(); } }); document.querySelectorAll("[data-search-sample]").forEach(button => button.addEventListener("click", () => { document.getElementById("search-plate").value = button.dataset.searchSample; searchPage = 1; doSearch(); }));
+  document.getElementById("btn-report").addEventListener("click", () => { reportPage = 1; runReport(); });
+  document.getElementById("report-point")?.addEventListener("change", () => { reportPage = 1; runReport(); });
+  document.getElementById("report-method")?.addEventListener("change", () => { reportPage = 1; runReport(); });
+  document.querySelectorAll("[data-range]").forEach(button => button.addEventListener("click", () => { setReportRange(button.dataset.range); reportPage = 1; runReport(); }));
+  document.getElementById("report-page-size").addEventListener("change", () => { reportPage = 1; runReport(); });
+  document.getElementById("report-prev").addEventListener("click", () => { if (reportPage > 1) { reportPage -= 1; runReport(); } });
+  document.getElementById("report-next").addEventListener("click", () => { if (reportPage < reportPages) { reportPage += 1; runReport(); } });
+  document.getElementById("btn-export-report").addEventListener("click", e => exportExcelDirect("report", e.currentTarget));
+  document.getElementById("btn-print-report").addEventListener("click", () => window.print());
+  document.getElementById("btn-search").addEventListener("click", () => { searchPage = 1; doSearch(); });
+  document.getElementById("btn-refresh-search").addEventListener("click", () => doSearch());
+  document.getElementById("btn-export-search").addEventListener("click", e => exportExcelDirect("search", e.currentTarget));
+  document.getElementById("btn-print-table").addEventListener("click", () => window.print());
+  document.getElementById("search-plate").addEventListener("keydown", event => { if (event.key === "Enter") { searchPage = 1; doSearch(); } });
+  document.querySelectorAll("[data-search-sample]").forEach(button => button.addEventListener("click", () => { document.getElementById("search-plate").value = button.dataset.searchSample; searchPage = 1; doSearch(); }));
   document.getElementById("btn-reset-search").addEventListener("click", () => { ["search-plate", "search-start", "search-end"].forEach(id => { document.getElementById(id).value = ""; }); document.getElementById("search-status").value = ""; searchPage = 1; doSearch(); });
-  document.getElementById("search-prev").addEventListener("click", () => { if (searchPage > 1) { searchPage -= 1; doSearch(); } }); document.getElementById("search-next").addEventListener("click", () => { if (searchPage < searchPages) { searchPage += 1; doSearch(); } });
+  document.getElementById("search-prev").addEventListener("click", () => { if (searchPage > 1) { searchPage -= 1; doSearch(); } });
+  document.getElementById("search-next").addEventListener("click", () => { if (searchPage < searchPages) { searchPage += 1; doSearch(); } });
   document.getElementById("search-page-size").addEventListener("change", () => { searchPage = 1; doSearch(); });
-  document.getElementById("history-prev").addEventListener("click", () => { if (historyPage > 1) { historyPage -= 1; loadHistory(); } }); document.getElementById("history-next").addEventListener("click", () => { if (historyPage < historyPages) { historyPage += 1; loadHistory(); } }); document.getElementById("btn-refresh-history").addEventListener("click", () => loadHistory());
+  document.getElementById("history-prev").addEventListener("click", () => { if (historyPage > 1) { historyPage -= 1; loadHistory(); } });
+  document.getElementById("history-next").addEventListener("click", () => { if (historyPage < historyPages) { historyPage += 1; loadHistory(); } });
+  document.getElementById("btn-refresh-history").addEventListener("click", () => loadHistory());
   document.getElementById("history-page-size").addEventListener("change", () => { historyPage = 1; loadHistory(); });
   document.getElementById("detail-print").addEventListener("click", event => { if (selectedDetail) reprint(selectedDetail.id, event.currentTarget); });
-  document.getElementById("import-file").addEventListener("change", event => { const file = event.target.files[0]; document.getElementById("import-file-name").textContent = file ? `${file.name} (${bytes(file.size)})` : ".db faylni tanlash"; document.getElementById("btn-import").disabled = !file; }); document.getElementById("btn-import").addEventListener("click", importDatabase);
+  document.getElementById("import-file").addEventListener("change", event => { const file = event.target.files[0]; document.getElementById("import-file-name").textContent = file ? `${file.name} (${bytes(file.size)})` : ".db faylni tanlash"; document.getElementById("btn-import").disabled = !file; });
+  document.getElementById("btn-import").addEventListener("click", importDatabase);
   if (role === "techadmin") { document.getElementById("btn-refresh-monitor").addEventListener("click", () => loadMonitor()); document.getElementById("btn-create-user").addEventListener("click", createUser); document.getElementById("btn-reset-password").addEventListener("click", resetPassword); document.getElementById("btn-create-token").addEventListener("click", createToken); document.getElementById("users-page-size").addEventListener("change", () => { usersPage = 1; loadUsers(); }); document.getElementById("users-prev").addEventListener("click", () => { if (usersPage > 1) { usersPage -= 1; loadUsers(); } }); document.getElementById("users-next").addEventListener("click", () => { if (usersPage < usersPages) { usersPage += 1; loadUsers(); } }); document.getElementById("tariff-history-size").addEventListener("change", () => { tariffHistoryPage = 1; loadTech(); }); document.getElementById("tariff-history-prev").addEventListener("click", () => { if (tariffHistoryPage > 1) { tariffHistoryPage -= 1; loadTech(); } }); document.getElementById("tariff-history-next").addEventListener("click", () => { if (tariffHistoryPage < tariffHistoryPages) { tariffHistoryPage += 1; loadTech(); } }); document.getElementById("tokens-size").addEventListener("change", () => { tokensPage = 1; loadTech(); }); document.getElementById("tokens-prev").addEventListener("click", () => { if (tokensPage > 1) { tokensPage -= 1; loadTech(); } }); document.getElementById("tokens-next").addEventListener("click", () => { if (tokensPage < tokensPages) { tokensPage += 1; loadTech(); } }); document.getElementById("btn-open-clear-data").addEventListener("click", openClearDataModal); document.getElementById("clear-data-password").addEventListener("input", validateClearDataConfirmation); document.getElementById("clear-data-confirmation").addEventListener("input", validateClearDataConfirmation); document.getElementById("btn-confirm-clear-data").addEventListener("click", clearOperationalData); }
   document.getElementById("manual-backup-name").textContent = `${new Date().toLocaleDateString("uz-UZ")} 00-00 holatiga backup.db`;
-  window.addEventListener("resize", () => { if (weeklyData.length) drawBarChart("weekly-chart", weeklyData, { highlightLast: true }); if (reportData.length) drawBarChart("report-chart", reportData); if (systemData.length) drawBarChart("system-chart", systemData, { highlightLast: true }); });
+  window.addEventListener("resize", () => {
+    if (weeklyData.length) drawBarChart("weekly-chart", weeklyData, { highlightLast: true });
+    if (reportData.length) drawBarChart("report-chart", reportData);
+    if (reportHourlyData.length) drawBarChart("report-hourly-chart", reportHourlyData, { colorTop: "#38bdf8", colorBot: "rgba(56,189,248,0.28)", subColor: "#a78bfa" });
+    if (systemData.length) drawBarChart("system-chart", systemData, { highlightLast: true });
+  });
   setClock(); setInterval(setClock, 1000); checkAgent(); if (localAgentEnabled) setInterval(checkAgent, 30000); setReportRange("week"); activateTab(activeTab); setInterval(pollSync, 30000); document.addEventListener("visibilitychange", () => { if (!document.hidden) pollSync(); });
 })();

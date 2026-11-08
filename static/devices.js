@@ -4,7 +4,8 @@
   if (!panel) return;
 
   let busy = false, selectedDevice = null, allDevices = [], eventPage = 1, eventPages = 1;
-  const isTech = document.body.dataset.role === "techadmin";
+  // Both admin and techadmin can fully manage devices
+  const canManage = ["admin", "techadmin"].includes(document.body.dataset.role);
 
   const roleLabels = {
     ayritom: "Afg‘oniston darvozasi (KPP1)",
@@ -34,11 +35,23 @@
   function actionBtn(container, label, variant, click, title = "") {
     const b = document.createElement("button");
     b.type = "button";
-    b.className = "button compact " + variant;
+    b.className = "dev-act-btn " + variant;
     b.textContent = label;
     if (title) b.title = title;
     b.onclick = click;
     container.append(b);
+  }
+
+  function notify(msg, isError = false) {
+    if (el("devices-status")) el("devices-status").textContent = msg;
+    const toast = el("toast");
+    if (toast && el("toast-text")) {
+      el("toast-text").textContent = msg;
+      if (el("toast-icon")) el("toast-icon").textContent = isError ? "!" : "✓";
+      toast.classList.toggle("error", isError);
+      toast.classList.remove("hidden");
+      setTimeout(() => toast.classList.add("hidden"), 4000);
+    }
   }
 
   async function change(id, action, extra = {}) {
@@ -54,9 +67,18 @@
       });
       const res = await r.json().catch(() => ({}));
       if (!r.ok) throw Error(res.message || "Amal bajarilmadi");
+      const msgMap = {
+        approve: "Qurilmaga doimiy ruxsat berildi ✓",
+        unblock: "Qurilma blokdan chiqarildi ✓",
+        block: "Qurilma bloklandi",
+        rename: "Qurilma ma’lumotlari saqlandi ✓",
+        reset_session: "Qurilma sessiyasi yangilandi ✓",
+        delete: "Qurilma ro‘yxatdan o‘chirildi"
+      };
+      notify(msgMap[action] || "Saqlandi ✓");
       await refresh();
     } catch (e) {
-      el("devices-status").textContent = "Xatolik: " + e.message;
+      notify("Xatolik: " + e.message, true);
     }
   }
 
@@ -75,25 +97,46 @@
       if (!r.ok) throw Error(res.message || "Saqlanmadi");
       await refresh();
       if (payload.action === "deduplicate") {
-        el("devices-status").textContent = res.merged
-          ? `Takroriy qurilmalar tozalandi (${res.merged} ta birlashtirildi)`
-          : "Takroriy qurilmalar topilmadi — ro‘yxat toza";
+        notify(res.merged
+          ? `Takroriy qurilmalar tozalandi (${res.merged} ta birlashtirildi) ✓`
+          : "Takroriy qurilmalar topilmadi — ro‘yxat toza ✓");
       } else {
-        el("devices-status").textContent = "Qurilma IMEI orqali muvaffaqiyatli qo‘shildi va tasdiqlandi ✓";
+        notify("Qurilma IMEI orqali muvaffaqiyatli qo‘shildi va tasdiqlandi ✓");
       }
     } catch (e) {
-      el("devices-status").textContent = "Xatolik: " + e.message;
+      notify("Xatolik: " + e.message, true);
     }
   }
 
-  if (!isTech) {
-    if (el("devices-enroll-open")) el("devices-enroll-open").hidden = true;
-    if (el("devices-dedup")) el("devices-dedup").hidden = true;
+  function openEditModal(device) {
+    selectedDevice = device;
+    el("device-name").value = device.name || "";
+    el("device-hwid").value = device.hw_id || "";
+    el("device-role").value = device.role || "ayritom";
+    if (el("device-status-select")) {
+      el("device-status-select").value = device.blocked ? "blocked" : (device.approved ? "approved" : "pending");
+    }
+    el("device-editor").showModal();
   }
 
-  if (el("device-editor-cancel")) {
-    el("device-editor-cancel").onclick = () => el("device-editor").close("cancel");
+  if (el("device-editor-cancel")) el("device-editor-cancel").onclick = () => el("device-editor").close("cancel");
+  if (el("device-editor-x")) el("device-editor-x").onclick = () => el("device-editor").close("cancel");
+
+  if (el("device-gen-hwid")) {
+    el("device-gen-hwid").onclick = () => {
+      if (selectedDevice && selectedDevice.id) {
+        el("device-hwid").value = "HW-" + String(selectedDevice.id).replace(/-/g, "").slice(0, 14).toUpperCase();
+      } else {
+        el("device-hwid").value = "HW-" + Math.random().toString(16).slice(2, 16).toUpperCase();
+      }
+    };
   }
+  if (el("enroll-gen-hwid")) {
+    el("enroll-gen-hwid").onclick = () => {
+      el("enroll-hwid").value = "HW-" + Math.random().toString(16).slice(2, 16).toUpperCase();
+    };
+  }
+
   if (el("device-editor-form")) {
     el("device-editor-form").onsubmit = e => {
       e.preventDefault();
@@ -102,7 +145,8 @@
       change(selectedDevice.id, "rename", {
         name: el("device-name").value.trim(),
         hw_id: el("device-hwid").value.trim(),
-        role: el("device-role").value
+        role: el("device-role").value,
+        status: el("device-status-select")?.value || "approved"
       });
     };
   }
@@ -113,9 +157,9 @@
       el("device-enroll-modal")?.showModal();
     };
   }
-  if (el("device-enroll-cancel")) {
-    el("device-enroll-cancel").onclick = () => el("device-enroll-modal").close("cancel");
-  }
+  if (el("device-enroll-cancel")) el("device-enroll-cancel").onclick = () => el("device-enroll-modal").close("cancel");
+  if (el("device-enroll-x")) el("device-enroll-x").onclick = () => el("device-enroll-modal").close("cancel");
+
   if (el("device-enroll-form")) {
     el("device-enroll-form").onsubmit = e => {
       e.preventDefault();
@@ -131,6 +175,26 @@
   if (el("devices-dedup")) {
     el("devices-dedup").onclick = () => enrollDevice({ action: "deduplicate" });
   }
+
+  // Interactive KPI cards act as quick state filters
+  document.querySelectorAll("[data-kpi-filter]").forEach(card => {
+    card.addEventListener("click", () => {
+      const val = card.dataset.kpiFilter || "";
+      if (el("devices-state-filter")) el("devices-state-filter").value = val;
+      document.querySelectorAll("[data-kpi-filter]").forEach(c => c.classList.toggle("active-kpi", c === card && val !== ""));
+      renderTable();
+    });
+  });
+
+  // Interactive Role filter pills
+  document.querySelectorAll("[data-role-pill]").forEach(pill => {
+    pill.addEventListener("click", () => {
+      const val = pill.dataset.rolePill || "";
+      if (el("devices-role-filter")) el("devices-role-filter").value = val;
+      document.querySelectorAll("[data-role-pill]").forEach(p => p.classList.toggle("active", p === pill));
+      renderTable();
+    });
+  });
 
   function updateKPIs(devices) {
     const total = devices.length;
@@ -151,8 +215,13 @@
     body.replaceChildren();
 
     const q = (el("devices-search")?.value || "").trim().toLowerCase();
+    if (el("devices-search-clear")) el("devices-search-clear").hidden = !q;
     const roleFilter = el("devices-role-filter")?.value || "";
     const stateFilter = el("devices-state-filter")?.value || "";
+
+    document.querySelectorAll("[data-role-pill]").forEach(p => {
+      p.classList.toggle("active", (p.dataset.rolePill || "") === roleFilter);
+    });
 
     const filtered = allDevices.filter(d => {
       if (roleFilter && d.role !== roleFilter) return false;
@@ -217,17 +286,28 @@
         hwSub.textContent = "Doimiy IMEI / HWID biriktirilgan ✓";
         hwTd.append(hwWrap, hwSub);
       } else {
+        const hwWrap = document.createElement("div");
+        hwWrap.className = "dev-hwid-wrap";
         const hwEmpty = document.createElement("span");
         hwEmpty.className = "dev-hwid-missing";
         hwEmpty.textContent = "Kiritilmagan";
+        hwWrap.append(hwEmpty);
+        if (canManage) {
+          const bindBtn = document.createElement("button");
+          bindBtn.type = "button";
+          bindBtn.className = "dev-copy-btn";
+          bindBtn.textContent = "+ IMEI biriktirish";
+          bindBtn.onclick = () => openEditModal(device);
+          hwWrap.append(bindBtn);
+        }
         const hwSub = document.createElement("small");
         hwSub.className = "dev-sub-meta";
-        hwSub.textContent = "Keyingi kirishda avtomatik olinadi";
-        hwTd.append(hwEmpty, hwSub);
+        hwSub.textContent = "Keyingi kirishda avto-olinadi yoki qo‘lda biriktiring";
+        hwTd.append(hwWrap, hwSub);
       }
 
       // 4. IP manzil
-      const ipTd = cell(tr, device.ip || "—", "dev-ip-cell");
+      cell(tr, device.ip || "—", "dev-ip-cell");
 
       // 5. Holati
       const statusTd = cell(tr, "");
@@ -265,34 +345,34 @@
       seenSub.textContent = relativeTime(device.last_seen);
       seenTd.append(seenMain, seenSub);
 
-      // 7. Boshqarish
+      // 7. Boshqarish va amallar
       const actions = cell(tr, "", "dev-actions-cell");
-      if (isTech) {
+      const btnGroup = document.createElement("div");
+      btnGroup.className = "dev-btn-group";
+      if (canManage) {
         if (!device.approved || device.blocked) {
-          actionBtn(actions, "✓ Ruxsat berish", "primary", () => change(device.id, "approve"), "Ushbu IMEI / qurilmaga doimiy ruxsat berish");
+          actionBtn(btnGroup, "✓ Ruxsat berish", "btn-approve", () => change(device.id, "approve"), "Ushbu qurilmaga doimiy ruxsat berish");
         }
-        actionBtn(actions, "Tahrirlash", "secondary", () => {
-          selectedDevice = device;
-          el("device-name").value = device.name || "";
-          el("device-hwid").value = device.hw_id || "";
-          el("device-role").value = device.role || "ayritom";
-          el("device-editor").showModal();
-        }, "Qurilma nomi, IMEI/ID va nuqtasini o‘zgartirish");
+        actionBtn(btnGroup, "✎ Tahrirlash", "btn-edit", () => openEditModal(device), "Qurilma nomi, IMEI/ID, post va holatini o‘zgartirish");
         if (!device.blocked) {
-          actionBtn(actions, "Bloklash", "secondary", () => {
-            if (confirm(device.name + " bloklansinmi?")) change(device.id, "block");
-          });
+          actionBtn(btnGroup, "⊘ Bloklash", "btn-block", () => {
+            if (confirm(`"${device.name}" qurilmasi bloklansinmi?`)) change(device.id, "block");
+          }, "Qurilma kirishini vaqtincha cheklash");
         }
-        actionBtn(actions, "O‘chirish", "danger", () => {
-          if (confirm(device.name + " ro‘yxatdan butunlay o‘chirilsinmi?")) change(device.id, "delete");
-        });
+        actionBtn(btnGroup, "⟳ Sessiya", "btn-reset", () => {
+          if (confirm(`"${device.name}" qurilmasining joriy sessiyasi yangilansinmi?`)) change(device.id, "reset_session");
+        }, "Qurilma sessiyasini uzib qayta ulash");
+        actionBtn(btnGroup, "🗑 O‘chirish", "btn-delete", () => {
+          if (confirm(`"${device.name}" qurilmasi ro‘yxatdan butunlay o‘chirilsinmi?`)) change(device.id, "delete");
+        }, "Qurilmani ro‘yxatdan o‘chirish");
       } else {
-        actions.textContent = "Faqat ko‘rish";
+        btnGroup.textContent = "Faqat ko‘rish";
       }
+      actions.append(btnGroup);
     }
 
     if (!filtered.length) {
-      const emptyCell = cell(body.insertRow(), allDevices.length ? "Qidiruv bo‘yicha qurilma topilmadi." : "Ro‘yxatdan o‘tgan qurilma yo‘q.");
+      const emptyCell = cell(body.insertRow(), allDevices.length ? "Tanlangan filtr bo‘yicha qurilma topilmadi." : "Ro‘yxatdan o‘tgan qurilma yo‘q.");
       emptyCell.colSpan = 7;
       emptyCell.className = "dev-empty-row";
     }
@@ -329,14 +409,16 @@
         reconnected: "Qayta ulandi",
         rename: "Ma’lumot yangilandi",
         approve: "Doimiy ruxsat berildi",
+        unblock: "Blokdan chiqarildi",
+        reset_session: "Sessiya yangilandi",
         block: "Bloklandi"
       };
       for (const event of d.events) {
         const row = events.insertRow();
         const [kind, user] = String(event.event || "").split(":");
         cell(row, date(event.occurred));
-        cell(row, event.name + (event.hw_id ? " (" + event.hw_id + ")" : ""));
-        cell(row, (names[kind] || kind) + (user ? " · " + user : ""));
+        cell(row, event.name + (event.hw_id ? " · " + event.hw_id : ""));
+        cell(row, (names[kind] || kind) + (user ? " (" + user + ")" : ""));
         cell(row, date(event.previous_seen));
       }
       el("devices-status").textContent = "Tekshirildi · " + date(d.checked_at) + " · IMEI / HWID orqali avtomatik birlashtirish faol";
@@ -349,6 +431,13 @@
   }
 
   if (el("devices-search")) el("devices-search").oninput = renderTable;
+  if (el("devices-search-clear")) {
+    el("devices-search-clear").onclick = () => {
+      el("devices-search").value = "";
+      renderTable();
+      el("devices-search").focus();
+    };
+  }
   if (el("devices-role-filter")) el("devices-role-filter").onchange = renderTable;
   if (el("devices-state-filter")) el("devices-state-filter").onchange = renderTable;
 
@@ -357,5 +446,6 @@
   el("event-next").onclick = () => { if (eventPage < eventPages && !busy) { eventPage++; refresh(); } };
   el("event-size").onchange = () => { eventPage = 1; refresh(); };
   el("devices-refresh").onclick = refresh;
+  if (!panel.classList.contains("hidden")) refresh();
   setInterval(refresh, 30000);
 })();

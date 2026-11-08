@@ -191,7 +191,7 @@ def deduplicate_devices(conn):
 def web_device_login(conn, user, app):
     """
     IMEI / HWID-first persistent device authorization.
-    Once a phone/terminal's IMEI or HWID is approved by techadmin, reinstalling the APK,
+    Once a phone/terminal's IMEI or HWID is approved by admin/techadmin, reinstalling the APK,
     clearing cookies, or updating the app NEVER creates duplicates and NEVER requires re-approval.
     """
     from itsdangerous import URLSafeTimedSerializer, BadData
@@ -232,11 +232,9 @@ def web_device_login(conn, user, app):
     if device_model:
         device_name = f"{device_model} · {user['username']}"
 
-    # Clean up any prior duplicates first
     deduplicate_devices(conn)
 
     known = None
-    # 1. Match by (hw_id, role) case-insensitively
     if hw_id:
         known = conn.execute(
             """SELECT id, approved, blocked, name, hw_id FROM devices
@@ -245,14 +243,12 @@ def web_device_login(conn, user, app):
             (hw_id, user["role"]),
         ).fetchone()
 
-    # 2. Match by tablet_hash cookie
     if not known and stored.startswith("kpp_"):
         known = conn.execute(
             "SELECT id, approved, blocked, name, hw_id FROM devices WHERE tablet_hash=%s AND role=%s",
             (digest(stored), user["role"]),
         ).fetchone()
 
-    # 3. Match legacy row without hw_id for the same user/device name & role so we upgrade it in-place instead of duplicating
     if not known and hw_id:
         known = conn.execute(
             """SELECT id, approved, blocked, name, hw_id FROM devices
@@ -262,7 +258,6 @@ def web_device_login(conn, user, app):
             (user["role"], user["username"], device_name),
         ).fetchone()
 
-    # Check if this IMEI/hw_id is already approved anywhere in `devices` (e.g., pre-enrolled by techadmin or approved on another KPP role)
     hw_already_approved = False
     if hw_id:
         approved_peer = conn.execute(
@@ -299,7 +294,6 @@ def web_device_login(conn, user, app):
         (did, device_name, user["role"], client_ip, hw_id or None, hw_already_approved, device_model, device_name),
     )
 
-    # Deduplicate again in case a cookie ID was bound to a known hw_id
     deduplicate_devices(conn)
     if hw_id:
         current = conn.execute(
@@ -319,10 +313,10 @@ def web_device_login(conn, user, app):
         (digest(cookie), hw_id or None, did),
     )
     error = (
-        "Qurilma bloklangan. Techadminga murojaat qiling."
+        "Qurilma bloklangan. Adminga murojaat qiling."
         if row["blocked"]
         else (
-            f"Qurilma ro‘yxatga olindi (IMEI/ID: {hw_id or str(did)[:8]}). Techadmin Qurilmalar bo‘limida ruxsat bersin, so‘ng qayta kiring."
+            f"Qurilma ro‘yxatga olindi (IMEI/ID: {hw_id or str(did)[:8]}). Admin Qurilmalar bo‘limida ruxsat bersin, so‘ng qayta kiring."
             if not row["approved"]
             else None
         )
@@ -508,7 +502,7 @@ def register_devices(
                 return jsonify(message="Qurilma bloklangan"), 403
             if not device["approved"]:
                 return jsonify(
-                    message="Qurilma ro‘yxatga olindi. Techadmin tasdig‘ini kuting."
+                    message="Qurilma ro‘yxatga olindi. Admin tasdig‘ini kuting."
                 ), 403
             token = secrets.token_urlsafe(48)
             station_key = data.get("station_key")
@@ -640,7 +634,7 @@ def register_devices(
         )
 
     @app.post("/api/admin/devices/enroll")
-    @roles("techadmin")
+    @roles("admin", "techadmin")
     def device_enroll():
         """Pre-register or bind a device by IMEI / HWID so it is immediately approved."""
         data = (request.get_json(silent=True) if request.is_json else request.form) or {}
@@ -700,7 +694,7 @@ def register_devices(
 
     @app.post("/admin/devices/<uuid:device_id>")
     @app.post("/api/admin/devices/<uuid:device_id>")
-    @roles("techadmin")
+    @roles("admin", "techadmin")
     def device_manage(device_id):
         from flask import redirect
 
@@ -708,11 +702,13 @@ def register_devices(
             request.get_json(silent=True) if request.is_json else request.form
         ) or {}
         action = data.get("action")
-        if action not in {"approve", "block", "rename", "delete"}:
+        if action not in {"approve", "block", "unblock", "rename", "delete", "reset_session"}:
             abort(400)
         name = data.get("name")
         hw_id = normalize_hw_id(data.get("hw_id", "")) if "hw_id" in data else None
         role = str(data.get("role", "")).strip() if "role" in data else None
+        status_override = str(data.get("status", "")).strip() if "status" in data else None
+
         if action == "rename" and (
             not isinstance(name, str) or not 1 <= len(name.strip()) <= 100
         ):
@@ -735,30 +731,46 @@ def register_devices(
                 conn.execute("UPDATE zone_visits SET station_id=NULL WHERE station_id=%s", (device_id,))
                 conn.execute("DELETE FROM devices WHERE id=%s", (device_id,))
                 changed = False
+            elif action == "reset_session":
+                conn.execute("DELETE FROM device_sessions WHERE device_id=%s", (device_id,))
+                conn.execute("UPDATE devices SET connected=FALSE, station_hash=NULL, tablet_hash=NULL WHERE id=%s", (device_id,))
+                changed = True
             elif action == "rename":
                 new_name = name.strip()
                 new_hw = hw_id if hw_id is not None else (device["hw_id"] or "")
                 new_role = role if role else device["role"]
+                new_approved = device["approved"]
+                new_blocked = device["blocked"]
+                if status_override == "approved":
+                    new_approved, new_blocked = True, False
+                elif status_override == "pending":
+                    new_approved, new_blocked = False, False
+                elif status_override == "blocked":
+                    new_approved, new_blocked = False, True
+
                 changed = (
                     new_name != device["name"]
                     or (new_hw or None) != (device["hw_id"] or None)
                     or new_role != device["role"]
+                    or new_approved != device["approved"]
+                    or new_blocked != device["blocked"]
                 )
                 if changed:
                     conn.execute(
-                        "UPDATE devices SET name=%s, hw_id=%s, role=%s WHERE id=%s",
-                        (new_name, new_hw or None, new_role, device_id),
+                        "UPDATE devices SET name=%s, hw_id=%s, role=%s, approved=%s, blocked=%s WHERE id=%s",
+                        (new_name, new_hw or None, new_role, new_approved, new_blocked, device_id),
                     )
+                    if new_blocked:
+                        conn.execute("DELETE FROM device_sessions WHERE device_id=%s", (device_id,))
                     deduplicate_devices(conn)
             else:
-                approve = action == "approve"
+                approve = action in {"approve", "unblock"}
                 changed = device["approved"] != approve or device["blocked"] == approve
                 if changed:
                     conn.execute(
                         "UPDATE devices SET approved=%s,blocked=%s,connected=CASE WHEN %s THEN FALSE ELSE connected END WHERE id=%s",
                         (approve, not approve, not approve, device_id),
                     )
-                    # If approved and has hw_id, also approve any sibling records with the same IMEI/hw_id
                     if approve and device["hw_id"]:
                         conn.execute(
                             "UPDATE devices SET approved=TRUE, blocked=FALSE WHERE UPPER(TRIM(hw_id))=UPPER(TRIM(%s))",
@@ -769,7 +781,6 @@ def register_devices(
                         "DELETE FROM device_sessions WHERE device_id=%s", (device_id,)
                     )
             if changed:
-                # Re-verify device still exists after deduplication before logging event
                 still_exists = conn.execute("SELECT id FROM devices WHERE id=%s", (device_id,)).fetchone()
                 if still_exists:
                     conn.execute(
