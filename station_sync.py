@@ -24,13 +24,22 @@ def _resolve_or_bind_station_device(conn, cred_hash, accounts, events, remote_ip
     Finds the device matching `station_hash = cred_hash`.
     If `station_hash` was not yet saved on an already-approved desktop device
     (for example, when the device was registered before approval or after a session reset),
-    automatically matches the approved desktop device by operator account / role and binds `station_hash`.
+    automatically matches the approved desktop device by operator account / role / IP and binds `station_hash`.
     """
     dev = conn.execute(
         "SELECT * FROM devices WHERE station_hash=%s FOR UPDATE",
         (cred_hash,),
     ).fetchone()
     if dev:
+        if not dev["approved"] and not dev["blocked"]:
+            # If another device row for the same desktop role is already approved, propagate approval
+            peer = conn.execute(
+                "SELECT id FROM devices WHERE role=%s AND approved=TRUE AND NOT blocked LIMIT 1",
+                (dev["role"],),
+            ).fetchone()
+            if peer:
+                conn.execute("UPDATE devices SET approved=TRUE WHERE id=%s", (dev["id"],))
+                dev = conn.execute("SELECT * FROM devices WHERE id=%s", (dev["id"],)).fetchone()
         return dev
 
     # Determine role and operator usernames from payload accounts or events
@@ -61,10 +70,40 @@ def _resolve_or_bind_station_device(conn, cred_hash, accounts, events, remote_ip
                     inferred_role = "operator"
                     break
 
+    if not inferred_role and remote_ip:
+        ip_dev = conn.execute(
+            """SELECT role FROM devices
+               WHERE ip = %s AND role IN ('parkovka_tashqi', 'operator') AND NOT blocked
+               ORDER BY (role = 'parkovka_tashqi') DESC, approved DESC, last_seen DESC NULLS LAST
+               LIMIT 1""",
+            (remote_ip,),
+        ).fetchone()
+        if ip_dev:
+            inferred_role = ip_dev["role"]
+
+    if not inferred_role:
+        # Fallback to parkovka_tashqi if there is an approved parkovka_tashqi device
+        pk_dev = conn.execute(
+            "SELECT role FROM devices WHERE role='parkovka_tashqi' AND NOT blocked LIMIT 1"
+        ).fetchone()
+        if pk_dev:
+            inferred_role = "parkovka_tashqi"
+
     if not inferred_role:
         return None
 
-    # 1. Try to find an approved device for this role where last_user matches one of the station accounts
+    def _bind_to(target_id):
+        conn.execute(
+            "UPDATE devices SET station_hash=NULL WHERE station_hash=%s AND id<>%s",
+            (cred_hash, target_id),
+        )
+        conn.execute(
+            "UPDATE devices SET station_hash=%s, ip=COALESCE(%s, ip) WHERE id=%s",
+            (cred_hash, remote_ip or None, target_id),
+        )
+        return conn.execute("SELECT * FROM devices WHERE id=%s", (target_id,)).fetchone()
+
+    # 1. Try to find a non-blocked device for this role where last_user matches one of the station accounts
     if usernames:
         candidate = conn.execute(
             """SELECT * FROM devices
@@ -75,39 +114,18 @@ def _resolve_or_bind_station_device(conn, cred_hash, accounts, events, remote_ip
             (inferred_role, usernames),
         ).fetchone()
         if candidate:
-            conn.execute(
-                "UPDATE devices SET station_hash=%s, ip=COALESCE(%s, ip) WHERE id=%s",
-                (cred_hash, remote_ip, candidate["id"]),
-            )
-            return conn.execute("SELECT * FROM devices WHERE id=%s", (candidate["id"],)).fetchone()
+            return _bind_to(candidate["id"])
 
-    # 2. Try to find an approved device for this role whose station_hash is currently NULL
+    # 2. Try to find any approved (or unblocked) device for this desktop role
     candidate = conn.execute(
         """SELECT * FROM devices
-           WHERE role = %s AND NOT blocked AND station_hash IS NULL
-           ORDER BY approved DESC, last_seen DESC NULLS LAST, created_at ASC
+           WHERE role = %s AND NOT blocked
+           ORDER BY approved DESC, (ip = %s) DESC, (station_hash IS NULL) DESC, last_seen DESC NULLS LAST, created_at ASC
            LIMIT 1 FOR UPDATE""",
-        (inferred_role,),
+        (inferred_role, remote_ip or ""),
     ).fetchone()
     if candidate:
-        conn.execute(
-            "UPDATE devices SET station_hash=%s, ip=COALESCE(%s, ip) WHERE id=%s",
-            (cred_hash, remote_ip, candidate["id"]),
-        )
-        return conn.execute("SELECT * FROM devices WHERE id=%s", (candidate["id"],)).fetchone()
-
-    # 3. If there is only a single approved, non-blocked device for this desktop role, bind to it
-    all_for_role = conn.execute(
-        "SELECT * FROM devices WHERE role = %s AND approved = TRUE AND NOT blocked FOR UPDATE",
-        (inferred_role,),
-    ).fetchall()
-    if len(all_for_role) == 1:
-        only_dev = all_for_role[0]
-        conn.execute(
-            "UPDATE devices SET station_hash=%s, ip=COALESCE(%s, ip) WHERE id=%s",
-            (cred_hash, remote_ip, only_dev["id"]),
-        )
-        return conn.execute("SELECT * FROM devices WHERE id=%s", (only_dev["id"],)).fetchone()
+        return _bind_to(candidate["id"])
 
     return None
 
@@ -298,7 +316,7 @@ def apply_event(conn, dev, eid, event, clean_plate):
             (at, loc, vid),
         )
     conn.execute(
-        """INSERT INTO zone_events(request_key,visit_id,occurred,point,action,location,operator_name,days,
-      previous_paid,amount,method) VALUES(%s,%s,%s,'parkovka_tashqi',%s,%s,%s,%s,%s,%s,%s)""",
-        (eid, vid, at, kind.split(".")[1], loc, worker, days, previous, amount, method),
+        """INSERT INTO zone_events(request_key,visit_id,occurred,point,action,location,operator_name,days,previous_paid,amount,method)
+        VALUES(%s,%s,%s,'parkovka_tashqi',%s,%s,%s,%s,%s,%s,%s)""",
+        (eid, vid, at, kind[8:], loc, worker, days, previous, amount, method),
     )

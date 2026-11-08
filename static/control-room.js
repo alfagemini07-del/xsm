@@ -59,11 +59,18 @@ function show(data,reset=false){
  const insideCountObj=data.counts.find(t=>t.area==="inside");
  const parkingTotal=Number(parkingCountObj?.n||0);
  const insideTotal=Number(insideCountObj?.n||0);
+ const pFlow=data.parking_flow||{};
+ const borderDeparted=Number(pFlow.border_departures||0);
+ const zoneDeparted=Number(pFlow.zone_departures||0);
+ const parkingArrivals=Number(pFlow.arrivals||0);
+ const parkingDepartures=Number(pFlow.departures||0);
  $("occupancy").replaceChildren(...[["parking","E-navbat parkovka"],["inside","Free Zone hududi"]].map(([area,title])=>
    row(title,(data.counts.find(t=>t.area===area)?.n||0)+" / "+data.config[area+"_capacity"])));
  const missing=data.vehicles.filter(v=>!v.slot).length;
  if(missing)$("occupancy").append(row("Joy ajratish kutilmoqda",missing));
  $("occupancy").append(row("O‘zbekiston darvozasiga yo‘lda (oraliq yo‘l)",parkingCountObj?.in_transit??0));
+ $("occupancy").append(row("Parkovkadan Ayritomga (Chegaraga) chiqdi",borderDeparted+" ta"));
+ $("occupancy").append(row("Parkovkadan Free Zonega chiqdi",zoneDeparted+" ta"));
  vehicleOptions(); selectedInfo();
  const called=data.vehicles.filter(v=>v.queue_state==="called");
  const waiting=data.queue.filter(group=>group.queue_state==="waiting");
@@ -75,10 +82,10 @@ function show(data,reset=false){
  const calledCH=data.queue.find(r=>r.flow==="CH"&&r.queue_state==="called")?.n??0;
  $("kpis").replaceChildren(
    kpiCard("Jami transport", parkingTotal + insideTotal, `Parkovka: ${parkingTotal} ta · Free Zone: ${insideTotal} ta`),
-   kpiCard("E-navbat parkovka", `${parkingTotal} / ${data.config.parking_capacity}`, "Tashqi kutish stoyankasida"),
+   kpiCard("E-navbat parkovka", `${parkingTotal} / ${data.config.parking_capacity}`, `Bugun kirdi: ${parkingArrivals} ta · Chiqdi: ${parkingDepartures} ta`),
    kpiCard("Free Zone ichida", `${insideTotal} / ${data.config.inside_capacity}`, `Bojxona va tarozi hududida (tortildi: ${data.weighed_today??0})`),
-   kpiCard("Free Zone navbati", queued("FZ"), "E-navbat parkovkada Free Zonega kirishni kutmoqda"),
-   kpiCard("Chegara navbati", queued("CH"), "E-navbat parkovkada Katta yo‘l → Chegarani kutmoqda"),
+   kpiCard("Free Zone navbati", queued("FZ"), `Parkovkada kutmoqda · Chiqdi: ${zoneDeparted} ta`),
+   kpiCard("Chegara (Katta yo‘l)", `${queued("CH")} kutmoqda`, `Parkovkadan Ayritomga chiqdi: ${borderDeparted} ta`),
    kpiCard("Chaqirilgan · Kutish", `${callCount} ta · ${average} daq`, `E-navbat parkovkada (FZ: ${calledFZ}, Chegara: ${calledCH})`)
  );
  const alerts=[];
@@ -115,7 +122,7 @@ function fixture(){
  const vehicles=Array.from({length:20},(_,i)=>({id:i+1,plate:"DEMO "+String(i+1).padStart(3,"0"),
    area:i<14?"parking":"inside",slot:i<14?i+1:i-13,flow:i%3===0&&i<14?"CH":"FZ",number:i+1,version:1,queue_state:i<14?"waiting":"inside",priority:0,started:new Date(Date.now()-(i+1)*60000).toISOString()}));
  const events=vehicles.map(v=>({visit_id:v.id,plate:v.plate,point:v.area==="inside"?"ayritom":"parkovka_tashqi",
-   action:"in",amount:30000,occurred:v.started}));
+   action:"in",purpose:v.flow==="CH"?"border":"zone",amount:30000,occurred:v.started}));
  events.unshift({visit_id:vehicles[14].id,plate:vehicles[14].plate,point:"scale",action:"weigh",amount:10000,occurred:new Date().toISOString()});
  return {vehicles,config:{parking_capacity:1000,inside_capacity:300,reset_hour:0,no_show_minutes:5},totals:[],counts:[],events,calls:[],spots:[],gates:[{id:1,state:"closed"},{id:2,state:"closed"}]};
 }
@@ -129,9 +136,12 @@ function demoMove(arriving){
  if(!demo)return;const data=demoState,v=data.vehicles.find(v=>v.id===selected);
  if(!v||arriving&&(v.flow!=="FZ"||v.area!=="parking"||v.queue_state!=="called")||!arriving&&!(v.area==="inside"||v.flow==="CH"&&v.queue_state==="called")){$("message").textContent="Avval mos avtomobilni tanlang va navbatini chaqiring";return}
  const point=arriving?"kpp2":v.flow==="FZ"?"ayritom":"parkovka_tashqi";
- if(arriving){v.area="inside";v.queue_state="inside";v.slot=1;while(data.vehicles.some(w=>w!==v&&w.area==="inside"&&w.slot===v.slot))v.slot++}
+ if(arriving){
+   data.events.unshift({visit_id:v.id,plate:v.plate,point:"parkovka_tashqi",action:"out",purpose:"zone",amount:0,occurred:new Date().toISOString()});
+   v.area="inside";v.queue_state="inside";v.slot=1;while(data.vehicles.some(w=>w!==v&&w.area==="inside"&&w.slot===v.slot))v.slot++;
+ }
  else data.vehicles=data.vehicles.filter(w=>w!==v);
- data.events.unshift({visit_id:v.id,plate:v.plate,point,action:arriving?"in":"out",amount:0,occurred:new Date().toISOString()});
+ data.events.unshift({visit_id:v.id,plate:v.plate,point,action:arriving?"in":"out",purpose:v.flow==="CH"?"border":"zone",amount:0,occurred:new Date().toISOString()});
  data.calls.unshift({plate:v.plate,action:"Demo · "+names[point]});
  renderDemo();
 }
@@ -144,7 +154,7 @@ $("demo-add").onclick=()=>{
  const flow=id%3?"FZ":"CH",number=1+Math.max(0,...demoState.vehicles.filter(v=>v.flow===flow).map(v=>v.number));
  const vehicle={id,plate:"DEMO "+id,area:"parking",flow,number,slot,version:1,priority:0,queue_state:"waiting",started:new Date().toISOString()};
  demoState.vehicles.push(vehicle);
- demoState.events.unshift({visit_id:id,plate:vehicle.plate,point:"parkovka_tashqi",action:"in",amount:30000,occurred:vehicle.started});
+ demoState.events.unshift({visit_id:id,plate:vehicle.plate,point:"parkovka_tashqi",action:"in",purpose:flow==="CH"?"border":"zone",amount:30000,occurred:vehicle.started});
  renderDemo();
 };
 function renderDemo(reset=false){
@@ -154,10 +164,16 @@ function renderDemo(reset=false){
  demoState.counts=["parking","inside"].map(area=>({area,n:demoState.vehicles.filter(v=>v.area===area).length}));
  const parking=demoState.vehicles.filter(v=>v.area==="parking");
  Object.assign(demoState.counts[0], {parked:parking.length, in_transit:0, border_wait:parking.filter(v=>v.flow==="CH").length});
- demoState.crossings=["kpp2","ayritom"].map(point=>({
+ demoState.crossings=["kpp2","ayritom","parkovka_tashqi"].map(point=>({
    point, arrivals:demoState.events.filter(e=>e.point===point&&e.action==="in").length,
    departures:demoState.events.filter(e=>e.point===point&&e.action==="out").length
  }));
+ demoState.parking_flow={
+   arrivals:demoState.events.filter(e=>e.point==="parkovka_tashqi"&&e.action==="in").length,
+   departures:demoState.events.filter(e=>e.point==="parkovka_tashqi"&&e.action==="out").length,
+   border_departures:demoState.events.filter(e=>e.point==="parkovka_tashqi"&&e.action==="out"&&e.purpose==="border").length,
+   zone_departures:demoState.events.filter(e=>e.point==="parkovka_tashqi"&&e.action==="out"&&e.purpose==="zone").length
+ };
  demoState.recent_exits=demoState.events.filter(e=>e.action==="out");
  demoState.queue=[];
  for(const flow of ["FZ","CH"])for(const queue_state of ["waiting","called"]){
@@ -248,95 +264,102 @@ document.addEventListener("keydown", e=>{
  }
 });
 
-$("demo").onclick=()=>{
- if(!demo && !lastLive){$("message").textContent="Jonli ma’lumot yuklanishini kuting";return}
- demo=!demo;snapshotTag=null;request?.abort();clearTimeout(timer);selected=null;$("timeline").replaceChildren();$("message").textContent="";
- $("audit").replaceChildren();scene?.select(null);
- $("demo").textContent=demo?"Jonli rejim":"Demo";
+$("mode").onclick=()=>{
+ demo=!demo;$("mode").textContent=demo?"Jonli rejimga qaytish":"Demo rejim";
  $("demo-controls").hidden=!demo;
  $("call-controls").hidden=readOnly && !demo;
  if($("settings"))$("settings").closest("details").hidden=demo;
- if(demo){demoState=fixture();renderDemo(true)}else{
-   show(lastLive,true);$("status").textContent="Yangilanmoqda · "+time.format(new Date(lastLive.at));
-   refresh(true);
- }
+ if(demo){clearTimeout(timer);request?.abort();demoState=fixture();renderDemo(true)}
+ else if(lastLive){show(lastLive,true);refresh(false)}
+ else refresh(true);
+};
+for(const b of document.querySelectorAll("[data-call]"))b.onclick=async()=>{
+ if(demo)return demoStep(b.dataset.call);
+ b.disabled=true;
+ try{
+   const flow=b.dataset.call;attempts[flow]=attempts[flow]||crypto.randomUUID();
+   const res=await api("/api/admin/control-room/call",{flow,request_id:attempts[flow]});
+   delete attempts[flow];$("message").textContent="Chaqirildi";await refresh();inspect(res.visit_id);
+ }catch(e){if(!e.message.includes("tarmoq"))delete attempts[b.dataset.call];$("message").textContent=e.message}
+ finally{b.disabled=false}
+};
+const settingsForm=$("settings");
+if(settingsForm)settingsForm.onsubmit=async e=>{
+ e.preventDefault();if(demo){$("message").textContent="Demo rejimda saqlanmaydi";return}
+ const body=Object.fromEntries(new FormData(e.target));
+ try{await api("/api/admin/control-room/config",body);$("message").textContent="Sozlamalar saqlandi";refresh()}
+ catch(err){$("message").textContent=err.message}
 };
 function vehicleOptions(){
- const needle=$("filter").value.trim().toUpperCase();
- const vehicles=state.vehicles.filter(v=>v.id===selected||!needle||(v.plate+" "+code(v)).toUpperCase().includes(needle));
- $("vehicle").replaceChildren(new Option("Tashrifni tanlang",""),...vehicles.map(v=>new Option(code(v)+" · "+v.plate+" ("+(v.area==="parking"?"Parkovkada":"Free Zoneda")+")",v.id)));
- if(vehicles.some(v=>v.id===selected))$("vehicle").value=String(selected);
-}
-function selectedInfo(){
- const v=state?.vehicles.find(v=>v.id===selected);$("vehicle-actions").replaceChildren();$("vehicle-info").replaceChildren();if(!v)return;
- const flowLabel=v.flow==="CH"?"Chegara yo‘nalishi (Katta yo‘l orqali)":"Free Zone yo‘nalishi";
- $("vehicle-info").append(
-   row("Holat",statusNames[v.queue_state]||v.queue_state),
-   row("Yo‘nalish",flowLabel),
-   row("Joy",(v.area==="parking"?"E-navbat Parkovka #":"Free Zone #")+(v.slot||"ajratilmagan")),
-   row("Ustuvorlik",["Oddiy","Maxsus","Favqulodda"][v.priority])
- );
- if(readOnly && !demo)return;
- const actions=[];
- if(v.area==="parking"){
-  if(["waiting","called"].includes(v.queue_state))actions.push("hold");
-  if(v.queue_state==="called")actions.push("recall","no_show");
-  if(["hold","no_show","cancelled"].includes(v.queue_state))actions.push("resume");
-  if(v.queue_state!=="cancelled")actions.push("cancel");
-  if(isTech)actions.push("priority");
- }actions.push("assign");
- for(const action of actions){const b=document.createElement("button");b.textContent=actionNames[action];b.onclick=()=>openCommand({action,visit_id:v.id,version:v.version});$("vehicle-actions").append(b)}
+ if(!state)return;const q=$("filter").value.trim().toUpperCase(),select=$("vehicle");
+ const areaNames={parking:"E-navbat parkovka",inside:"Free Zone ichida",border:"Chegara"};
+ select.replaceChildren(new Option("Avtomobilni tanlang",""),...state.vehicles
+   .filter(v=>!q||v.plate.includes(q)||code(v).includes(q)).slice(0,300)
+   .map(v=>new Option(`${v.plate} · ${code(v)} · ${areaNames[v.area]||v.area} · ${statusNames[v.queue_state]||v.queue_state}`,v.id)));
+ if(selected)select.value=String(selected);
 }
 function openCommand(data){
- command=data;commandAttempt=null;commandPayload=null;const form=$("command-form");form.reset();$("command-title").textContent=actionNames[data.action];
- $("command-error").textContent="";$("command-hint").textContent=data.action==="cancel"?"Navbatdan chiqariladi. Tashrif, to‘lov va band joy saqlanadi; haqiqiy chiqish postda qayd etiladi.":data.action==="gate"?"Faqat virtual darvoza o‘zgaradi. Haqiqiy shlagbaum boshqarilmaydi.":"O‘zgarish sababi va xodim nomi tarixda saqlanadi.";
- const numeric=["assign","priority"].includes(data.action);$("command-value-label").hidden=!numeric;form.elements.value.required=numeric;form.elements.value.min=data.action==="priority"?0:1;form.elements.value.max=data.action==="priority"?2:2500;
- $("command-value-label").querySelector("span").textContent=data.action==="priority"?"0 — oddiy, 1 — maxsus, 2 — favqulodda":"Joy raqami";
+ const nextKey=JSON.stringify(data);
+ if(commandPayload!==nextKey){commandPayload=nextKey;commandAttempt=crypto.randomUUID()}
+ command=data;$("command-error").textContent="";
+ const numeric=["assign","priority"].includes(data.action);$("command-value-label").hidden=!numeric;
+ const form=$("command-form");form.reset();form.elements.value.required=numeric;
+ form.elements.value.min=data.action==="priority"?0:1;form.elements.value.max=data.action==="priority"?2:2500;
+ $("command-title").textContent=actionNames[data.action]||"Amalni tasdiqlash";
+ $("command-hint").textContent=data.plate||"";
  $("command-dialog").showModal();
+}
+function selectedInfo(){
+ const v=state?.vehicles.find(item=>item.id===selected);
+ $("selected-info").replaceChildren();$("vehicle-actions").replaceChildren();
+ if(!v)return;
+ const FlowLabel = v.flow === "CH" ? "Chegara (Afg‘oniston darvozasi)" : "Free Zone (Bojxona va Tarozi)";
+ $("selected-info").append(
+   row("Davlat raqami",v.plate),
+   row("Navbat raqami",code(v)),
+   row("Yo‘nalishi",FlowLabel),
+   row("Hozirgi joyi",v.area==="parking"?"E-navbat parkovka · joy "+(v.slot||"—"):"Free Zone ichida · joy "+(v.slot||"—")),
+   row("Holati",statusNames[v.queue_state]||v.queue_state),
+   row("Ustuvorlik",v.priority||0)
+ );
+ if(readOnly||demo)return;
+ const actions=[];
+ if(v.area==="parking"){
+   if(["waiting","called"].includes(v.queue_state))actions.push(["Kutishga qo‘yish",{action:"hold"}]);
+   if(["hold","no_show","cancelled"].includes(v.queue_state))actions.push(["Navbatga qaytarish",{action:"resume"}]);
+   if(v.queue_state==="called")actions.push(["Qayta chaqirish",{action:"recall"}],["Kelmadi",{action:"no_show"}]);
+   if(["waiting","called","hold","no_show"].includes(v.queue_state))actions.push(["Bekor qilish",{action:"cancel"}]);
+   if(isTech)actions.push(["Ustuvorlik",{action:"priority"}]);
+ }
+ actions.push(["Joy ajratish",{action:"assign"}]);
+ for(const [label,item] of actions){
+   const b=document.createElement("button");b.type="button";b.textContent=label;
+   b.onclick=()=>openCommand({...item,visit_id:v.id,version:v.version,plate:v.plate});
+   $("vehicle-actions").append(b);
+ }
 }
 $("command-cancel").onclick=()=>$("command-dialog").close();
 $("command-form").onsubmit=async e=>{
- e.preventDefault();const form=e.target,data={...command,reason:form.elements.reason.value.trim()};
- if(command.action==="priority")data.priority=Number(form.elements.value.value);
- if(command.action==="assign")data.slot=Number(form.elements.value.value);
- const button=form.querySelector('[type=submit]');button.disabled=true;
- try{
-  if(demo){
-   const v=demoState.vehicles.find(v=>v.id===data.visit_id);
-   if(data.action==="gate")demoState.gates.find(g=>g.id===data.gate).state=data.state;
-   else if(data.action==="spot"){demoState.spots=demoState.spots.filter(s=>s.area!==data.area||Number(s.slot)!==Number(data.slot));if(data.state!=="free")demoState.spots.push({...data,slot:Number(data.slot)})}
-   else if(v){if(data.action==="assign")v.slot=data.slot;else if(data.action==="priority")v.priority=data.priority;else v.queue_state={hold:"hold",resume:"waiting",no_show:"no_show",cancel:"cancelled",recall:"called"}[data.action];v.version++}
-   renderDemo();
-  }else{
-   const serialized=JSON.stringify(data);if(serialized!==commandPayload){commandPayload=serialized;commandAttempt=crypto.randomUUID()}
-   await api("/api/admin/control-room/command",{...data,request_id:commandAttempt});await refresh();
-  }
-  $("command-dialog").close();if(selected)await inspect(selected);
- }catch(err){$("command-error").textContent=err.message}finally{button.disabled=false}
+ e.preventDefault();if(!command)return;
+ const fd=new FormData(e.target),payload={...command,reason:fd.get("reason"),request_id:commandAttempt};
+ if(command.action==="priority")payload.priority=Number(fd.get("value"));
+ if(command.action==="assign")payload.slot=Number(fd.get("value"));
+ try{await api("/api/admin/control-room/command",payload);commandAttempt=null;commandPayload=null;$("command-dialog").close();await refresh();if(selected)inspect(selected)}
+ catch(err){$("command-error").textContent=err.message}
 };
-if($("spot-form"))$("spot-form").onsubmit=e=>{e.preventDefault();openCommand({action:"spot",...Object.fromEntries(new FormData(e.target))})};
-for(const button of document.querySelectorAll("[data-call]"))button.onclick=async()=>{
- const flow=button.dataset.call;if(demo){demoStep(flow);return}
- button.disabled=true;
- try{attempts[flow]??=crypto.randomUUID();
-   await api("/api/admin/control-room/call",{flow,request_id:attempts[flow]});delete attempts[flow];
-   $("message").textContent="Navbat chaqirildi";await refresh();
- }catch(e){$("message").textContent=e.message}finally{button.disabled=false}
-};
-if($("settings"))$("settings").onsubmit=async e=>{
- e.preventDefault();if(demo)return;
- try{await api("/api/admin/control-room/config",Object.fromEntries(new FormData(e.target)));$("message").textContent="Sozlamalar saqlandi";await refresh(true)}
- catch(e){$("message").textContent=e.message}
-};
-document.addEventListener("visibilitychange",()=>refresh());
-try{
- const {createScene}=await import("./control-scene.js");scene=createScene($("scene"),inspect,counters.connect);
- savedView=loadDisplaySetting("camera");
- if(scene.restore(savedView)){$("camera").querySelector('[value=saved]').disabled=false;$("camera").value="saved"}
- const ratio=loadDisplaySetting("quality");
- if([1,1.5,2].includes(ratio)){$("quality").value=String(ratio);scene.quality(ratio)}
-}catch{
+savedView=loadDisplaySetting("camera");
+if(savedView)$("camera").querySelector('[value=saved]').disabled=false;
+const savedQuality=loadDisplaySetting("quality");
+if([1,1.5,2].includes(savedQuality))$("quality").value=String(savedQuality);
+import("./control-scene.js").then(m=>{
+ scene=m.createScene($("scene"),inspect,counters.connect);
+ if([1,1.5,2].includes(savedQuality))scene.quality(savedQuality);
+ if(savedView){$("camera").value="saved";scene.restore(savedView)}
+ if(state)scene.update(state.vehicles,state.config,true,state.spots||[],state.gates||[],state.recent_exits||[]);
+}).catch(()=>{
+ $("map-error").textContent="Ushbu qurilmada 3D ko‘rinish qo‘llab-quvvatlanmadi. Ro‘yxat rejimi yoqildi.";
  $("map-error").hidden=false;$("save-camera").disabled=true;
- $("map-error").textContent="3D uchun WebGL kerak. Hudud hisoblari va avtomobillar ro‘yxati ko‘rinadi.";
-}
+ if(state)show(state,true);
+});
+document.addEventListener("visibilitychange",()=>{if(document.hidden){clearTimeout(timer);request?.abort()}else refresh()});
 refresh(true);

@@ -38,7 +38,11 @@
     b.className = "dev-act-btn " + variant;
     b.textContent = label;
     if (title) b.title = title;
-    b.onclick = click;
+    b.addEventListener("click", e => {
+      e.preventDefault();
+      e.stopPropagation();
+      click(e);
+    });
     container.append(b);
   }
 
@@ -54,19 +58,36 @@
     }
   }
 
+  function keepDevicesTabOpen() {
+    panel.classList.remove("hidden");
+    panel.classList.add("active");
+    document.querySelectorAll(".admin-tab").forEach(tab => {
+      if (tab !== panel) tab.classList.add("hidden");
+    });
+    document.querySelectorAll(".nav-link[data-tab]").forEach(link => {
+      link.classList.toggle("active", link.dataset.tab === "devices");
+    });
+  }
+
   async function change(id, action, extra = {}) {
+    keepDevicesTabOpen();
     try {
       const r = await fetch("/api/admin/devices/" + id, {
         method: "POST",
         signal: AbortSignal.timeout(20000),
         headers: {
           "Content-Type": "application/json",
+          "Accept": "application/json",
           "X-CSRF-Token": document.body.dataset.csrf
         },
         body: JSON.stringify({ action, ...extra })
       });
       const res = await r.json().catch(() => ({}));
       if (!r.ok) throw Error(res.message || "Amal bajarilmadi");
+      if (["approve", "unblock", "rename"].includes(action) && el("devices-state-filter")?.value === "pending") {
+        el("devices-state-filter").value = "";
+        document.querySelectorAll("[data-kpi-filter]").forEach(c => c.classList.remove("active-kpi"));
+      }
       const msgMap = {
         approve: "Qurilmaga doimiy ruxsat berildi ✓",
         unblock: "Qurilma blokdan chiqarildi ✓",
@@ -76,26 +97,30 @@
         delete: "Qurilma ro‘yxatdan o‘chirildi"
       };
       notify(msgMap[action] || "Saqlandi ✓");
-      await refresh();
+      keepDevicesTabOpen();
+      await refresh(true);
     } catch (e) {
       notify("Xatolik: " + e.message, true);
     }
   }
 
   async function enrollDevice(payload) {
+    keepDevicesTabOpen();
     try {
       const r = await fetch("/api/admin/devices/enroll", {
         method: "POST",
         signal: AbortSignal.timeout(20000),
         headers: {
           "Content-Type": "application/json",
+          "Accept": "application/json",
           "X-CSRF-Token": document.body.dataset.csrf
         },
         body: JSON.stringify(payload)
       });
       const res = await r.json().catch(() => ({}));
       if (!r.ok) throw Error(res.message || "Saqlanmadi");
-      await refresh();
+      keepDevicesTabOpen();
+      await refresh(true);
       if (payload.action === "deduplicate") {
         notify(res.merged
           ? `Takroriy qurilmalar tozalandi (${res.merged} ta birlashtirildi) ✓`
@@ -140,6 +165,7 @@
   if (el("device-editor-form")) {
     el("device-editor-form").onsubmit = e => {
       e.preventDefault();
+      e.stopPropagation();
       if (!selectedDevice) return;
       el("device-editor").close("save");
       change(selectedDevice.id, "rename", {
@@ -163,6 +189,7 @@
   if (el("device-enroll-form")) {
     el("device-enroll-form").onsubmit = e => {
       e.preventDefault();
+      e.stopPropagation();
       el("device-enroll-modal").close("save");
       enrollDevice({
         action: "enroll",
@@ -173,12 +200,18 @@
     };
   }
   if (el("devices-dedup")) {
-    el("devices-dedup").onclick = () => enrollDevice({ action: "deduplicate" });
+    el("devices-dedup").onclick = e => {
+      e.preventDefault();
+      e.stopPropagation();
+      enrollDevice({ action: "deduplicate" });
+    };
   }
 
   // Interactive KPI cards act as quick state filters
   document.querySelectorAll("[data-kpi-filter]").forEach(card => {
-    card.addEventListener("click", () => {
+    card.addEventListener("click", e => {
+      e.preventDefault();
+      e.stopPropagation();
       const val = card.dataset.kpiFilter || "";
       if (el("devices-state-filter")) el("devices-state-filter").value = val;
       document.querySelectorAll("[data-kpi-filter]").forEach(c => c.classList.toggle("active-kpi", c === card && val !== ""));
@@ -188,7 +221,9 @@
 
   // Interactive Role filter pills
   document.querySelectorAll("[data-role-pill]").forEach(pill => {
-    pill.addEventListener("click", () => {
+    pill.addEventListener("click", e => {
+      e.preventDefault();
+      e.stopPropagation();
       const val = pill.dataset.rolePill || "";
       if (el("devices-role-filter")) el("devices-role-filter").value = val;
       document.querySelectorAll("[data-role-pill]").forEach(p => p.classList.toggle("active", p === pill));
@@ -378,8 +413,8 @@
     }
   }
 
-  async function refresh() {
-    if (busy || document.hidden || panel.classList.contains("hidden")) return;
+  async function refresh(force = false) {
+    if (!force && (busy || document.hidden || panel.classList.contains("hidden"))) return;
     busy = true;
     if (el("devices-refresh")) el("devices-refresh").disabled = true;
     try {
@@ -421,7 +456,7 @@
         cell(row, (names[kind] || kind) + (user ? " (" + user + ")" : ""));
         cell(row, date(event.previous_seen));
       }
-      el("devices-status").textContent = "Tekshirildi · " + date(d.checked_at) + " · IMEI / HWID orqali avtomatik birlashtirish faol";
+      el("devices-status").textContent = "Tekshirildi · " + date(d.checked_at) + " · IMEI / HWID va kompyuter stansiyalari sinxron";
     } catch (e) {
       el("devices-status").textContent = e.message;
     } finally {
@@ -441,11 +476,14 @@
   if (el("devices-role-filter")) el("devices-role-filter").onchange = renderTable;
   if (el("devices-state-filter")) el("devices-state-filter").onchange = renderTable;
 
-  document.addEventListener("admin:tab", e => { if (e.detail === "devices") refresh(); });
-  el("event-prev").onclick = () => { if (eventPage > 1 && !busy) { eventPage--; refresh(); } };
-  el("event-next").onclick = () => { if (eventPage < eventPages && !busy) { eventPage++; refresh(); } };
-  el("event-size").onchange = () => { eventPage = 1; refresh(); };
-  el("devices-refresh").onclick = refresh;
-  if (!panel.classList.contains("hidden")) refresh();
-  setInterval(refresh, 30000);
+  document.addEventListener("admin:tab", e => { if (e.detail === "devices") refresh(true); });
+  el("event-prev").onclick = () => { if (eventPage > 1 && !busy) { eventPage--; refresh(true); } };
+  el("event-next").onclick = () => { if (eventPage < eventPages && !busy) { eventPage++; refresh(true); } };
+  el("event-size").onchange = () => { eventPage = 1; refresh(true); };
+  el("devices-refresh").onclick = () => refresh(true);
+  if (!panel.classList.contains("hidden") || document.body.dataset.defaultTab === "devices") {
+    keepDevicesTabOpen();
+    refresh(true);
+  }
+  setInterval(() => refresh(false), 30000);
 })();

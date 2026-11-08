@@ -43,8 +43,16 @@ def register_control_room(app, pool, roles):
                     WHERE t.area<>'closed' GROUP BY t.area""")
                 crossings = conn.execute("""SELECT point,count(*) FILTER (WHERE action='in') arrivals,
                          count(*) FILTER (WHERE action='out') departures FROM zone_events
-                    WHERE point IN ('kpp2','ayritom') AND occurred >= %s AND occurred < %s
+                    WHERE point IN ('kpp2','ayritom','parkovka_tashqi') AND occurred >= %s AND occurred < %s
                     GROUP BY point""", (midnight, midnight+timedelta(days=1)))
+                parking_flow = conn.execute("""
+                    SELECT count(*) FILTER (WHERE e.action='in') AS arrivals,
+                           count(*) FILTER (WHERE e.action='out') AS departures,
+                           count(*) FILTER (WHERE e.action='out' AND v.purpose='border') AS border_departures,
+                           count(*) FILTER (WHERE e.action='out' AND v.purpose='zone') AS zone_departures
+                    FROM zone_events e JOIN zone_visits v ON v.id=e.visit_id
+                    WHERE e.point='parkovka_tashqi' AND e.occurred >= %s AND e.occurred < %s
+                """, (midnight, midnight+timedelta(days=1)))
                 weighed = conn.execute("""SELECT count(DISTINCT plate_search) n FROM weighings
                     WHERE status='paid' AND paid_at >= %s AND paid_at < %s""",
                     (midnight, midnight+timedelta(days=1)))
@@ -61,7 +69,8 @@ def register_control_room(app, pool, roles):
             return dict(at=now.isoformat(),config=config.fetchone(),vehicles=vehicles.fetchall(),
                         totals=totals.fetchall(),events=latest.fetchall(),counts=counts.fetchall(),calls=calls.fetchall(),
                         spots=spots.fetchall(),gates=gates.fetchall(),queue=queue.fetchall(),
-                        crossings=crossings.fetchall(),recent_exits=exits.fetchall(),weighed_today=weighed.fetchone()["n"])
+                        crossings=crossings.fetchall(),parking_flow=parking_flow.fetchone(),
+                        recent_exits=exits.fetchall(),weighed_today=weighed.fetchone()["n"])
 
     def cached_snapshot():
         with lock:

@@ -1,10 +1,10 @@
 const places = [
-  { key: "parking", name: "E-navbat parkovka", label: "ta mashina", title: "Hozir tashqi E-navbat parkovkada turgan jami transport", anchor: [-98, 11, -38] },
+  { key: "parking", name: "E-navbat parkovka", label: "ta mashina", subLabel: "↑chiqdi", title: "Hozir tashqi E-navbat parkovkada turgan va bugun chiqib ketgan jami transport", anchor: [-98, 11, -38] },
   { key: "inside", name: "Free Zone ichida", label: "ta mashina", title: "Hozir Free Zone hududi ichida turgan transport", anchor: [36, 11, -38] },
-  { key: "border", name: "Chegara navbati (Parkovkada)", label: "ta kutmoqda", title: "E-navbat parkovkada chegara yo‘nalishi bo‘yicha chiqishni kutayotgan transport", anchor: [122, 11, -32] },
+  { key: "border", name: "Chegara · Katta yo‘l darvozasi", label: "kutmoqda", subLabel: "↑chiqdi", title: "Katta ko‘chadagi Chegara darvozasi: E-navbat parkovkada kutayotgan va bugun Parkovka orqali Ayritomga (Chegaraga) chiqib ketgan transport", anchor: [90, 9.5, 43] },
   { key: "gate1", name: "O‘zbekiston darvozasi", point: "kpp2", title: "Parkovka va Free Zone orasidagi darvozalar oqimi", anchor: [-22, 9.5, -6] },
   { key: "scale", name: "Tarozi (Free Zone)", label: "ta tortildi", title: "Bugun Free Zone ichidagi tarozida tortilgan transport", anchor: [14, 6.5, 18] },
-  { key: "gate2", name: "Chegara darvozalari", point: "ayritom", title: "Free Zone va Katta yo‘ldan Chegaraga o‘tish darvozalari (KPP1)", anchor: [90, 9.5, -6] },
+  { key: "gate2", name: "Afg‘oniston darvozasi (FZ)", point: "ayritom", title: "Free Zone dan Afg‘oniston (Chegara) darvozasi orqali o‘tish (KPP1)", anchor: [90, 9.5, -6] },
 ];
 
 export const mapAnchors = places.map(place => place.anchor);
@@ -47,7 +47,9 @@ export function createCounters(container, selectCamera) {
     const title = document.createElement("strong");
     title.textContent = place.name;
     const primary = valueField(place.point ? "↓kirdi" : place.label);
-    const secondary = place.point ? valueField("↑chiqdi") : null;
+    const secondary = place.point
+      ? valueField("↑chiqdi")
+      : (place.subLabel ? valueField(place.subLabel) : null);
     const fields = document.createElement("span");
     fields.className = "counter-fields";
     fields.append(primary.field);
@@ -101,18 +103,29 @@ export function createCounters(container, selectCamera) {
   function update(data, reset) {
     const parking = data.counts.find(row => row.area === "parking");
     const inside = data.counts.find(row => row.area === "inside");
+    const pFlow = data.parking_flow || {};
+    const pCross = (data.crossings || []).find(row => row.point === "parkovka_tashqi");
     const occupied = {
       parking: parking?.parked ?? 0,
       inside: inside?.n ?? 0,
       border: parking?.border_wait ?? 0,
       scale: data.weighed_today ?? 0
     };
+    const subValues = {
+      parking: pFlow.departures ?? pCross?.departures ?? 0,
+      border: pFlow.border_departures ?? 0
+    };
     for (const { place, primary, secondary } of cards) {
       if (place.point) {
         const count = data.crossings.find(row => row.point === place.point);
         updateNumber(primary.value, count?.arrivals ?? 0, reset);
         updateNumber(secondary.value, count?.departures ?? 0, reset);
-      } else updateNumber(primary.value, occupied[place.key], reset);
+      } else {
+        updateNumber(primary.value, occupied[place.key], reset);
+        if (secondary && place.key in subValues) {
+          updateNumber(secondary.value, subValues[place.key], reset);
+        }
+      }
     }
   }
   return { connect, update };

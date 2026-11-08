@@ -1,8 +1,10 @@
 <section class="location-panels" aria-label="Transport joylashuvi">
   {% for place,title,total,groups in [
     ('parking','E-navbat parkovka',stats.border + stats.zone,[
-      ('Afg‘oniston darvozasi navbati','border','border','',stats.border),
-      ('Free Zone navbati','zone','zone','',stats.zone)]),
+      ('Chegara (Afg‘oniston) navbati — Parkovkada','border','border','',stats.border),
+      ('Parkovkadan Ayritomga (Chegaraga) chiqib ketganlar','border_departed','border','',stats.border_departed|default(0)),
+      ('Free Zone navbati — Parkovkada','zone','zone','',stats.zone),
+      ('Parkovkadan Free Zonega chiqqanlar','zone_departed','zone','',stats.zone_departed|default(0))]),
     ('inside','Free Zone ichida',stats.inside,[
       ('O‘zbekiston darvozasi orqali Free Zoneda','inside_kpp2','','kpp2',stats.inside_kpp2),
       ('Afg‘oniston darvozasi orqali Free Zoneda','inside_ayritom','','ayritom',stats.inside_ayritom)])] %}

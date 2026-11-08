@@ -1,4 +1,4 @@
-<section id="tab-devices" class="admin-tab hidden">
+<section id="tab-devices" class="admin-tab {{ 'active' if default_tab == 'devices' else 'hidden' }}">
   <header class="page-title devices-header">
     <div>
       <span class="eyebrow">TERMINAL VA MOBIL APK BOSHQARUVI</span>
@@ -101,9 +101,9 @@
     <div class="devices-subhead">
       <div>
         <h2>Ulanish va ruxsatlar tarixi</h2>
-        <p class="muted" style="margin:2px 0 0;font-size:12px">Terminallar kirishi, chiqishi, uzilishi va admin ruxsatlari jurnali</p>
+        <p class="muted dev-history-sub">Terminallar kirishi, chiqishi, uzilishi va admin ruxsatlari jurnali</p>
       </div>
-      <div class="pagination" style="padding-top:0">
+      <div class="pagination dev-pagination-top">
         <label>Sahifada
           <select id="event-size">
             <option>10</option>

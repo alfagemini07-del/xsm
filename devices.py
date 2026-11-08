@@ -92,12 +92,24 @@ def _merge_device_pair(conn, keep_id, drop_id):
         "UPDATE device_sessions SET device_id=%s WHERE device_id=%s",
         (keep_id, drop_id),
     )
-    drop_row = conn.execute("SELECT station_hash, tablet_hash FROM devices WHERE id=%s", (drop_id,)).fetchone()
+    drop_row = conn.execute(
+        "SELECT station_hash, tablet_hash, approved FROM devices WHERE id=%s",
+        (drop_id,),
+    ).fetchone()
     conn.execute("DELETE FROM devices WHERE id=%s", (drop_id,))
-    if drop_row and (drop_row["station_hash"] or drop_row["tablet_hash"]):
+    if drop_row:
         conn.execute(
-            "UPDATE devices SET station_hash=COALESCE(station_hash, %s), tablet_hash=COALESCE(tablet_hash, %s) WHERE id=%s",
-            (drop_row["station_hash"], drop_row["tablet_hash"], keep_id),
+            """UPDATE devices
+               SET station_hash = COALESCE(%s, station_hash),
+                   tablet_hash = COALESCE(%s, tablet_hash),
+                   approved = approved OR %s
+               WHERE id = %s""",
+            (
+                drop_row["station_hash"],
+                drop_row["tablet_hash"],
+                bool(drop_row["approved"]),
+                keep_id,
+            ),
         )
 
 
@@ -238,8 +250,6 @@ def web_device_login(conn, user, app):
     if device_model:
         device_name = f"{device_model} · {user['username']}"
 
-    deduplicate_devices(conn)
-
     known = None
     if hw_id:
         known = conn.execute(
@@ -300,23 +310,19 @@ def web_device_login(conn, user, app):
         (did, device_name, user["role"], client_ip, hw_id or None, hw_already_approved, device_model, device_name),
     )
 
-    deduplicate_devices(conn)
-    if hw_id:
-        current = conn.execute(
-            "SELECT id FROM devices WHERE UPPER(TRIM(hw_id))=UPPER(%s) AND role=%s LIMIT 1",
-            (hw_id, user["role"]),
-        ).fetchone()
-        if current:
-            did = current["id"]
-
     record_timeouts(conn)
     row = conn.execute(
         "SELECT * FROM devices WHERE id=%s FOR UPDATE", (did,)
     ).fetchone()
     cookie = stored if (known and stored.startswith("kpp_")) else "kpp_" + secrets.token_urlsafe(48)
+    cookie_hash = digest(cookie)
+    conn.execute(
+        "UPDATE devices SET tablet_hash=NULL WHERE tablet_hash=%s AND id<>%s",
+        (cookie_hash, did),
+    )
     conn.execute(
         "UPDATE devices SET tablet_hash=%s, hw_id=COALESCE(NULLIF(TRIM(hw_id), ''), %s) WHERE id=%s",
-        (digest(cookie), hw_id or None, did),
+        (cookie_hash, hw_id or None, did),
     )
     error = (
         "Qurilma bloklangan. Adminga murojaat qiling."
@@ -456,8 +462,11 @@ def register_devices(
         password = str(data.get("password", ""))[:200]
         role = data.get("role")
         hw_id = normalize_hw_id(data.get("hw_id") or request.headers.get("X-Device-HWID") or "")
+        dev_name = str(data.get("name", "Kompyuter")).strip()[:100] or "Kompyuter"
         if role not in {"operator", "parkovka_tashqi"}:
             abort(400)
+        forwarded = request.headers.get("X-Forwarded-For", "").split(",")[0].strip()
+        client_ip = forwarded or request.remote_addr or ""
         identifier = login_identifier(username)
         with pool().connection() as conn:
             if check_login_limit(conn, identifier):
@@ -477,7 +486,8 @@ def register_devices(
             conn.execute(
                 "DELETE FROM login_attempts WHERE identifier=%s", (identifier,)
             )
-            deduplicate_devices(conn)
+
+            # Check if an approved device already exists for this HWID or this desktop station role/name
             if hw_id:
                 existing_hw = conn.execute(
                     "SELECT id FROM devices WHERE UPPER(TRIM(hw_id))=UPPER(%s) AND role=%s LIMIT 1",
@@ -486,20 +496,35 @@ def register_devices(
                 if existing_hw:
                     device_id = existing_hw["id"]
 
+            # Check if a device with the same name & role already exists and is approved
+            peer_approved = conn.execute(
+                """SELECT id, approved FROM devices
+                   WHERE role = %s AND NOT blocked
+                     AND (LOWER(TRIM(name)) = LOWER(TRIM(%s)) OR LOWER(COALESCE(last_user, '')) = LOWER(%s))
+                   ORDER BY approved DESC, last_seen DESC NULLS LAST
+                   LIMIT 1""",
+                (role, dev_name, username),
+            ).fetchone()
+            auto_approve = bool(peer_approved and peer_approved["approved"])
+
             conn.execute(
-                """INSERT INTO devices(id,name,role,ip,hw_id) VALUES(%s,%s,%s,%s,%s)
+                """INSERT INTO devices(id,name,role,ip,hw_id,last_user,approved)
+                VALUES(%s,%s,%s,%s,%s,%s,%s)
                 ON CONFLICT(id) DO UPDATE SET
                     ip = EXCLUDED.ip,
+                    last_user = COALESCE(EXCLUDED.last_user, devices.last_user),
+                    approved = devices.approved OR EXCLUDED.approved,
                     hw_id = COALESCE(NULLIF(TRIM(devices.hw_id), ''), EXCLUDED.hw_id)""",
                 (
                     device_id,
-                    str(data.get("name", "Kompyuter"))[:100],
+                    dev_name,
                     role,
-                    request.remote_addr,
+                    client_ip,
                     hw_id or None,
+                    username,
+                    auto_approve,
                 ),
             )
-            deduplicate_devices(conn)
             record_timeouts(conn)
             device = conn.execute(
                 "SELECT * FROM devices WHERE id=%s FOR UPDATE", (device_id,)
@@ -513,12 +538,17 @@ def register_devices(
                     or not 40 <= len(station_key) <= 100
                 ):
                     abort(400)
+                sh = digest(station_key)
                 if not device["station_hash"]:
                     conn.execute(
-                        "UPDATE devices SET station_hash=%s, last_user=COALESCE(last_user,%s) WHERE id=%s",
-                        (digest(station_key), username, device_id),
+                        "UPDATE devices SET station_hash=NULL WHERE station_hash=%s AND id<>%s",
+                        (sh, device_id),
                     )
-                    device["station_hash"] = digest(station_key)
+                    conn.execute(
+                        "UPDATE devices SET station_hash=%s, last_user=COALESCE(last_user,%s) WHERE id=%s",
+                        (sh, username, device_id),
+                    )
+                    device["station_hash"] = sh
             if not device["approved"]:
                 return jsonify(
                     message="Qurilma ro‘yxatga olindi. Admin tasdig‘ini kuting."
@@ -527,13 +557,18 @@ def register_devices(
             if device["station_hash"] and station_key is None:
                 return jsonify(message="Tasdiqlangan dasturdan kiring."), 403
             if station_key is not None:
+                sh = digest(station_key)
                 if device["station_hash"] and not secrets.compare_digest(
-                    device["station_hash"], digest(station_key)
+                    device["station_hash"], sh
                 ):
                     # Update station_hash if this approved device is re-authenticating with valid operator credentials
                     conn.execute(
+                        "UPDATE devices SET station_hash=NULL WHERE station_hash=%s AND id<>%s",
+                        (sh, device_id),
+                    )
+                    conn.execute(
                         "UPDATE devices SET station_hash=%s WHERE id=%s",
-                        (digest(station_key), device_id),
+                        (sh, device_id),
                     )
             conn.execute(
                 "UPDATE users SET last_login_at=NOW() WHERE id=%s", (user["id"],)
@@ -549,7 +584,7 @@ def register_devices(
             )
             conn.execute(
                 "UPDATE devices SET connected=TRUE,last_seen=NOW(),last_user=%s,ip=%s WHERE id=%s",
-                (username, request.remote_addr, device_id),
+                (username, client_ip, device_id),
             )
             conn.execute(
                 "INSERT INTO device_events(device_id,event) VALUES(%s,'login')",
@@ -572,6 +607,8 @@ def register_devices(
     @app.post("/api/device/heartbeat")
     def device_heartbeat():
         device_only()
+        forwarded = request.headers.get("X-Forwarded-For", "").split(",")[0].strip()
+        client_ip = forwarded or request.remote_addr or ""
         with pool().connection() as conn:
             record_timeouts(conn)
             row = conn.execute(
@@ -588,7 +625,7 @@ def register_devices(
                 )
             conn.execute(
                 "UPDATE devices SET connected=TRUE,last_seen=NOW(),last_user=%s,ip=%s WHERE id=%s",
-                (g.user["username"], request.remote_addr, g.device),
+                (g.user["username"], client_ip, g.device),
             )
             conn.execute(
                 "DELETE FROM device_events WHERE occurred<NOW()-INTERVAL '90 days'"
@@ -621,11 +658,10 @@ def register_devices(
         page = max(1, request.args.get("event_page", 1, type=int))
         size = max(10, min(100, request.args.get("event_size", 20, type=int)))
         with pool().connection() as conn:
-            deduplicate_devices(conn)
             record_timeouts(conn)
             devices = conn.execute(
                 """SELECT id,name,role,approved,blocked,last_seen,last_user,ip,hw_id,connected AS online,backlog,backlog_at,created_at
-                   FROM devices ORDER BY connected DESC, approved ASC, LOWER(name), id"""
+                   FROM devices ORDER BY (NOT approved AND NOT blocked) DESC, connected DESC, LOWER(name), id"""
             ).fetchall()
             total = conn.execute("SELECT COUNT(*) n FROM device_events").fetchone()["n"]
             pages = max(1, (total + size - 1) // size)
@@ -668,7 +704,6 @@ def register_devices(
             return jsonify(message="Nuqta / rol noto‘g‘ri tanlangan."), 400
 
         with pool().connection() as conn:
-            deduplicate_devices(conn)
             existing = conn.execute(
                 """SELECT id FROM devices
                    WHERE UPPER(TRIM(hw_id)) = UPPER(%s) AND role = %s
@@ -696,7 +731,6 @@ def register_devices(
                            blocked = FALSE""",
                     (did, name, role, hw_id),
                 )
-            deduplicate_devices(conn)
             conn.execute(
                 "INSERT INTO device_events(device_id,event) VALUES(%s,%s)",
                 (did, "approve:" + g.user["username"]),
@@ -733,6 +767,13 @@ def register_devices(
                 (device_id,),
             ).fetchone()
             if not device:
+                if action in {"approve", "unblock"}:
+                    conn.execute(
+                        "UPDATE devices SET approved=TRUE, blocked=FALSE WHERE NOT approved AND NOT blocked"
+                    )
+                    if request.is_json:
+                        return jsonify(success=True)
+                    return redirect("/admin?tab=devices", 303)
                 abort(404)
             if action == "delete":
                 conn.execute("DELETE FROM device_sessions WHERE device_id=%s", (device_id,))
@@ -773,7 +814,6 @@ def register_devices(
                     )
                     if new_blocked:
                         conn.execute("DELETE FROM device_sessions WHERE device_id=%s", (device_id,))
-                    deduplicate_devices(conn)
             else:
                 approve = action in {"approve", "unblock"}
                 changed = device["approved"] != approve or device["blocked"] == approve
@@ -782,10 +822,19 @@ def register_devices(
                         "UPDATE devices SET approved=%s,blocked=%s,connected=CASE WHEN %s THEN FALSE ELSE connected END WHERE id=%s",
                         (approve, not approve, not approve, device_id),
                     )
-                    if approve and device["hw_id"]:
+                    if approve:
+                        if device["hw_id"]:
+                            conn.execute(
+                                "UPDATE devices SET approved=TRUE, blocked=FALSE WHERE UPPER(TRIM(hw_id))=UPPER(TRIM(%s))",
+                                (device["hw_id"],),
+                            )
+                        # Also approve any pending unblocked sibling rows for the same name or desktop role
                         conn.execute(
-                            "UPDATE devices SET approved=TRUE, blocked=FALSE WHERE UPPER(TRIM(hw_id))=UPPER(TRIM(%s))",
-                            (device["hw_id"],),
+                            """UPDATE devices SET approved=TRUE
+                               WHERE NOT approved AND NOT blocked
+                                 AND (LOWER(TRIM(name)) = LOWER(TRIM(%s))
+                                      OR (%s IN ('parkovka_tashqi', 'operator') AND role = %s))""",
+                            (device["name"], device["role"], device["role"]),
                         )
                 if action == "block":
                     conn.execute(

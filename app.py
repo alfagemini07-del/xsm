@@ -311,8 +311,9 @@ def add_security_headers(response):
     response.headers["Permissions-Policy"] = "camera=(), microphone=(), geolocation=()"
     response.headers["Content-Security-Policy"] = (
         "default-src 'self'; "
-        "img-src 'self' data:; "
-        f"style-src 'self' 'nonce-{g.style_nonce}'; "
+        "img-src 'self' data: blob:; "
+        "style-src 'self' 'unsafe-inline'; "
+        "style-src-attr 'unsafe-inline'; "
         "script-src 'self'; "
         "connect-src 'self' http://127.0.0.1:17832; "
         f"frame-ancestors {frame_ancestors}; "
@@ -696,9 +697,9 @@ def index():
 @app.get("/admin")
 @roles_required("admin", "techadmin")
 def admin_page():
-    allowed_tabs = {"monitor", "users", "reports", "analytics", "search", "history", "transfer", "tech", "devices"}
+    allowed_tabs = {"dashboard", "monitor", "users", "shifts", "reports", "analytics", "search", "history", "transfer", "tech", "devices"}
     requested_tab = "devices" if request.endpoint == "devices_page" else request.args.get("tab", "")
-    permitted_tabs = allowed_tabs if g.user["role"] == "techadmin" else {"reports", "analytics", "search", "history", "transfer", "devices"}
+    permitted_tabs = allowed_tabs if g.user["role"] == "techadmin" else {"dashboard", "shifts", "reports", "analytics", "search", "history", "transfer", "devices"}
     default_tab = requested_tab if requested_tab in permitted_tabs else (
         "monitor" if g.user["role"] == "techadmin" else "dashboard"
     )

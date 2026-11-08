@@ -74,7 +74,8 @@
   function setClock() { document.getElementById("admin-clock").textContent = new Date().toLocaleTimeString("uz-UZ", { hour12: false }); }
   async function checkAgent() {
     const label = document.getElementById("admin-printer-status"); if (!label) return;
-    if (!localAgentEnabled) { label.textContent = "Brauzer rejimi"; label.parentElement.classList.add("offline"); return; }
+    const isLocalHost = ["127.0.0.1", "localhost"].includes(window.location.hostname);
+    if (!localAgentEnabled || !isLocalHost) { label.textContent = "Brauzer rejimi"; label.parentElement.classList.add("offline"); return; }
     const controller = new AbortController(); const timer = setTimeout(() => controller.abort(), 2000);
     try { const response = await fetch("http://127.0.0.1:17832/health", { signal: controller.signal, cache: "no-store" }); const data = await response.json(); if (!response.ok) throw new Error(); label.textContent = data.printer || "Tayyor"; label.parentElement.classList.remove("offline"); }
     catch (_error) { label.textContent = "Brauzer rejimi"; label.parentElement.classList.add("offline"); }

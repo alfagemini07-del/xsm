@@ -534,8 +534,10 @@ def register_zone(app, pool, roles, clean_plate, qr):
                         COUNT(*) FILTER(WHERE location='inside') AS inside,
                         COUNT(*) FILTER(WHERE location='inside' AND entry_gate='kpp2') AS inside_kpp2,
                         COUNT(*) FILTER(WHERE location='inside' AND entry_gate='ayritom') AS inside_ayritom,
-                        COUNT(*) FILTER(WHERE location='inside' AND entry_gate IS NULL) AS inside_unknown
-                        FROM zone_visits WHERE location<>'closed'""")
+                        COUNT(*) FILTER(WHERE location='inside' AND entry_gate IS NULL) AS inside_unknown,
+                        (SELECT COUNT(*) FROM zone_events e JOIN zone_visits v ON v.id=e.visit_id WHERE e.point='parkovka_tashqi' AND e.action='out' AND v.purpose='border' AND e.occurred >= %s AND e.occurred < %s) AS border_departed,
+                        (SELECT COUNT(*) FROM zone_events e JOIN zone_visits v ON v.id=e.visit_id WHERE e.point='parkovka_tashqi' AND e.action='out' AND v.purpose='zone' AND e.occurred >= %s AND e.occurred < %s) AS zone_departed
+                        FROM zone_visits WHERE location<>'closed'""", (start, end, start, end))
                     count_query = conn.execute(
                         "SELECT count(*) n FROM zone_visits" + where, params
                     )
@@ -601,14 +603,17 @@ def register_zone(app, pool, roles, clean_plate, qr):
     @roles(*ADMINS)
     def zone_live():
         with pool().connection() as conn:
+            today_start = datetime.combine(datetime.now(TZ).date(), time.min, TZ)
             stats = conn.execute("""SELECT
                 COUNT(*) FILTER(WHERE location='parking' AND purpose='border') AS border,
                 COUNT(*) FILTER(WHERE location='parking' AND purpose='zone') AS zone,
                 COUNT(*) FILTER(WHERE location='inside') AS inside,
                 COUNT(*) FILTER(WHERE location='inside' AND entry_gate='kpp2') AS inside_kpp2,
                 COUNT(*) FILTER(WHERE location='inside' AND entry_gate='ayritom') AS inside_ayritom,
-                COUNT(*) FILTER(WHERE location='inside' AND entry_gate IS NULL) AS inside_unknown
-                FROM zone_visits WHERE location<>'closed'""").fetchone()
+                COUNT(*) FILTER(WHERE location='inside' AND entry_gate IS NULL) AS inside_unknown,
+                (SELECT COUNT(*) FROM zone_events e JOIN zone_visits v ON v.id=e.visit_id WHERE e.point='parkovka_tashqi' AND e.action='out' AND v.purpose='border' AND e.occurred >= %s) AS border_departed,
+                (SELECT COUNT(*) FROM zone_events e JOIN zone_visits v ON v.id=e.visit_id WHERE e.point='parkovka_tashqi' AND e.action='out' AND v.purpose='zone' AND e.occurred >= %s) AS zone_departed
+                FROM zone_visits WHERE location<>'closed'""", (today_start, today_start)).fetchone()
             events = conn.execute("""SELECT e.action,e.point,e.occurred,v.plate FROM zone_events e
                 JOIN zone_visits v ON v.id=e.visit_id ORDER BY e.id DESC LIMIT 4""").fetchall()
         return jsonify(
