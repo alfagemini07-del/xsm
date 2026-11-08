@@ -1073,9 +1073,12 @@ def weighing_detail(weighing_id):
 def vehicle_history(plate: str):
     if g.user["role"] not in ("admin", "techadmin"):
         abort(403)
-    cleaned = clean_plate(plate)
+    try:
+        _plate_display, cleaned = clean_plate(plate, strict=False)
+    except ValueError as e:
+        return jsonify(success=False, message=str(e)), 400
     if not cleaned:
-        return jsonify(success=False, message="Avtomobil raqami noto‘g‘ri"), 400
+        return jsonify(success=False, message="Avtomobil raqami noto'g'ri"), 400
 
     events = []
     total_paid = 0
@@ -1413,10 +1416,30 @@ def admin_dashboard():
         services[key] = int(by_date.get(today, {}).get(key, 0))
         services[key + "_fmt"] = money(services[key])
     week_total = sum(row["total"] for row in weekly)
+
+    # KPI: late devices (no signal in last 2 minutes), pending backlog
+    with get_pool().connection() as conn:
+        late_devices = conn.execute(
+            """SELECT COUNT(*) AS cnt FROM devices
+               WHERE approved AND NOT blocked
+               AND last_seen < now() - interval '2 minutes'
+               AND last_seen > now() - interval '8 hours'"""
+        ).fetchone()["cnt"]
+        backlog_summary = conn.execute(
+            """SELECT COALESCE(SUM((backlog->>'count')::int),0) AS total_unsent,
+                      COALESCE(SUM((backlog->>'amount')::bigint),0) AS total_amount,
+                      COALESCE(SUM((backlog->>'rejected')::int),0) AS total_rejected
+               FROM devices WHERE approved AND NOT blocked AND backlog IS NOT NULL"""
+        ).fetchone()
+
     return jsonify(today_count=weekly[-1]["count"], today_total=weekly[-1]["total"],
                    today_total_fmt=weekly[-1]["total_fmt"], today_services=services,
                    week_count=sum(row["count"] for row in weekly), week_total=week_total,
-                   week_total_fmt=money(week_total), weekly=weekly, as_of=as_time(meta["at"]))
+                   week_total_fmt=money(week_total), weekly=weekly, as_of=as_time(meta["at"]),
+                   kpi_late_devices=int(late_devices or 0),
+                   kpi_unsent_count=int(backlog_summary["total_unsent"] or 0),
+                   kpi_unsent_amount=int(backlog_summary["total_amount"] or 0),
+                   kpi_conflicts=int(backlog_summary["total_rejected"] or 0))
 
 
 @app.get("/api/admin/weighings")

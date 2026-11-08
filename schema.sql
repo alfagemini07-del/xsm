@@ -390,3 +390,4 @@ CREATE TABLE IF NOT EXISTS shifts (
     status TEXT NOT NULL DEFAULT 'open' CHECK(status IN ('open','closed'))
 );
 CREATE INDEX IF NOT EXISTS idx_shifts_point_status ON shifts(point, status);
+CREATE INDEX IF NOT EXISTS idx_zone_events_point_occurred ON zone_events(point, occurred DESC);

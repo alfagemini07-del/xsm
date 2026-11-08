@@ -21,7 +21,7 @@ def register_shifts(app, pool, roles_required):
             rows = conn.execute(
                 """
                 SELECT s.*, u.username as opener_name,
-                       COALESCE(u.full_name, u.username) as opener_display
+                       u.username as opener_display
                 FROM shifts s
                 LEFT JOIN users u ON u.id = s.opened_by
                 WHERE s.status = 'open'
@@ -53,9 +53,9 @@ def register_shifts(app, pool, roles_required):
         sql = """
             SELECT s.*,
                    u_open.username as opener_name,
-                   COALESCE(u_open.full_name, u_open.username) as opener_display,
+                   u_open.username as opener_display,
                    u_close.username as closer_name,
-                   COALESCE(u_close.full_name, u_close.username) as closer_display
+                   u_close.username as closer_display
             FROM shifts s
             LEFT JOIN users u_open ON u_open.id = s.opened_by
             LEFT JOIN users u_close ON u_close.id = s.closed_by
@@ -222,9 +222,9 @@ def register_shifts(app, pool, roles_required):
                 """
                 SELECT s.*,
                        u_open.username as opener_name,
-                       COALESCE(u_open.full_name, u_open.username) as opener_display,
+                       u_open.username as opener_display,
                        u_close.username as closer_name,
-                       COALESCE(u_close.full_name, u_close.username) as closer_display
+                       u_close.username as closer_display
                 FROM shifts s
                 LEFT JOIN users u_open ON u_open.id = s.opened_by
                 LEFT JOIN users u_close ON u_close.id = s.closed_by

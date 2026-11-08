@@ -113,6 +113,24 @@
       document.getElementById("d-service-parking").textContent = data.today_services.parking_fmt + " so‘m";
       document.getElementById("dashboard-time").textContent = "Hisob vaqti: " + data.as_of + " (Toshkent)";
       drawBarChart("weekly-chart", weeklyData, { highlightLast: true });
+      const late = data.kpi_late_devices ?? 0;
+      const unsentCount = data.kpi_unsent_count ?? 0;
+      const unsentAmount = data.kpi_unsent_amount ?? 0;
+      const conflicts = data.kpi_conflicts ?? 0;
+      const kpiLateEl = document.getElementById("d-kpi-late");
+      const kpiUnsentCountEl = document.getElementById("d-kpi-unsent-count");
+      const kpiUnsentAmountEl = document.getElementById("d-kpi-unsent-amount");
+      const kpiConflictsEl = document.getElementById("d-kpi-conflicts");
+      if (kpiLateEl) kpiLateEl.textContent = fmt(late);
+      if (kpiUnsentCountEl) kpiUnsentCountEl.textContent = fmt(unsentCount);
+      if (kpiUnsentAmountEl) kpiUnsentAmountEl.textContent = "ta yozuv · " + Number(unsentAmount).toLocaleString() + " so'm";
+      if (kpiConflictsEl) kpiConflictsEl.textContent = fmt(conflicts);
+      const kpiLateCard = document.getElementById("kpi-late-devices");
+      if (kpiLateCard) kpiLateCard.className = "metric-card kpi-clickable " + (late > 0 ? "red" : "green");
+      const kpiUnsentCard = document.getElementById("kpi-unsent");
+      if (kpiUnsentCard) kpiUnsentCard.className = "metric-card kpi-clickable " + (unsentCount > 0 ? "orange" : "green");
+      const kpiConflictsCard = document.getElementById("kpi-conflicts");
+      if (kpiConflictsCard) kpiConflictsCard.className = "metric-card kpi-clickable " + (conflicts > 0 ? "red" : "green");
     } catch (error) { showToast(error.message, true); }
   }
 
@@ -518,6 +536,9 @@
   });
 
   document.getElementById("btn-refresh-dashboard")?.addEventListener("click", loadDashboard);
+  document.getElementById("kpi-late-devices")?.addEventListener("click", () => activateTab("devices"));
+  document.getElementById("kpi-unsent")?.addEventListener("click", () => activateTab("devices"));
+  document.getElementById("kpi-conflicts")?.addEventListener("click", () => activateTab("devices"));
   document.getElementById("btn-report").addEventListener("click", () => { reportPage = 1; runReport(); }); document.querySelectorAll("[data-range]").forEach(button => button.addEventListener("click", () => { setReportRange(button.dataset.range); reportPage = 1; runReport(); }));
   document.getElementById("report-page-size").addEventListener("change", () => { reportPage = 1; runReport(); }); document.getElementById("report-prev").addEventListener("click", () => { if (reportPage > 1) { reportPage -= 1; runReport(); } }); document.getElementById("report-next").addEventListener("click", () => { if (reportPage < reportPages) { reportPage += 1; runReport(); } });
   document.getElementById("btn-export-report").addEventListener("click", () => exportCsv("report")); document.getElementById("btn-print-report").addEventListener("click", () => window.print());

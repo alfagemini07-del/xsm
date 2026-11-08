@@ -19,6 +19,20 @@
         {% if user.role == 'admin' %}<section id="tab-dashboard" class="admin-tab active">
           <header class="page-title"><div><span class="eyebrow">REAL VAQT MA'LUMOTLARI</span><h1>Operatsion Dashboard</h1><p>Tarozi, parkovka va ikkala KPP faoliyati.</p></div><button class="button secondary compact" id="btn-refresh-dashboard" type="button">⟳ Yangilash</button></header>
           <div class="metric-grid four"><article class="metric-card green"><span>▣</span><small>Bugungi operatsiyalar</small><strong id="d-today-count">—</strong><em>ta operatsiya</em></article><article class="metric-card blue"><span>▤</span><small>Bugungi tushum</small><strong id="d-today-total">—</strong><em>so'm</em></article><article class="metric-card violet"><span>◫</span><small>7 kunlik operatsiyalar</small><strong id="d-week-count">—</strong><em>ta operatsiya</em></article><article class="metric-card orange"><span>◈</span><small>7 kunlik tushum</small><strong id="d-week-total">—</strong><em>so'm</em></article></div>
+          <div class="metric-grid three kpi-alerts" style="margin-top:0;margin-bottom:1rem">
+            <article class="metric-card red kpi-clickable" id="kpi-late-devices" style="cursor:pointer" title="Qurilmalar bo'limini ochish">
+              <span>⚡</span><small>Signal kechikayotgan terminal</small>
+              <strong id="d-kpi-late">—</strong><em>ta qurilma</em>
+            </article>
+            <article class="metric-card orange kpi-clickable" id="kpi-unsent" style="cursor:pointer" title="Qurilmalar bo'limini ochish">
+              <span>⟳</span><small>Serverga yetmagan yozuvlar</small>
+              <strong id="d-kpi-unsent-count">—</strong><em id="d-kpi-unsent-amount">ta yozuv</em>
+            </article>
+            <article class="metric-card violet kpi-clickable" id="kpi-conflicts" style="cursor:pointer" title="Qurilmalar bo'limini ochish">
+              <span>⚠</span><small>Ziddiyatli yozuvlar</small>
+              <strong id="d-kpi-conflicts">—</strong><em>ta ziddiyat</em>
+            </article>
+          </div>
           <div class="dashboard-grid"><article class="industrial-card chart-card"><div class="section-heading"><div><h2>Kunlik operatsiyalar va tushum</h2><p>Oxirgi 7 kun bo'yicha operatsiyalar va tushum</p></div><span class="mini-state" id="dashboard-time"></span></div><canvas id="weekly-chart" height="290"></canvas></article><article class="industrial-card quick-panel"><div class="section-heading"><h2>Bugungi xizmatlar</h2></div><div class="quick-state"><span><i></i>Vazn o'lchash</span><b id="d-service-weighing">—</b></div><div class="quick-state"><span><i></i>Hududga kirish</span><b id="d-service-entry">—</b></div><div class="quick-state"><span><i></i>Qayta yuklash</span><b id="d-service-reload">—</b></div><div class="quick-state"><span>Parkovka va KPP</span><b id="d-service-parking">—</b></div></article></div>
         </section>{% endif %}
 

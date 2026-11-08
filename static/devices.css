@@ -1,1 +1,4 @@
 #tab-devices .industrial-card{margin-bottom:18px}#tab-devices td .button{margin:2px}.device-online,.device-inactive{white-space:nowrap}.device-online::before,.device-inactive::before{content:"";display:inline-block;width:8px;height:8px;border-radius:50%;background:#8798a9;margin-right:7px}.device-online::before{background:#46ddad;animation:signal-in .45s ease-out}#device-editor{color:inherit;background:var(--surface,#102034);border:1px solid #41536b;border-radius:14px;padding:24px}#device-editor::backdrop{background:#06101dbb}#device-editor label{display:grid;gap:6px;margin-bottom:16px}@keyframes signal-in{from{transform:scale(.5)}to{transform:scale(1)}}@media(prefers-reduced-motion:reduce){.device-online::before{animation:none}}
+.device-warning-text{color:#fbbf24;font-size:12px;margin-top:4px;display:block}
+.device-backlog-text{color:#60a5fa;font-size:12px;margin-top:4px;display:block}
+.device-conflict td:nth-child(4){background:#3d1a1a;border-radius:4px}

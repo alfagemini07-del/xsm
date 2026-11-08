@@ -1,10 +1,10 @@
 const places = [
-  { key: "parking", name: "E-navbat parkovka", label: "Hozir parkovkada", anchor: [-62, 1, -4] },
-  { key: "inside", name: "Free Zone", label: "Hozir hududda", anchor: [27, 1, -4] },
-  { key: "border", name: "Chegara yo‘nalishi", label: "Parkovkada kutmoqda", anchor: [94, 1, -4] },
-  { key: "gate1", name: "O‘zbekiston darvozasi", point: "kpp2", anchor: [-18, 3, 19] },
-  { key: "scale", name: "Tarozi", label: "Bugun tortilgan avtomobil", anchor: [24, 1, 33] },
-  { key: "gate2", name: "Afg‘oniston darvozasi", point: "ayritom", anchor: [65, 3, 19] },
+  { key: "parking", name: "E-navbat parkovka", label: "Hozir", title: "Hozir parkovkada turgan transport", anchor: [-62, 1, -4] },
+  { key: "inside", name: "Free Zone", label: "Hududda", title: "Hozir Free Zone ichidagi transport", anchor: [27, 1, -4] },
+  { key: "border", name: "Chegara yo‘nalishi", label: "Kutmoqda", title: "Chegara yo‘nalishida kutayotgan transport", anchor: [94, 1, -4] },
+  { key: "gate1", name: "O‘zbekiston darvozasi", point: "kpp2", title: "O‘zbekiston darvozasi (KPP2)", anchor: [-18, 3, 19] },
+  { key: "scale", name: "Tarozi", label: "Tortildi", title: "Bugun tarozida tortilgan transport", anchor: [24, 1, 33] },
+  { key: "gate2", name: "Afg‘oniston darvozasi", point: "ayritom", title: "Afg‘oniston darvozasi (KPP1)", anchor: [65, 3, 19] },
 ];
 
 export const mapAnchors = places.map(place => place.anchor);
@@ -42,11 +42,12 @@ export function createCounters(container, selectCamera) {
     button.type = "button";
     button.className = "place-counter";
     button.dataset.place = place.key;
+    button.title = place.title || place.name;
     button.onclick = () => selectCamera(place.key);
     const title = document.createElement("strong");
     title.textContent = place.name;
-    const primary = valueField(place.point ? "Bugun kirdi" : place.label);
-    const secondary = place.point ? valueField("Bugun chiqdi") : null;
+    const primary = valueField(place.point ? "↓ Kirdi" : place.label);
+    const secondary = place.point ? valueField("↑ Chiqdi") : null;
     const fields = document.createElement("span");
     fields.className = "counter-fields";
     fields.append(primary.field);
@@ -59,7 +60,7 @@ export function createCounters(container, selectCamera) {
   const ctx = lines.getContext("2d");
   // Connect the fixed, legible cards to their world positions as the camera moves.
   function connect(points) {
-    if (!ctx || document.hidden || !lines.clientWidth) return;
+    if (!ctx || document.hidden || !lines.clientWidth || getComputedStyle(lines).display === "none") return;
     const w = lines.clientWidth, h = lines.clientHeight;
     if (lines.width !== w || lines.height !== h) { lines.width = w; lines.height = h; }
     ctx.clearRect(0, 0, w, h);

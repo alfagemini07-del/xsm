@@ -79,7 +79,7 @@ function show(data,reset=false){
    return el;
  }));
  if(!scene){$("map-fallback").hidden=false;$("map-fallback").replaceChildren(...data.vehicles.map(v=>{const b=document.createElement("button");b.textContent=v.plate+" · "+code(v)+" · "+(v.slot||"joysiz");b.onclick=()=>inspect(v.id);return b}))}
- $("events").replaceChildren(...data.events.slice(0,8).map(e=>{
+ if($("events"))$("events").replaceChildren(...data.events.slice(0,8).map(e=>{
    const el=document.createElement("article"),h=document.createElement("b"),s=document.createElement("small");
    h.textContent=e.plate;s.textContent=(names[e.point]||e.point)+" · "+time.format(new Date(e.occurred));
    el.append(h,s,document.createTextNode(money.format(e.amount)+" so‘m"));return el;
