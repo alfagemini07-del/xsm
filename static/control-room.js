@@ -1,4 +1,4 @@
-import {createCounters} from "./control-counts.js?v=20261108-5";
+import {createCounters} from "./control-counts.js?v=20261108-6";
 const $=id=>document.getElementById(id);
 const money=new Intl.NumberFormat("uz-UZ");
 const time=new Intl.DateTimeFormat("uz-UZ",{timeZone:"Asia/Tashkent",hour:"2-digit",minute:"2-digit"});
@@ -376,7 +376,7 @@ savedView=loadDisplaySetting("camera");
 if(savedView)$("camera").querySelector('[value=saved]').disabled=false;
 const savedQuality=loadDisplaySetting("quality");
 if([1,1.5,2].includes(savedQuality))$("quality").value=String(savedQuality);
-import("./control-scene.js?v=20261108-5").then(m=>{
+import("./control-scene.js?v=20261108-6").then(m=>{
  scene=m.createScene($("scene"),inspect,counters.connect);
  if([1,1.5,2].includes(savedQuality))scene.quality(savedQuality);
  if(savedView&&scene.restore(savedView)){$("camera").querySelector('[value=saved]').disabled=false;$("camera").value="saved"}

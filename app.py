@@ -308,8 +308,9 @@ def add_security_headers(response):
     response.headers["Permissions-Policy"] = "camera=(), microphone=(), geolocation=()"
     response.headers["Content-Security-Policy"] = (
         "default-src 'self'; "
-        "img-src 'self' data:; "
-        f"style-src 'self' 'nonce-{g.style_nonce}'; "
+        "img-src 'self' data: blob:; "
+        "style-src 'self' 'unsafe-inline'; "
+        "style-src-attr 'unsafe-inline'; "
         "script-src 'self'; "
         "connect-src 'self' http://127.0.0.1:17832; "
         f"frame-ancestors {frame_ancestors}; "

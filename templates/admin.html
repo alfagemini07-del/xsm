@@ -3,9 +3,9 @@
 <head>
   <meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Boshqaruv paneli | Airitom</title>
-  <link rel="icon" href="{{ url_for('static', filename='favicon.ico') }}"><link rel="stylesheet" href="{{ url_for('static', filename='style.css', v='20261108-3') }}">
+  <link rel="icon" href="{{ url_for('static', filename='favicon.ico') }}"><link rel="stylesheet" href="{{ url_for('static', filename='style.css', v='20261108-6') }}">
   <link rel="stylesheet" href="/static/interface.css?v=8">
-  {% if user.role == 'techadmin' %}<link rel="stylesheet" href="/static/devices.css?v=5">{% endif %}
+  {% if user.role == 'techadmin' %}<link rel="stylesheet" href="/static/devices.css?v=20261108-6">{% endif %}
 <link rel="stylesheet" href="/static/operations.css?v=2"></head>
 <body class="admin-page" data-csrf="{{ csrf_token() }}" data-role="{{ user.role }}" data-user-id="{{ user.id }}" data-default-tab="{{ default_tab }}" data-local-printer-agent="{{ '1' if local_printer_agent else '0' }}">
   <div class="industrial-grid"></div>
@@ -359,9 +359,9 @@
   </div>
 
   <div id="toast" class="toast hidden" role="status"><b id="toast-icon">✓</b><span id="toast-text"></span></div>
-{% if user.role == 'techadmin' %}<script src="{{ url_for('static', filename='devices.js', v='5') }}" defer></script>{% endif %}
+{% if user.role == 'techadmin' %}<script src="{{ url_for('static', filename='devices.js', v='20261108-6') }}" defer></script>{% endif %}
 <link rel="stylesheet" href="/static/export-jobs.css"><script src="/static/export-jobs.js" defer></script>
-<script src="{{ url_for('static', filename='admin.js', v='20261108-3') }}" defer></script>
-<script src="{{ url_for('static', filename='reports.js', v='20261108-3') }}" defer></script>
+<script src="{{ url_for('static', filename='admin.js', v='20261108-6') }}" defer></script>
+<script src="{{ url_for('static', filename='reports.js', v='20261108-6') }}" defer></script>
 <dialog id="operation-receipt"><div class="operation-receipt-card"><h2>Xizmat cheki</h2><img id="operation-receipt-image" alt="Chek"><p id="operation-print-state"></p><button id="operation-receipt-close" class="button secondary" type="button">Yopish</button></div></dialog><script src="/static/operations.js?v=1" defer></script></body>
 </html>
