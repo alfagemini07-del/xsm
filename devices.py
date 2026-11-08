@@ -1,9 +1,11 @@
-"""Central device enrollment and persistent terminal/browser authorization."""
+"""Central device enrollment and persistent IMEI/HWID terminal/browser authorization."""
 
 import hashlib
+import re
 import secrets
 import uuid
 from datetime import datetime, timezone
+from urllib.parse import unquote
 from flask import abort, g, jsonify, request, render_template
 from werkzeug.security import check_password_hash
 
@@ -30,13 +32,21 @@ DEVICE_ENDPOINTS = {
     "receipt_print_status",
 }
 
+ALLOWED_DEVICE_ROLES = {"ayritom", "kpp2", "parkovka_tashqi", "operator"}
+
 
 def digest(value):
     return hashlib.sha256(value.encode()).hexdigest()
 
 
+def normalize_hw_id(raw):
+    if not raw or not isinstance(raw, str):
+        return ""
+    cleaned = raw.strip()
+    return cleaned[:80]
+
+
 def record_timeouts(conn):
-    # Use the missed-signal deadline even if the next request arrives hours later.
     conn.execute("""WITH missed AS (
         UPDATE devices SET connected=FALSE
         WHERE connected AND last_seen < NOW()-INTERVAL '100 seconds'
@@ -45,55 +55,224 @@ def record_timeouts(conn):
         SELECT id,'offline',last_seen+INTERVAL '100 seconds',last_seen FROM missed""")
 
 
+def _merge_device_pair(conn, keep_id, drop_id):
+    """Safely merges all foreign-key references from drop_id into keep_id and deletes drop_id."""
+    if keep_id == drop_id:
+        return
+    conn.execute(
+        "UPDATE device_events SET device_id=%s WHERE device_id=%s",
+        (keep_id, drop_id),
+    )
+    conn.execute(
+        "UPDATE receipt_jobs SET device_id=%s WHERE device_id=%s",
+        (keep_id, drop_id),
+    )
+    conn.execute(
+        """DELETE FROM station_events s USING station_events k
+           WHERE s.device_id=%s AND k.device_id=%s AND s.event_id=k.event_id""",
+        (drop_id, keep_id),
+    )
+    conn.execute(
+        "UPDATE station_events SET device_id=%s WHERE device_id=%s",
+        (keep_id, drop_id),
+    )
+    conn.execute(
+        """UPDATE zone_visits SET station_id=NULL, station_local_id=NULL
+           WHERE station_id=%s AND EXISTS (
+               SELECT 1 FROM zone_visits z2
+               WHERE z2.station_id=%s AND z2.station_local_id=zone_visits.station_local_id
+           )""",
+        (drop_id, keep_id),
+    )
+    conn.execute(
+        "UPDATE zone_visits SET station_id=%s WHERE station_id=%s",
+        (keep_id, drop_id),
+    )
+    conn.execute(
+        "UPDATE device_sessions SET device_id=%s WHERE device_id=%s",
+        (keep_id, drop_id),
+    )
+    conn.execute("DELETE FROM devices WHERE id=%s", (drop_id,))
+
+
+def deduplicate_devices(conn):
+    """
+    Merges duplicate rows in `devices`:
+    1. Rows sharing the same (UPPER(hw_id), role) where hw_id is present.
+    2. Legacy rows with hw_id IS NULL that match an existing row with the same (LOWER(name), role).
+    3. Propagates approval across same-IMEI/hw_id rows so an IMEI approved once never needs re-approval.
+    """
+    merged_count = 0
+
+    # 1. Merge rows with identical (UPPER(hw_id), role)
+    dup_groups = conn.execute("""
+        SELECT UPPER(TRIM(hw_id)) AS norm_hw, role
+        FROM devices
+        WHERE hw_id IS NOT NULL AND TRIM(hw_id) <> ''
+        GROUP BY UPPER(TRIM(hw_id)), role
+        HAVING COUNT(*) > 1
+    """).fetchall()
+
+    for grp in dup_groups:
+        rows = conn.execute("""
+            SELECT * FROM devices
+            WHERE UPPER(TRIM(hw_id)) = %s AND role = %s
+            ORDER BY approved DESC, connected DESC, last_seen DESC NULLS LAST, created_at ASC
+            FOR UPDATE
+        """, (grp["norm_hw"], grp["role"])).fetchall()
+        if len(rows) < 2:
+            continue
+        primary = rows[0]
+        any_approved = any(r["approved"] for r in rows)
+        all_blocked = all(r["blocked"] for r in rows)
+        best_name = next((r["name"] for r in rows if not r["name"].startswith("Planshet")), primary["name"])
+        best_ip = next((r["ip"] for r in rows if r["ip"]), primary["ip"])
+        best_user = next((r["last_user"] for r in rows if r["last_user"]), primary["last_user"])
+        for dup in rows[1:]:
+            _merge_device_pair(conn, primary["id"], dup["id"])
+            merged_count += 1
+        conn.execute("""
+            UPDATE devices
+            SET approved = %s,
+                blocked = %s,
+                name = %s,
+                ip = COALESCE(%s, ip),
+                last_user = COALESCE(%s, last_user)
+            WHERE id = %s
+        """, (any_approved, all_blocked, best_name, best_ip, best_user, primary["id"]))
+
+    # 2. Merge legacy rows (hw_id IS NULL) into rows with the same (LOWER(name), role)
+    name_groups = conn.execute("""
+        SELECT LOWER(TRIM(name)) AS norm_name, role
+        FROM devices
+        GROUP BY LOWER(TRIM(name)), role
+        HAVING COUNT(*) > 1 AND COUNT(*) FILTER (WHERE hw_id IS NULL OR TRIM(hw_id) = '') > 0
+    """).fetchall()
+
+    for grp in name_groups:
+        rows = conn.execute("""
+            SELECT * FROM devices
+            WHERE LOWER(TRIM(name)) = %s AND role = %s
+            ORDER BY (hw_id IS NOT NULL AND TRIM(hw_id) <> '') DESC, approved DESC, last_seen DESC NULLS LAST, created_at ASC
+            FOR UPDATE
+        """, (grp["norm_name"], grp["role"])).fetchall()
+        if len(rows) < 2:
+            continue
+        primary = rows[0]
+        any_approved = any(r["approved"] for r in rows)
+        best_hw = next((r["hw_id"] for r in rows if r["hw_id"] and r["hw_id"].strip()), primary["hw_id"])
+        for dup in rows[1:]:
+            if not dup["hw_id"] or not dup["hw_id"].strip() or (best_hw and dup["hw_id"].strip().upper() == best_hw.strip().upper()):
+                _merge_device_pair(conn, primary["id"], dup["id"])
+                merged_count += 1
+        conn.execute("""
+            UPDATE devices
+            SET approved = %s,
+                hw_id = COALESCE(%s, hw_id)
+            WHERE id = %s
+        """, (any_approved, best_hw, primary["id"]))
+
+    # 3. If a physical device (hw_id) is approved in at least one row and not blocked, ensure all rows with that hw_id are approved
+    conn.execute("""
+        UPDATE devices d
+        SET approved = TRUE
+        WHERE d.hw_id IS NOT NULL AND TRIM(d.hw_id) <> ''
+          AND NOT d.approved AND NOT d.blocked
+          AND EXISTS (
+              SELECT 1 FROM devices d2
+              WHERE UPPER(TRIM(d2.hw_id)) = UPPER(TRIM(d.hw_id))
+                AND d2.approved = TRUE AND d2.blocked = FALSE
+          )
+    """)
+
+    return merged_count
+
+
 def web_device_login(conn, user, app):
-    """A signed, persistent identity survives logout; new browsers need approval."""
-    import re
-    from urllib.parse import unquote
+    """
+    IMEI / HWID-first persistent device authorization.
+    Once a phone/terminal's IMEI or HWID is approved by techadmin, reinstalling the APK,
+    clearing cookies, or updating the app NEVER creates duplicates and NEVER requires re-approval.
+    """
     from itsdangerous import URLSafeTimedSerializer, BadData
 
     forwarded = request.headers.get("X-Forwarded-For", "").split(",")[0].strip()
     client_ip = forwarded or request.remote_addr or ""
 
-    hw_id = (
+    hw_id = normalize_hw_id(
         request.form.get("device_hw_id")
         or request.cookies.get("xsm_hw_id")
         or request.headers.get("X-Device-HWID")
         or ""
-    ).strip()
+    )
     if not hw_id:
         ua = request.headers.get("User-Agent", "")
-        match = re.search(r'HWID/([a-zA-Z0-9_\-\.:]+)', ua)
+        match = re.search(r"HWID/([a-zA-Z0-9_\-\.:]+)", ua)
         if match:
-            hw_id = match.group(1).strip()
+            hw_id = normalize_hw_id(match.group(1))
 
     device_model = (
         request.form.get("device_model")
         or unquote(request.cookies.get("xsm_device_model", ""))
         or request.headers.get("X-Device-Model")
         or ""
-    ).strip()
+    ).strip()[:60]
     if not device_model:
         ua = request.headers.get("User-Agent", "")
-        match = re.search(r'Model/([^;)]+)', ua)
+        match = re.search(r"Model/([^;)]+)", ua)
         if match:
-            device_model = match.group(1).strip()
+            device_model = match.group(1).strip()[:60]
 
     signer = URLSafeTimedSerializer(app.secret_key, salt="kpp-device")
     stored = request.cookies.get("kpp_device_" + user["role"]) or request.cookies.get(
         "kpp_device", ""
     )
+
+    device_name = f"Planshet · {user['username']}"
+    if device_model:
+        device_name = f"{device_model} · {user['username']}"
+
+    # Clean up any prior duplicates first
+    deduplicate_devices(conn)
+
     known = None
+    # 1. Match by (hw_id, role) case-insensitively
     if hw_id:
         known = conn.execute(
-            "SELECT id, approved, blocked, name FROM devices WHERE hw_id=%s AND role=%s",
+            """SELECT id, approved, blocked, name, hw_id FROM devices
+               WHERE UPPER(TRIM(hw_id)) = UPPER(%s) AND role = %s
+               ORDER BY approved DESC, last_seen DESC NULLS LAST LIMIT 1""",
             (hw_id, user["role"]),
         ).fetchone()
 
+    # 2. Match by tablet_hash cookie
     if not known and stored.startswith("kpp_"):
         known = conn.execute(
-            "SELECT id, approved, blocked, name FROM devices WHERE tablet_hash=%s AND role=%s",
+            "SELECT id, approved, blocked, name, hw_id FROM devices WHERE tablet_hash=%s AND role=%s",
             (digest(stored), user["role"]),
         ).fetchone()
+
+    # 3. Match legacy row without hw_id for the same user/device name & role so we upgrade it in-place instead of duplicating
+    if not known and hw_id:
+        known = conn.execute(
+            """SELECT id, approved, blocked, name, hw_id FROM devices
+               WHERE (hw_id IS NULL OR TRIM(hw_id) = '')
+                 AND role = %s AND (last_user = %s OR LOWER(name) = LOWER(%s))
+               ORDER BY approved DESC, last_seen DESC NULLS LAST LIMIT 1""",
+            (user["role"], user["username"], device_name),
+        ).fetchone()
+
+    # Check if this IMEI/hw_id is already approved anywhere in `devices` (e.g., pre-enrolled by techadmin or approved on another KPP role)
+    hw_already_approved = False
+    if hw_id:
+        approved_peer = conn.execute(
+            """SELECT approved, blocked, name FROM devices
+               WHERE UPPER(TRIM(hw_id)) = UPPER(%s) AND approved = TRUE AND blocked = FALSE
+               LIMIT 1""",
+            (hw_id,),
+        ).fetchone()
+        if approved_peer:
+            hw_already_approved = True
 
     if known:
         did = known["id"]
@@ -105,44 +284,52 @@ def web_device_login(conn, user, app):
                 raise ValueError()
         except (BadData, ValueError, KeyError, TypeError):
             if hw_id:
-                did = uuid.uuid5(uuid.NAMESPACE_DNS, f"airitom:{user['role']}:{hw_id}")
+                did = uuid.uuid5(uuid.NAMESPACE_DNS, f"airitom:{user['role']}:{hw_id.upper()}")
             else:
                 did = uuid.uuid4()
 
-    device_name = f"Planshet · {user['username']}"
-    if device_model:
-        device_name = f"{device_model} · {user['username']}"
-
     conn.execute(
-        """INSERT INTO devices(id, name, role, ip, hw_id)
-           VALUES(%s, %s, %s, %s, %s)
+        """INSERT INTO devices(id, name, role, ip, hw_id, approved)
+           VALUES(%s, %s, %s, %s, %s, %s)
            ON CONFLICT(id) DO UPDATE SET
                ip = EXCLUDED.ip,
-               hw_id = COALESCE(devices.hw_id, EXCLUDED.hw_id),
-               name = CASE WHEN devices.name LIKE 'Planshet%' AND %s != '' THEN %s ELSE devices.name END""",
-        (did, device_name, user["role"], client_ip, hw_id or None, device_model, device_name),
+               hw_id = COALESCE(NULLIF(TRIM(devices.hw_id), ''), EXCLUDED.hw_id),
+               approved = devices.approved OR EXCLUDED.approved,
+               name = CASE WHEN (devices.name LIKE 'Planshet%%' OR devices.name LIKE 'Qurilma%%') AND %s != '' THEN %s ELSE devices.name END""",
+        (did, device_name, user["role"], client_ip, hw_id or None, hw_already_approved, device_model, device_name),
     )
+
+    # Deduplicate again in case a cookie ID was bound to a known hw_id
+    deduplicate_devices(conn)
+    if hw_id:
+        current = conn.execute(
+            "SELECT id FROM devices WHERE UPPER(TRIM(hw_id))=UPPER(%s) AND role=%s LIMIT 1",
+            (hw_id, user["role"]),
+        ).fetchone()
+        if current:
+            did = current["id"]
+
     record_timeouts(conn)
     row = conn.execute(
         "SELECT * FROM devices WHERE id=%s FOR UPDATE", (did,)
     ).fetchone()
     cookie = stored if (known and stored.startswith("kpp_")) else "kpp_" + secrets.token_urlsafe(48)
     conn.execute(
-        "UPDATE devices SET tablet_hash=%s, hw_id=COALESCE(hw_id, %s) WHERE id=%s",
+        "UPDATE devices SET tablet_hash=%s, hw_id=COALESCE(NULLIF(TRIM(hw_id), ''), %s) WHERE id=%s",
         (digest(cookie), hw_id or None, did),
     )
     error = (
         "Qurilma bloklangan. Techadminga murojaat qiling."
         if row["blocked"]
         else (
-            "Planshet ro‘yxatga olindi. Techadmin Qurilmalar bo‘limida ruxsat bersin, so‘ng qayta kiring."
+            f"Qurilma ro‘yxatga olindi (IMEI/ID: {hw_id or str(did)[:8]}). Techadmin Qurilmalar bo‘limida ruxsat bersin, so‘ng qayta kiring."
             if not row["approved"]
             else None
         )
     )
     if not error:
         conn.execute(
-            "UPDATE devices SET connected=TRUE,last_seen=NOW(),last_user=%s,ip=%s,hw_id=COALESCE(hw_id, %s) WHERE id=%s",
+            "UPDATE devices SET connected=TRUE,last_seen=NOW(),last_user=%s,ip=%s,hw_id=COALESCE(NULLIF(TRIM(hw_id), ''), %s) WHERE id=%s",
             (user["username"], client_ip, hw_id or None, did),
         )
         conn.execute(
@@ -255,8 +442,8 @@ def register_devices(
                 "UPDATE devices SET connected=TRUE,last_seen=NOW(),ip=%s WHERE id=%s",
                 (client_ip, did),
             )
-            stats=checkpoint_stats(conn,g.user["role"])
-        return jsonify(success=True,stats=stats)
+            stats = checkpoint_stats(conn, g.user["role"])
+        return jsonify(success=True, stats=stats)
 
     @app.post("/api/device/login")
     def device_login():
@@ -268,6 +455,7 @@ def register_devices(
         username = str(data.get("username", ""))[:40].strip().lower()
         password = str(data.get("password", ""))[:200]
         role = data.get("role")
+        hw_id = normalize_hw_id(data.get("hw_id") or request.headers.get("X-Device-HWID") or "")
         if role not in {"operator", "parkovka_tashqi"}:
             abort(400)
         identifier = login_identifier(username)
@@ -289,16 +477,29 @@ def register_devices(
             conn.execute(
                 "DELETE FROM login_attempts WHERE identifier=%s", (identifier,)
             )
+            deduplicate_devices(conn)
+            if hw_id:
+                existing_hw = conn.execute(
+                    "SELECT id FROM devices WHERE UPPER(TRIM(hw_id))=UPPER(%s) AND role=%s LIMIT 1",
+                    (hw_id, role),
+                ).fetchone()
+                if existing_hw:
+                    device_id = existing_hw["id"]
+
             conn.execute(
-                """INSERT INTO devices(id,name,role,ip) VALUES(%s,%s,%s,%s)
-                ON CONFLICT(id) DO NOTHING""",
+                """INSERT INTO devices(id,name,role,ip,hw_id) VALUES(%s,%s,%s,%s,%s)
+                ON CONFLICT(id) DO UPDATE SET
+                    ip = EXCLUDED.ip,
+                    hw_id = COALESCE(NULLIF(TRIM(devices.hw_id), ''), EXCLUDED.hw_id)""",
                 (
                     device_id,
                     str(data.get("name", "Kompyuter"))[:100],
                     role,
                     request.remote_addr,
+                    hw_id or None,
                 ),
             )
+            deduplicate_devices(conn)
             record_timeouts(conn)
             device = conn.execute(
                 "SELECT * FROM devices WHERE id=%s FOR UPDATE", (device_id,)
@@ -412,23 +613,90 @@ def register_devices(
     @app.get("/api/admin/devices")
     @roles("admin", "techadmin")
     def devices_list():
-        page=max(1,request.args.get("event_page",1,type=int))
-        size=max(10,min(100,request.args.get("event_size",20,type=int)))
+        page = max(1, request.args.get("event_page", 1, type=int))
+        size = max(10, min(100, request.args.get("event_size", 20, type=int)))
         with pool().connection() as conn:
+            deduplicate_devices(conn)
             record_timeouts(conn)
             devices = conn.execute(
-                """SELECT id,name,role,approved,blocked,last_seen,last_user,ip,hw_id,connected AS online,backlog,backlog_at
-                   FROM devices ORDER BY LOWER(name), id"""
+                """SELECT id,name,role,approved,blocked,last_seen,last_user,ip,hw_id,connected AS online,backlog,backlog_at,created_at
+                   FROM devices ORDER BY connected DESC, approved ASC, LOWER(name), id"""
             ).fetchall()
-            total=conn.execute("SELECT COUNT(*) n FROM device_events").fetchone()["n"]
-            pages=max(1,(total+size-1)//size);page=min(page,pages)
+            total = conn.execute("SELECT COUNT(*) n FROM device_events").fetchone()["n"]
+            pages = max(1, (total + size - 1) // size)
+            page = min(page, pages)
             events = conn.execute(
-                """SELECT e.occurred,e.event,e.previous_seen,d.name FROM device_events e
-                   JOIN devices d ON d.id=e.device_id ORDER BY occurred DESC,e.id DESC LIMIT %s OFFSET %s""",(size,(page-1)*size)
+                """SELECT e.occurred,e.event,e.previous_seen,d.name,d.hw_id,d.role FROM device_events e
+                   JOIN devices d ON d.id=e.device_id ORDER BY occurred DESC,e.id DESC LIMIT %s OFFSET %s""",
+                (size, (page - 1) * size),
             ).fetchall()
         return jsonify(
-            devices=devices, events=events, event_page=page,event_pages=pages,event_total=total, checked_at=datetime.now(timezone.utc)
+            devices=devices,
+            events=events,
+            event_page=page,
+            event_pages=pages,
+            event_total=total,
+            checked_at=datetime.now(timezone.utc),
         )
+
+    @app.post("/api/admin/devices/enroll")
+    @roles("techadmin")
+    def device_enroll():
+        """Pre-register or bind a device by IMEI / HWID so it is immediately approved."""
+        data = (request.get_json(silent=True) if request.is_json else request.form) or {}
+        action = str(data.get("action", "enroll")).strip()
+
+        if action == "deduplicate":
+            with pool().connection() as conn:
+                merged = deduplicate_devices(conn)
+            return jsonify(success=True, merged=merged)
+
+        name = str(data.get("name", "")).strip()
+        hw_id = normalize_hw_id(data.get("hw_id", ""))
+        role = str(data.get("role", "")).strip()
+
+        if not 1 <= len(name) <= 100:
+            return jsonify(message="Qurilma nomi 1–100 belgidan iborat bo‘lsin."), 400
+        if not 3 <= len(hw_id) <= 80:
+            return jsonify(message="IMEI yoki Qurilma ID kamida 3 belgidan iborat bo‘lsin."), 400
+        if role not in ALLOWED_DEVICE_ROLES:
+            return jsonify(message="Nuqta / rol noto‘g‘ri tanlangan."), 400
+
+        with pool().connection() as conn:
+            deduplicate_devices(conn)
+            existing = conn.execute(
+                """SELECT id FROM devices
+                   WHERE UPPER(TRIM(hw_id)) = UPPER(%s) AND role = %s
+                   LIMIT 1 FOR UPDATE""",
+                (hw_id, role),
+            ).fetchone()
+            if existing:
+                did = existing["id"]
+                conn.execute(
+                    """UPDATE devices
+                       SET name=%s, hw_id=%s, approved=TRUE, blocked=FALSE
+                       WHERE id=%s""",
+                    (name, hw_id, did),
+                )
+            else:
+                did = uuid.uuid5(uuid.NAMESPACE_DNS, f"airitom:{role}:{hw_id.upper()}")
+                conn.execute(
+                    """INSERT INTO devices(id, name, role, hw_id, approved, blocked)
+                       VALUES(%s, %s, %s, %s, TRUE, FALSE)
+                       ON CONFLICT(id) DO UPDATE SET
+                           name = EXCLUDED.name,
+                           role = EXCLUDED.role,
+                           hw_id = EXCLUDED.hw_id,
+                           approved = TRUE,
+                           blocked = FALSE""",
+                    (did, name, role, hw_id),
+                )
+            deduplicate_devices(conn)
+            conn.execute(
+                "INSERT INTO device_events(device_id,event) VALUES(%s,%s)",
+                (did, "approve:" + g.user["username"]),
+            )
+        return jsonify(success=True, id=str(did))
 
     @app.post("/admin/devices/<uuid:device_id>")
     @app.post("/api/admin/devices/<uuid:device_id>")
@@ -443,13 +711,18 @@ def register_devices(
         if action not in {"approve", "block", "rename", "delete"}:
             abort(400)
         name = data.get("name")
+        hw_id = normalize_hw_id(data.get("hw_id", "")) if "hw_id" in data else None
+        role = str(data.get("role", "")).strip() if "role" in data else None
         if action == "rename" and (
             not isinstance(name, str) or not 1 <= len(name.strip()) <= 100
         ):
             return jsonify(message="Qurilma nomi 1–100 belgidan iborat bo‘lsin."), 400
+        if role and role not in ALLOWED_DEVICE_ROLES:
+            return jsonify(message="Nuqta / rol noto‘g‘ri tanlangan."), 400
+
         with pool().connection() as conn:
             device = conn.execute(
-                "SELECT name,approved,blocked FROM devices WHERE id=%s FOR UPDATE",
+                "SELECT id,name,role,hw_id,approved,blocked FROM devices WHERE id=%s FOR UPDATE",
                 (device_id,),
             ).fetchone()
             if not device:
@@ -457,15 +730,26 @@ def register_devices(
             if action == "delete":
                 conn.execute("DELETE FROM device_sessions WHERE device_id=%s", (device_id,))
                 conn.execute("DELETE FROM device_events WHERE device_id=%s", (device_id,))
+                conn.execute("UPDATE receipt_jobs SET device_id=NULL WHERE device_id=%s", (device_id,))
+                conn.execute("DELETE FROM station_events WHERE device_id=%s", (device_id,))
+                conn.execute("UPDATE zone_visits SET station_id=NULL WHERE station_id=%s", (device_id,))
                 conn.execute("DELETE FROM devices WHERE id=%s", (device_id,))
                 changed = False
             elif action == "rename":
-                changed = name.strip() != device["name"]
+                new_name = name.strip()
+                new_hw = hw_id if hw_id is not None else (device["hw_id"] or "")
+                new_role = role if role else device["role"]
+                changed = (
+                    new_name != device["name"]
+                    or (new_hw or None) != (device["hw_id"] or None)
+                    or new_role != device["role"]
+                )
                 if changed:
                     conn.execute(
-                        "UPDATE devices SET name=%s WHERE id=%s",
-                        (name.strip(), device_id),
+                        "UPDATE devices SET name=%s, hw_id=%s, role=%s WHERE id=%s",
+                        (new_name, new_hw or None, new_role, device_id),
                     )
+                    deduplicate_devices(conn)
             else:
                 approve = action == "approve"
                 changed = device["approved"] != approve or device["blocked"] == approve
@@ -474,15 +758,24 @@ def register_devices(
                         "UPDATE devices SET approved=%s,blocked=%s,connected=CASE WHEN %s THEN FALSE ELSE connected END WHERE id=%s",
                         (approve, not approve, not approve, device_id),
                     )
+                    # If approved and has hw_id, also approve any sibling records with the same IMEI/hw_id
+                    if approve and device["hw_id"]:
+                        conn.execute(
+                            "UPDATE devices SET approved=TRUE, blocked=FALSE WHERE UPPER(TRIM(hw_id))=UPPER(TRIM(%s))",
+                            (device["hw_id"],),
+                        )
                 if action == "block":
                     conn.execute(
                         "DELETE FROM device_sessions WHERE device_id=%s", (device_id,)
                     )
             if changed:
-                conn.execute(
-                    "INSERT INTO device_events(device_id,event) VALUES(%s,%s)",
-                    (device_id, action + ":" + g.user["username"]),
-                )
+                # Re-verify device still exists after deduplication before logging event
+                still_exists = conn.execute("SELECT id FROM devices WHERE id=%s", (device_id,)).fetchone()
+                if still_exists:
+                    conn.execute(
+                        "INSERT INTO device_events(device_id,event) VALUES(%s,%s)",
+                        (device_id, action + ":" + g.user["username"]),
+                    )
         if request.is_json:
             return jsonify(success=True)
         return redirect("/admin?tab=devices", 303)

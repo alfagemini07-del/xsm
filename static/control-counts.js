@@ -1,10 +1,10 @@
 const places = [
-  { key: "parking", name: "E-navbat parkovka", label: "ta", title: "Hozir parkovkada turgan transport", anchor: [-98, 11, -38] },
-  { key: "inside", name: "Free Zone", label: "ta", title: "Hozir Free Zone ichidagi transport", anchor: [36, 11, -38] },
-  { key: "border", name: "Chegara post", label: "ta", title: "Chegara yo‘nalishida kutayotgan transport", anchor: [122, 11, -32] },
-  { key: "gate1", name: "O‘zbekiston darvozasi", point: "kpp2", title: "O‘zbekiston darvozasi va parkovka chiqish yo‘li", anchor: [-22, 9.5, -6] },
-  { key: "scale", name: "Tarozi (Free Zone)", label: "tortildi", title: "Bugun Free Zone tarozisida tortilgan transport", anchor: [14, 6.5, 18] },
-  { key: "gate2", name: "Afg‘oniston darvozasi", point: "ayritom", title: "Afg‘oniston darvozasi (KPP1)", anchor: [90, 9.5, -6] },
+  { key: "parking", name: "E-navbat parkovka", label: "ta mashina", title: "Hozir tashqi E-navbat parkovkada turgan jami transport", anchor: [-98, 11, -38] },
+  { key: "inside", name: "Free Zone ichida", label: "ta mashina", title: "Hozir Free Zone hududi ichida turgan transport", anchor: [36, 11, -38] },
+  { key: "border", name: "Chegara navbati (Parkovkada)", label: "ta kutmoqda", title: "E-navbat parkovkada chegara yo‘nalishi bo‘yicha chiqishni kutayotgan transport", anchor: [122, 11, -32] },
+  { key: "gate1", name: "O‘zbekiston darvozasi", point: "kpp2", title: "Parkovka va Free Zone orasidagi darvozalar oqimi", anchor: [-22, 9.5, -6] },
+  { key: "scale", name: "Tarozi (Free Zone)", label: "ta tortildi", title: "Bugun Free Zone ichidagi tarozida tortilgan transport", anchor: [14, 6.5, 18] },
+  { key: "gate2", name: "Chegara darvozalari", point: "ayritom", title: "Free Zone va Katta yo‘ldan Chegaraga o‘tish darvozalari (KPP1)", anchor: [90, 9.5, -6] },
 ];
 
 export const mapAnchors = places.map(place => place.anchor);
@@ -83,8 +83,8 @@ export function createCounters(container, selectCamera) {
         button.style.opacity = "1";
       }
       const minX = 12, maxX = Math.max(minX, w - bw - 12);
-      const minY = (x < 340 ? 54 : 12);
-      const maxY = Math.max(minY, h - bh - (x < 260 ? 52 : 12));
+      const minY = (x < 380 ? 56 : 12);
+      const maxY = Math.max(minY, h - bh - (x < 280 ? 52 : 12));
       x = Math.max(minX, Math.min(maxX, x));
       y = Math.max(minY, Math.min(maxY, y));
       for (const prev of placed) {

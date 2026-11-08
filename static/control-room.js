@@ -2,10 +2,10 @@ import {createCounters} from "./control-counts.js";
 const $=id=>document.getElementById(id);
 const money=new Intl.NumberFormat("uz-UZ");
 const time=new Intl.DateTimeFormat("uz-UZ",{timeZone:"Asia/Tashkent",hour:"2-digit",minute:"2-digit"});
-const names={scale:"Tarozi",parkovka_tashqi:"E-navbat parkovka",ayritom:"Afg‘oniston darvozasi",kpp2:"O‘zbekiston darvozasi"};
+const names={scale:"Tarozi (Free Zone)",parkovka_tashqi:"E-navbat parkovka",ayritom:"Afg‘oniston darvozasi",kpp2:"O‘zbekiston darvozasi"};
 let scene,state,demo=false,timer,request,selected,attempts={},demoState,command,commandAttempt,commandPayload;
 let lastLive;
-const statusNames={waiting:"Kutilmoqda",called:"Chaqirilgan",hold:"Kutishga qo‘yilgan",no_show:"Kelmagan",cancelled:"Navbat bekor",inside:"Hudud ichida",completed:"Yakunlangan"};
+const statusNames={waiting:"Kutilmoqda (E-navbat parkovkada)",called:"Chaqirilgan (Kirishga tayyor)",hold:"Kutishga qo‘yilgan",no_show:"Kelmagan",cancelled:"Navbat bekor",inside:"Free Zone ichida",completed:"Yakunlangan"};
 const actionNames={hold:"Kutishga qo‘yish",resume:"Navbatga qaytarish",no_show:"Kelmadi",cancel:"Navbatni bekor qilish",recall:"Qayta chaqirish",priority:"Ustuvorlik",assign:"Joy ajratish",spot:"Joy holati",gate:"Virtual darvoza holati","call.FZ":"Free Zone navbati chaqirildi","call.CH":"Chegara navbati chaqirildi"};
 const gateNames={open:"Ochiq",closed:"Yopiq",locked:"Bloklangan",fault:"Nosoz",maintenance:"Xizmatda"};
 const gateTitles={1:names.kpp2,2:names.ayritom};
@@ -19,6 +19,15 @@ const counters=createCounters($("place-counts"), key => {
 function row(a,b){
  const line=document.createElement("div"),value=document.createElement("b");
  line.className="row";line.append(document.createTextNode(a),value);value.textContent=b;return line;
+}
+function kpiCard(title,value,locationHint){
+ const card=document.createElement("div"),top=document.createElement("span"),val=document.createElement("b"),sub=document.createElement("small");
+ card.className="row kpi-card";
+ top.className="kpi-title";top.textContent=title;
+ val.textContent=String(value);
+ sub.className="kpi-loc";sub.textContent=locationHint;
+ card.append(top,val,sub);
+ return card;
 }
 async function api(path,body,signal){
  const r=await fetch(path,{method:body?"POST":"GET",cache:"no-store",signal,
@@ -46,11 +55,15 @@ function show(data,reset=false){
  scene?.update(data.vehicles,data.config,reset,data.spots||[],data.gates||[],data.recent_exits||[]);
  $("revenue").textContent=money.format(data.totals.reduce((sum,r)=>sum+Number(r.amount),0))+" so‘m";
  $("breakdown").replaceChildren(...Object.entries(names).map(([k,v])=>row(v,money.format(data.totals.find(t=>t.point===k)?.amount||0))));
- $("occupancy").replaceChildren(...[["parking","E-navbat parkovka"],["inside","Free Zone"]].map(([area,title])=>
+ const parkingCountObj=data.counts.find(t=>t.area==="parking");
+ const insideCountObj=data.counts.find(t=>t.area==="inside");
+ const parkingTotal=Number(parkingCountObj?.n||0);
+ const insideTotal=Number(insideCountObj?.n||0);
+ $("occupancy").replaceChildren(...[["parking","E-navbat parkovka"],["inside","Free Zone hududi"]].map(([area,title])=>
    row(title,(data.counts.find(t=>t.area===area)?.n||0)+" / "+data.config[area+"_capacity"])));
  const missing=data.vehicles.filter(v=>!v.slot).length;
  if(missing)$("occupancy").append(row("Joy ajratish kutilmoqda",missing));
- $("occupancy").append(row("O‘zbekiston darvozasiga yo‘lda",data.counts.find(t=>t.area==="parking")?.in_transit??0));
+ $("occupancy").append(row("O‘zbekiston darvozasiga yo‘lda (oraliq yo‘l)",parkingCountObj?.in_transit??0));
  vehicleOptions(); selectedInfo();
  const called=data.vehicles.filter(v=>v.queue_state==="called");
  const waiting=data.queue.filter(group=>group.queue_state==="waiting");
@@ -58,7 +71,16 @@ function show(data,reset=false){
  const average=waitCount?Math.round(waiting.reduce((sum,r)=>sum+Number(r.n)*Number(r.wait_minutes),0)/waitCount):0;
  const callCount=data.queue.filter(r=>r.queue_state==="called").reduce((sum,r)=>sum+Number(r.n),0);
  const queued=flow=>waiting.find(r=>r.flow===flow)?.n??0;
- $("kpis").replaceChildren(...[["Jami transport",data.counts.reduce((n,r)=>n+Number(r.n),0)],["Free Zone navbati",queued("FZ")],["Chegara navbati",queued("CH")],["Chaqirilgan",callCount],["O‘rtacha kutish",average+" daq"],["Bugungi tushum",$("revenue").textContent]].map(([label,value])=>row(label,value)));
+ const calledFZ=data.queue.find(r=>r.flow==="FZ"&&r.queue_state==="called")?.n??0;
+ const calledCH=data.queue.find(r=>r.flow==="CH"&&r.queue_state==="called")?.n??0;
+ $("kpis").replaceChildren(
+   kpiCard("Jami transport", parkingTotal + insideTotal, `Parkovka: ${parkingTotal} ta · Free Zone: ${insideTotal} ta`),
+   kpiCard("E-navbat parkovka", `${parkingTotal} / ${data.config.parking_capacity}`, "Tashqi kutish stoyankasida"),
+   kpiCard("Free Zone ichida", `${insideTotal} / ${data.config.inside_capacity}`, `Bojxona va tarozi hududida (tortildi: ${data.weighed_today??0})`),
+   kpiCard("Free Zone navbati", queued("FZ"), "E-navbat parkovkada Free Zonega kirishni kutmoqda"),
+   kpiCard("Chegara navbati", queued("CH"), "E-navbat parkovkada Katta yo‘l → Chegarani kutmoqda"),
+   kpiCard("Chaqirilgan · Kutish", `${callCount} ta · ${average} daq`, `E-navbat parkovkada (FZ: ${calledFZ}, Chegara: ${calledCH})`)
+ );
  const alerts=[];
  for(const area of ["parking","inside"]){const occupied=Number(data.counts.find(c=>c.area===area)?.n||0),capacity=data.config[area+"_capacity"],unavailable=(data.spots||[]).filter(s=>s.area===area).length;
   const percent=(occupied+unavailable)/capacity*100;
@@ -188,7 +210,44 @@ $("save-camera").onclick=()=>{
 $("quality").onchange=e=>{const ratio=Number(e.target.value);scene?.quality(ratio);storeDisplaySetting("quality",ratio)};
 $("filter").oninput=vehicleOptions;
 $("vehicle").onchange=e=>inspect(e.target.value);
-$("full").onclick=async()=>{try{if(document.fullscreenElement)await document.exitFullscreen();else await document.documentElement.requestFullscreen()}catch{$("message").textContent="Brauzer menyusidan to‘liq ekran rejimini tanlang"}};
+
+// 3D-only Fullscreen Mode: hides header, KPIs, and sidebar (including Bugungi tushum), expanding only the 3D map
+function syncFullscreenState(){
+ const isFull = Boolean(document.fullscreenElement) || document.body.classList.contains("fullscreen-3d");
+ document.body.classList.toggle("is-fullscreen-3d", isFull);
+ if($("exit-full"))$("exit-full").hidden = !isFull;
+ if($("full"))$("full").textContent = isFull ? "Oddiy ekran" : "To‘liq ekran (3D)";
+}
+async function toggle3DFullscreen(){
+ const mapStage = $("map-stage") || document.querySelector(".map");
+ const isFull = Boolean(document.fullscreenElement) || document.body.classList.contains("fullscreen-3d");
+ if(isFull){
+   document.body.classList.remove("fullscreen-3d");
+   if(document.fullscreenElement){
+     try{ await document.exitFullscreen(); }catch{}
+   }
+   syncFullscreenState();
+ }else{
+   document.body.classList.add("fullscreen-3d");
+   syncFullscreenState();
+   try{
+     if(mapStage?.requestFullscreen) await mapStage.requestFullscreen();
+   }catch{}
+ }
+}
+$("full").onclick = toggle3DFullscreen;
+if($("exit-full"))$("exit-full").onclick = toggle3DFullscreen;
+document.addEventListener("fullscreenchange", ()=>{
+ if(!document.fullscreenElement) document.body.classList.remove("fullscreen-3d");
+ syncFullscreenState();
+});
+document.addEventListener("keydown", e=>{
+ if(e.key==="Escape" && document.body.classList.contains("fullscreen-3d") && !document.fullscreenElement){
+   document.body.classList.remove("fullscreen-3d");
+   syncFullscreenState();
+ }
+});
+
 $("demo").onclick=()=>{
  if(!demo && !lastLive){$("message").textContent="Jonli ma’lumot yuklanishini kuting";return}
  demo=!demo;snapshotTag=null;request?.abort();clearTimeout(timer);selected=null;$("timeline").replaceChildren();$("message").textContent="";
@@ -205,12 +264,18 @@ $("demo").onclick=()=>{
 function vehicleOptions(){
  const needle=$("filter").value.trim().toUpperCase();
  const vehicles=state.vehicles.filter(v=>v.id===selected||!needle||(v.plate+" "+code(v)).toUpperCase().includes(needle));
- $("vehicle").replaceChildren(new Option("Tashrifni tanlang",""),...vehicles.map(v=>new Option(code(v)+" · "+v.plate,v.id)));
+ $("vehicle").replaceChildren(new Option("Tashrifni tanlang",""),...vehicles.map(v=>new Option(code(v)+" · "+v.plate+" ("+(v.area==="parking"?"Parkovkada":"Free Zoneda")+")",v.id)));
  if(vehicles.some(v=>v.id===selected))$("vehicle").value=String(selected);
 }
 function selectedInfo(){
  const v=state?.vehicles.find(v=>v.id===selected);$("vehicle-actions").replaceChildren();$("vehicle-info").replaceChildren();if(!v)return;
- $("vehicle-info").append(row("Holat",statusNames[v.queue_state]),row("Joy",(v.area==="parking"?"Parkovka-":"FreeZone-")+(v.slot||"ajratilmagan")),row("Ustuvorlik",["Oddiy","Maxsus","Favqulodda"][v.priority]));
+ const flowLabel=v.flow==="CH"?"Chegara yo‘nalishi (Katta yo‘l orqali)":"Free Zone yo‘nalishi";
+ $("vehicle-info").append(
+   row("Holat",statusNames[v.queue_state]||v.queue_state),
+   row("Yo‘nalish",flowLabel),
+   row("Joy",(v.area==="parking"?"E-navbat Parkovka #":"Free Zone #")+(v.slot||"ajratilmagan")),
+   row("Ustuvorlik",["Oddiy","Maxsus","Favqulodda"][v.priority])
+ );
  if(readOnly && !demo)return;
  const actions=[];
  if(v.area==="parking"){

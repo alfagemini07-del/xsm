@@ -1,5 +1,159 @@
 <section id="tab-devices" class="admin-tab hidden">
-<header class="page-title"><div><h1>Qurilmalar</h1><p id="devices-status" role="status">Oxirgi signal va ulanish tarixi</p></div><button id="devices-refresh" class="button secondary compact" type="button">Holatni tekshirish</button></header>
-<article class="industrial-card table-card"><div class="table-scroll"><table><thead><tr><th>Qurilma</th><th>Nuqta / xodim</th><th>IP manzil</th><th>IMEI / Qurilma ID</th><th>Holati</th><th>Oxirgi signal</th><th>Boshqarish</th></tr></thead><tbody id="devices-rows"></tbody></table></div></article>
-<article class="industrial-card table-card"><h2>Ulanish tarixi</h2><div class="table-scroll"><table><thead><tr><th>Vaqt</th><th>Qurilma</th><th>Hodisa</th><th>Oldingi signal</th></tr></thead><tbody id="devices-events"></tbody></table></div><div class="pagination"><label>Sahifada <select id="event-size"><option>10</option><option selected>20</option><option>50</option></select></label><span id="event-total"></span><button id="event-prev" type="button">Oldingi</button><b id="event-page">1 / 1</b><button id="event-next" type="button">Keyingi</button></div></article>
-<dialog id="device-editor"><form method="dialog"><label>Qurilma nomi<input id="device-name" maxlength="100" required></label><div><button class="button secondary" value="cancel" formnovalidate>Bekor qilish</button><button class="button primary" value="save">Saqlash</button></div></form></dialog></section>
+  <header class="page-title devices-header">
+    <div>
+      <h1>Qurilmalar va IMEI ruxsatlari</h1>
+      <p id="devices-status" role="status">IMEI / Qurilma ID asosida doimiy ruxsat va ulanish monitoringi</p>
+    </div>
+    <div class="devices-header-actions">
+      <button id="devices-dedup" class="button secondary compact" type="button" title="Bir xil IMEI yoki nomli takroriy yozuvlarni birlashtirish">Takroriylarni tozalash</button>
+      <button id="devices-enroll-open" class="button primary compact" type="button">+ IMEI orqali qo‘shish</button>
+      <button id="devices-refresh" class="button secondary compact" type="button">Yangilash</button>
+    </div>
+  </header>
+
+  <div class="devices-kpi-grid" id="devices-kpis" aria-label="Qurilmalar statistikasi">
+    <div class="dev-kpi-card">
+      <span class="dev-kpi-label">Jami qurilmalar</span>
+      <strong id="dev-kpi-total">0</strong>
+      <small>Yagona ro‘yxat</small>
+    </div>
+    <div class="dev-kpi-card dev-kpi-online">
+      <span class="dev-kpi-label">Hozir Online</span>
+      <strong id="dev-kpi-online">0</strong>
+      <small>Faol aloqada</small>
+    </div>
+    <div class="dev-kpi-card dev-kpi-approved">
+      <span class="dev-kpi-label">Tasdiqlangan (IMEI)</span>
+      <strong id="dev-kpi-approved">0</strong>
+      <small>Qayta ruxsat talab qilmaydi</small>
+    </div>
+    <div class="dev-kpi-card dev-kpi-pending">
+      <span class="dev-kpi-label">Tasdiq kutmoqda</span>
+      <strong id="dev-kpi-pending">0</strong>
+      <small>Yangi ulanganlar</small>
+    </div>
+    <div class="dev-kpi-card dev-kpi-blocked">
+      <span class="dev-kpi-label">Bloklangan</span>
+      <strong id="dev-kpi-blocked">0</strong>
+      <small>Kirish cheklangan</small>
+    </div>
+  </div>
+
+  <article class="industrial-card table-card">
+    <div class="devices-toolbar">
+      <input id="devices-search" type="search" placeholder="Qurilma nomi, IMEI / ID, IP manzil yoki xodim bo‘yicha qidirish…" aria-label="Qurilmani qidirish">
+      <select id="devices-role-filter" aria-label="Nuqta bo‘yicha filtrlash">
+        <option value="">Barcha nuqtalar</option>
+        <option value="ayritom">Afg‘oniston darvozasi (KPP1)</option>
+        <option value="kpp2">O‘zbekiston darvozasi (KPP2)</option>
+        <option value="parkovka_tashqi">E-navbat parkovka</option>
+        <option value="operator">Tarozi (Free Zone)</option>
+      </select>
+      <select id="devices-state-filter" aria-label="Holat bo‘yicha filtrlash">
+        <option value="">Barcha holatlar</option>
+        <option value="online">Online (Faol)</option>
+        <option value="pending">Tasdiq kutmoqda</option>
+        <option value="approved">Tasdiqlangan</option>
+        <option value="blocked">Bloklangan</option>
+      </select>
+    </div>
+    <div class="table-scroll">
+      <table class="devices-table">
+        <thead>
+          <tr>
+            <th>Qurilma</th>
+            <th>Nuqta / Xodim</th>
+            <th>IMEI / Qurilma ID (Doimiy)</th>
+            <th>IP manzil</th>
+            <th>Holati</th>
+            <th>Oxirgi signal</th>
+            <th>Boshqarish</th>
+          </tr>
+        </thead>
+        <tbody id="devices-rows"></tbody>
+      </table>
+    </div>
+  </article>
+
+  <article class="industrial-card table-card">
+    <div class="devices-subhead">
+      <h2>Ulanish va ruxsatlar tarixi</h2>
+      <div class="pagination">
+        <label>Sahifada
+          <select id="event-size">
+            <option>10</option>
+            <option selected>20</option>
+            <option>50</option>
+          </select>
+        </label>
+        <span id="event-total"></span>
+        <button id="event-prev" class="button secondary compact" type="button">Oldingi</button>
+        <b id="event-page">1 / 1</b>
+        <button id="event-next" class="button secondary compact" type="button">Keyingi</button>
+      </div>
+    </div>
+    <div class="table-scroll">
+      <table>
+        <thead>
+          <tr>
+            <th>Vaqt</th>
+            <th>Qurilma</th>
+            <th>Hodisa</th>
+            <th>Oldingi signal</th>
+          </tr>
+        </thead>
+        <tbody id="devices-events"></tbody>
+      </table>
+    </div>
+  </article>
+
+  <dialog id="device-editor" class="device-modal">
+    <form method="dialog" id="device-editor-form">
+      <h3>Qurilma va IMEI sozlamalari</h3>
+      <p class="device-modal-hint">IMEI yoki Qurilma ID biriktirilgach, dastur qayta o‘rnatilsa yoki yangilansa ham techadmin qayta ruxsat berishi talab etilmaydi.</p>
+      <label>Qurilma nomi
+        <input id="device-name" maxlength="100" placeholder="Masalan: Afg‘oniston darvozasi · Sunmi V2" required>
+      </label>
+      <label>IMEI / Qurilma ID (hw_id)
+        <input id="device-hwid" maxlength="80" placeholder="Masalan: 864291053819204 yoki ANDROID_ID">
+      </label>
+      <label>Biriktirilgan nuqta (Rol)
+        <select id="device-role">
+          <option value="ayritom">Afg‘oniston darvozasi (ayritom)</option>
+          <option value="kpp2">O‘zbekiston darvozasi (kpp2)</option>
+          <option value="parkovka_tashqi">E-navbat parkovka (parkovka_tashqi)</option>
+          <option value="operator">Tarozi (operator)</option>
+        </select>
+      </label>
+      <div class="device-modal-actions">
+        <button class="button secondary" value="cancel" type="button" id="device-editor-cancel">Bekor qilish</button>
+        <button class="button primary" value="save" type="submit">Saqlash</button>
+      </div>
+    </form>
+  </dialog>
+
+  <dialog id="device-enroll-modal" class="device-modal">
+    <form method="dialog" id="device-enroll-form">
+      <h3>IMEI / ID orqali qurilma qo‘shish</h3>
+      <p class="device-modal-hint">Telefon yoki terminalning IMEI / Qurilma ID kodini kiriting. Qurilma darhol tasdiqlangan holatda ro‘yxatga olinadi va APK yangilanganda ham qayta ruxsat so‘ramaydi.</p>
+      <label>Qurilma nomi
+        <input id="enroll-name" maxlength="100" placeholder="Masalan: O‘zbekiston darvozasi · Planshet 1" required>
+      </label>
+      <label>IMEI / Qurilma ID (Kirish oynasidagi ID yoki *#06# IMEI)
+        <input id="enroll-hwid" maxlength="80" placeholder="Masalan: 358240051111110" required>
+      </label>
+      <label>Nuqta / Post roli
+        <select id="enroll-role" required>
+          <option value="ayritom">Afg‘oniston darvozasi (ayritom)</option>
+          <option value="kpp2">O‘zbekiston darvozasi (kpp2)</option>
+          <option value="parkovka_tashqi">E-navbat parkovka (parkovka_tashqi)</option>
+          <option value="operator">Tarozi (operator)</option>
+        </select>
+      </label>
+      <div class="device-modal-actions">
+        <button class="button secondary" value="cancel" type="button" id="device-enroll-cancel">Bekor qilish</button>
+        <button class="button primary" value="save" type="submit">Qo‘shish va ruxsat berish</button>
+      </div>
+    </form>
+  </dialog>
+</section>

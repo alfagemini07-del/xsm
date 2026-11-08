@@ -2,28 +2,79 @@
 <body class="login-screen"><header><strong>AIRITOM</strong><small>Markaziy boshqaruv</small></header><main><section class="login-panel"><h1>Tizimga kirish</h1>
 {% if error %}<p role="alert">{{ error }}</p>{% endif %}
 <form method="post"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><input type="hidden" name="device_hw_id" id="login-hw-id"><input type="hidden" name="device_model" id="login-device-model"><label>Login<input name="username" value="{{ username }}" maxlength="40" autocomplete="username" autocapitalize="none" required></label><label>Parol<input name="password" type="password" maxlength="200" autocomplete="current-password" required></label><button class="primary">Kirish</button></form>
+<div id="device-id-badge" style="margin-top:14px;padding-top:10px;border-top:1px solid rgba(120,160,210,.2);display:flex;justify-content:space-between;align-items:center;gap:8px;font-size:12px;color:#8faac7">
+  <span>Qurilma IMEI / ID: <code id="device-id-text" style="color:#7dd3fc;font-weight:700">—</code></span>
+  <button type="button" id="copy-hw-id" style="padding:4px 9px;font-size:11px;min-height:auto;border-radius:6px;background:rgba(25,45,72,.8);border:1px solid rgba(125,211,252,.35);color:#bae6fd;cursor:pointer">Nusxalash</button>
+</div>
 </section></main>
 <script>
 (() => {
-  let hwId = "";
-  let model = "";
-  try {
-    if (window.XsmDevice) {
-      if (typeof window.XsmDevice.getHardwareId === "function") hwId = window.XsmDevice.getHardwareId() || "";
-      if (typeof window.XsmDevice.getDeviceModel === "function") model = window.XsmDevice.getDeviceModel() || "";
-    }
-  } catch (e) {}
-  if (!hwId) {
-    try { hwId = localStorage.getItem("xsm_hw_id") || ""; } catch (e) {}
-    if (!hwId) {
-      hwId = "browser-" + (window.crypto && crypto.randomUUID ? crypto.randomUUID() : Math.random().toString(36).substring(2, 12));
-      try { localStorage.setItem("xsm_hw_id", hwId); } catch (e) {}
-    }
+  function readCookie(name) {
+    const match = document.cookie.match(new RegExp("(?:^|; )" + name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&") + "=([^;]*)"));
+    return match ? decodeURIComponent(match[1]) : "";
   }
-  const h = document.getElementById("login-hw-id");
-  const m = document.getElementById("login-device-model");
-  if (h) h.value = hwId;
-  if (m) m.value = model;
+  function resolveIdentity() {
+    let hwId = "";
+    let model = "";
+    try {
+      if (window.XsmDevice) {
+        if (typeof window.XsmDevice.getHardwareId === "function") hwId = (window.XsmDevice.getHardwareId() || "").trim();
+        if (typeof window.XsmDevice.getDeviceModel === "function") model = (window.XsmDevice.getDeviceModel() || "").trim();
+      }
+      if (!hwId && window.XsmNativeDevice && window.XsmNativeDevice.hwId) {
+        hwId = String(window.XsmNativeDevice.hwId).trim();
+      }
+      if (!model && window.XsmNativeDevice && window.XsmNativeDevice.model) {
+        model = String(window.XsmNativeDevice.model).trim();
+      }
+    } catch (e) {}
+
+    if (!hwId) {
+      hwId = readCookie("xsm_hw_id").trim();
+    }
+    if (!model) {
+      model = readCookie("xsm_device_model").trim();
+    }
+    if (!hwId) {
+      const uaMatch = (navigator.userAgent || "").match(/HWID\/([a-zA-Z0-9_\-\.:]+)/);
+      if (uaMatch) hwId = uaMatch[1].trim();
+    }
+    if (!model) {
+      const mMatch = (navigator.userAgent || "").match(/Model\/([^;)]+)/);
+      if (mMatch) model = mMatch[1].trim();
+    }
+    if (!hwId) {
+      try { hwId = (localStorage.getItem("xsm_hw_id") || "").trim(); } catch (e) {}
+    }
+    if (!hwId) {
+      hwId = "WEB-" + (window.crypto && crypto.randomUUID ? crypto.randomUUID().replace(/-/g, "").slice(0, 12).toUpperCase() : Math.random().toString(36).substring(2, 12).toUpperCase());
+    }
+    try { localStorage.setItem("xsm_hw_id", hwId); } catch (e) {}
+    try { document.cookie = "xsm_hw_id=" + encodeURIComponent(hwId) + "; path=/; max-age=315360000; SameSite=Lax"; } catch (e) {}
+
+    const h = document.getElementById("login-hw-id");
+    const m = document.getElementById("login-device-model");
+    const t = document.getElementById("device-id-text");
+    if (h) h.value = hwId;
+    if (m) m.value = model;
+    if (t) t.textContent = hwId + (model ? " (" + model + ")" : "");
+    return hwId;
+  }
+
+  resolveIdentity();
+  window.addEventListener("xsm-printer-ready", resolveIdentity);
+
+  const copyBtn = document.getElementById("copy-hw-id");
+  if (copyBtn) {
+    copyBtn.onclick = async () => {
+      const hw = document.getElementById("login-hw-id")?.value || "";
+      try {
+        await navigator.clipboard.writeText(hw);
+        copyBtn.textContent = "Nusxalandi ✓";
+        setTimeout(() => { copyBtn.textContent = "Nusxalash"; }, 1800);
+      } catch (e) {}
+    };
+  }
 })();
 </script>
 </body></html>

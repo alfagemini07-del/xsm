@@ -531,3 +531,110 @@
  .kpp #vehicle .plate-input-wrap{margin:10px 0}
  .kpp #vehicle .modal-actions-row{margin:6px 0 0}
 }
+
+/* ── SMOOTH NATIVE-LIKE MOBILE APK ENHANCEMENTS ── */
+@media screen {
+  .kpp .screen.active {
+    animation: kpp-screen-fade 0.24s cubic-bezier(0.22, 1, 0.36, 1) both;
+    will-change: transform, opacity;
+  }
+  @keyframes kpp-screen-fade {
+    from { opacity: 0; transform: translate3d(0, 8px, 0) scale(0.99); }
+    to { opacity: 1; transform: translate3d(0, 0, 0) scale(1); }
+  }
+  .kpp .plate-clear-btn {
+    background: transparent;
+    border: none;
+    color: #94a3b8;
+    font-size: 20px;
+    padding: 0 12px;
+    height: 100%;
+    cursor: pointer;
+    transition: color 0.15s ease, transform 0.15s ease;
+  }
+  .kpp .plate-clear-btn:active {
+    color: #f87171;
+    transform: scale(0.9);
+  }
+  .kpp .plate-quick-chips {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: center;
+    gap: 6px;
+    width: 100%;
+    margin: 0 0 12px;
+  }
+  .kpp .region-chip {
+    padding: 6px 10px;
+    border-radius: 99px;
+    font-size: 12px;
+    font-weight: 700;
+    background: rgba(20, 38, 68, 0.85);
+    border: 1px solid rgba(59, 130, 246, 0.35);
+    color: #bae6fd;
+    cursor: pointer;
+    transition: transform 0.14s cubic-bezier(0.2, 0.9, 0.3, 1), background 0.14s ease, border-color 0.14s ease;
+  }
+  .kpp .region-chip:hover, .kpp .region-chip:active {
+    background: rgba(37, 99, 235, 0.45);
+    border-color: #60a5fa;
+    color: #fff;
+    transform: scale(0.95);
+  }
+  .kpp .qr-scan-btn {
+    width: 100%;
+    margin-bottom: 8px;
+    padding: 10px 14px;
+    border-radius: 10px;
+    font-weight: 700;
+  }
+  .kpp .method-pills {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 8px;
+    margin: 6px 0 8px;
+  }
+  .kpp .method-pill {
+    padding: 10px 6px;
+    border-radius: 10px;
+    font-size: 13px;
+    font-weight: 700;
+    background: rgba(18, 34, 58, 0.85);
+    border: 1.5px solid rgba(75, 110, 160, 0.38);
+    color: #cbd5e1;
+    cursor: pointer;
+    transition: all 0.18s cubic-bezier(0.16, 1, 0.3, 1);
+  }
+  .kpp .method-pill.active {
+    background: linear-gradient(135deg, rgba(37, 99, 235, 0.45), rgba(16, 185, 129, 0.35));
+    border-color: #38bdf8;
+    color: #ffffff;
+    box-shadow: 0 0 18px rgba(56, 189, 248, 0.35);
+    transform: translateY(-1px);
+  }
+  .kpp .sr-select {
+    display: none;
+  }
+  .kpp .paid-check-label {
+    background: rgba(16, 185, 129, 0.1);
+    border: 1px solid rgba(16, 185, 129, 0.3);
+    border-radius: 10px;
+    padding: 10px 12px;
+    margin: 8px 0 4px;
+    align-items: center;
+    cursor: pointer;
+    transition: background 0.18s ease, border-color 0.18s ease;
+  }
+  .kpp .paid-check-label:has(input:checked) {
+    background: rgba(16, 185, 129, 0.22);
+    border-color: #10b981;
+  }
+  .keyboard-open .plate-quick-chips {
+    gap: 4px;
+    margin-bottom: 6px;
+  }
+  .keyboard-open .region-chip {
+    padding: 4px 8px;
+    font-size: 11px;
+  }
+}

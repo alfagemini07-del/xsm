@@ -4,21 +4,21 @@
 <body data-csrf="{{ csrf_token_value }}" data-role="{{ user.role }}">
 <header>
 {% if user.role=='observer' %}<span class="brand">AIRITOM</span>{% else %}<a href="/admin" aria-label="Admin panelga qaytish" class="brand">AIRITOM</a>{% endif %}
-<h1>Hudud nazorati</h1><nav>{% if user.role!='observer' %}<a href="/admin?tab=reports">Hisobotlar</a>{% endif %}<a href="/admin/queue-display" target="_blank" rel="noopener">Navbat tablosi ↗</a></nav>
-<span id="status" role="status">Ulanmoqda</span><button id="demo">Demo</button><button id="full">To‘liq ekran</button>
+<h1>Hudud nazorati</h1><nav>{% if user.role!='observer' %}<a href="/admin?tab=reports">Hisobotlar</a>{% endif %}{% if user.role=='techadmin' %}<a href="/admin/devices">Qurilmalar</a>{% endif %}<a href="/admin/queue-display" target="_blank" rel="noopener">Navbat tablosi ↗</a></nav>
+<span id="status" role="status">Ulanmoqda</span><button id="demo" type="button">Demo</button><button id="full" type="button" title="Faqat 3D maydonni to‘liq ekranga yoyish">To‘liq ekran (3D)</button>
 {% if user.role=='observer' %}<form method="post" action="/logout"><input type="hidden" name="csrf_token" value="{{ csrf_token_value }}"><button>Chiqish</button></form>{% endif %}
 </header>
 <div id="kpis" aria-label="Hudud ko‘rsatkichlari"></div>
-<main><section class="map"><canvas id="scene" aria-label="Parkovka, Free Zone va chegara postining uch o‘lchamli operatsion xaritasi"></canvas>
+<main><section class="map" id="map-stage"><canvas id="scene" aria-label="Parkovka, Free Zone va chegara postining uch o‘lchamli operatsion xaritasi"></canvas>
 <canvas id="map-leaders" aria-hidden="true"></canvas><div id="place-counts" role="group" aria-label="Hudud va darvozalardagi avtomobillar"></div>
 <div class="map-top"><small>KAMERA</small><select aria-label="Kamera" id="camera">
 <option value="all">Umumiy ko‘rinish</option><option value="parking">E-navbat parkovka</option>
 <option value="inside">Free Zone</option><option value="gate1">O‘zbekiston darvozasi</option>
-<option value="gate2">Afg‘oniston darvozasi</option><option value="scale">Tarozi (Free Zone)</option>
-<option value="border">Chegara</option><option value="top">Yuqoridan</option><option value="follow">Tanlangan avtomobil</option>
+<option value="gate2">Chegara darvozalari (KPP1 va Katta yo‘l)</option><option value="scale">Tarozi (Free Zone)</option>
+<option value="border">Chegara hududi</option><option value="top">Yuqoridan</option><option value="follow">Tanlangan avtomobil</option>
 <option value="saved" disabled>Saqlangan ko‘rinish</option>
-</select><button type="button" id="save-camera">Saqlash</button></div>
-<div class="map-bottom"><select id="quality" aria-label="3D sifati"><option value="1">Tejamkor</option><option value="1.5" selected>Muvozanatli</option><option value="2">Yuqori</option></select><small>Post qaydlari asosida</small></div><p id="map-error" hidden></p><div id="map-fallback" hidden></div></section>
+</select><button type="button" id="save-camera">Saqlash</button><button type="button" id="exit-full" class="exit-full-btn" hidden>✕ To‘liq ekrandan chiqish</button></div>
+<div class="map-bottom"><select id="quality" aria-label="3D sifati"><option value="1">Tejamkor</option><option value="1.5" selected>Muvozanatli</option><option value="2">Yuqori</option></select><small>Post qaydlari asosida · Katta yo‘l va Free Zone orqali Chegara oqimi</small></div><p id="map-error" hidden></p><div id="map-fallback" hidden></div></section>
 <aside><section><small>BUGUNGI TUSHUM</small><strong id="revenue">—</strong><div id="breakdown"></div></section>
 <section><h2>Hudud bandligi</h2><div id="occupancy"></div></section>
 <section><h2>Ogohlantirishlar</h2><div id="alerts" role="status"></div></section>

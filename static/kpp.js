@@ -5,6 +5,11 @@ const el = id => document.getElementById(id);
 const money = n => Number(n || 0).toLocaleString("uz-UZ") + " so‘m";
 const storageKey = "kpp-payment:" + document.body.dataset.role + ":" + document.body.dataset.user;
 let current = null, submitting = false, heartbeatBusy = false, journalPage = 1, rowPage = 0;
+
+function haptic(ms = 10) {
+  try { if (navigator.vibrate) navigator.vibrate(ms); } catch {}
+}
+
 async function api(url, body) {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), 20000);
@@ -31,11 +36,31 @@ async function api(url, body) {
 function remember() {
   try { if(current) sessionStorage.setItem(storageKey,JSON.stringify(current)); else sessionStorage.removeItem(storageKey); } catch {}
 }
+function syncMethodPills(val) {
+  el("method").value = val;
+  document.querySelectorAll(".method-pill").forEach(btn => {
+    btn.classList.toggle("active", btn.dataset.method === val);
+  });
+}
+document.querySelectorAll(".method-pill").forEach(btn => {
+  btn.addEventListener("click", () => {
+    haptic(8);
+    syncMethodPills(btn.dataset.method);
+  });
+});
+if (el("method")) {
+  el("method").addEventListener("change", () => syncMethodPills(el("method").value));
+}
+
 function screen(payment) {
-  el("screen-main").classList.toggle("hidden",payment);
-  el("screen-payment").classList.toggle("hidden",!payment);
+  const mainScr = el("screen-main"), payScr = el("screen-payment");
+  mainScr.classList.toggle("hidden", payment);
+  mainScr.classList.toggle("active", !payment);
+  payScr.classList.toggle("hidden", !payment);
+  payScr.classList.toggle("active", payment);
 }
 function openVehicle(action) {
+  haptic(12);
   el("action").value=action;
   el("title").textContent=action==="in"?"Kirayotgan avtomobil":"Chiqayotgan avtomobil";
   const car=el("modal-car-icon");
@@ -44,11 +69,33 @@ function openVehicle(action) {
   delete el("plate").dataset.queue;
   if(el("scan-ticket"))el("scan-ticket").hidden=action!=="in";
   el("vehicle").showModal();
-  el("plate").focus({preventScroll:true});
+  requestAnimationFrame(()=>el("plate").focus({preventScroll:true}));
 }
 document.querySelectorAll("[data-action]").forEach(button=>button.addEventListener("click",()=>openVehicle(button.dataset.action)));
-el("back").onclick=el("plate-back").onclick=()=>el("vehicle").close();
-el("plate").addEventListener("input",()=>{el("plate").value=el("plate").value.toUpperCase();});
+el("back").onclick=el("plate-back").onclick=()=>{haptic(8);el("vehicle").close();};
+el("plate").addEventListener("input",()=>{
+  const pos = el("plate").selectionStart;
+  el("plate").value = el("plate").value.toUpperCase();
+  try { el("plate").setSelectionRange(pos, pos); } catch {}
+});
+if (el("plate-clear")) {
+  el("plate-clear").onclick = () => {
+    haptic(8);
+    el("plate").value = "";
+    delete el("plate").dataset.queue;
+    el("plate").focus({preventScroll:true});
+  };
+}
+document.querySelectorAll(".region-chip").forEach(chip => {
+  chip.addEventListener("click", () => {
+    haptic(8);
+    const prefix = chip.dataset.prefix || "";
+    const cur = el("plate").value.replace(/^\d{2}\s*/, "");
+    el("plate").value = (prefix + cur).toUpperCase();
+    el("plate").focus({preventScroll:true});
+  });
+});
+
 function showPayment(data) {
   current=data; remember();
   const q=data.quote;
@@ -58,7 +105,8 @@ function showPayment(data) {
   el("pay-days").textContent=q.days+" kun";el("pay-rate").textContent=money(q.rate);
   el("pay-paid").textContent=money(q.paid);el("pay-amount").textContent=money(q.amount);
   el("paid-fields").hidden=!q.amount;el("received").required=!!q.amount;
-  el("received").checked=!!data.attempted;el("method").value=data.method||"cash";
+  el("received").checked=!!data.attempted;
+  syncMethodPills(data.method||"cash");
   el("payment-error").textContent=data.attempted?"Avvalgi amal javobini qayta tekshiring.":"";
   el("confirm").textContent=data.attempted?"Natijani qayta tekshirish":"Tasdiqlash va chek";
   el("payment-back").disabled=!!data.attempted;
@@ -67,6 +115,7 @@ function showPayment(data) {
 el("plate-form").addEventListener("submit",async event=>{
   event.preventDefault();
   if(submitting)return;
+  haptic(12);
   submitting=true;
   const button=event.target.querySelector('[type="submit"]');
   button.disabled=true;el("plate-error").textContent="Tekshirilmoqda...";
@@ -76,7 +125,7 @@ el("plate-form").addEventListener("submit",async event=>{
   } catch(error){el("plate-error").textContent=error.message;}
   finally {submitting=false;button.disabled=false;}
 });
-el("payment-back").onclick=()=>{if(current?.attempted)return;current=null;remember();screen(false);};
+el("payment-back").onclick=()=>{if(current?.attempted)return;haptic(8);current=null;remember();screen(false);};
 function showReceipt(data) {
   document.body.dataset.receiptId=data.id;document.body.dataset.printAttempts=data.print_attempts||0;
   el("receipt-image").hidden=!data.image;
@@ -96,6 +145,7 @@ function showReceipt(data) {
 el("payment-form").addEventListener("submit",async event=>{
   event.preventDefault();
   if(submitting||!current)return;
+  haptic(15);
   submitting=true;el("confirm").disabled=true;el("payment-back").disabled=true;
   current.attempted=true;current.method=el("method").value;remember();
   el("payment-error").textContent="Saqlanmoqda...";
@@ -108,7 +158,7 @@ el("payment-form").addEventListener("submit",async event=>{
     el("confirm").textContent="Natijani qayta tekshirish";
   } finally {submitting=false;el("confirm").disabled=false;}
 });
-function closeReceipt() {el("receipt-dialog").close();history.replaceState(null,"","/zone");}
+function closeReceipt() {haptic(8);el("receipt-dialog").close();history.replaceState(null,"","/zone");}
 el("receipt-close").onclick=closeReceipt;
 el("receipt-dialog").addEventListener("cancel",event=>{event.preventDefault();closeReceipt();});
 function showRows() {
@@ -148,8 +198,8 @@ async function loadJournal(target=journalPage) {
   } catch(error){el("journal-status").textContent=error.message;}
   finally{el("journal-previous").disabled=el("journal-more").disabled=false;}
 }
-el("journal-open").onclick=()=>{journalPage=1;el("journal").showModal();loadJournal();};
-el("journal-close").onclick=()=>el("journal").close();
+el("journal-open").onclick=()=>{haptic(10);journalPage=1;el("journal").showModal();loadJournal();};
+el("journal-close").onclick=()=>{haptic(8);el("journal").close();};
 el("journal-more").onclick=()=>loadJournal(journalPage+1);
 el("journal-previous").onclick=()=>loadJournal(journalPage-1);
 el("rows-prev").onclick=()=>{rowPage--;showRows();};el("rows-next").onclick=()=>{rowPage++;showRows();};

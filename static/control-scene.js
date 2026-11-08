@@ -2,25 +2,27 @@ import * as T from "./vendor/three.module.js";
 import {OrbitControls} from "./vendor/OrbitControls.js";
 import {mapAnchors} from "./control-counts.js";
 
-// Real-world terminal layout with a dedicated road between E-navbat Parkovka and Free Zone:
+// Real-world terminal layout with a dedicated road between E-navbat Parkovka and Free Zone,
+// and Chegara extended to the end of the Main Highway (z = 43) with its own highway barrier gate (x = 90, z = 43):
 // - E-navbat Parkovka (1000+ trucks): x = -164 .. -30 (center -98, width 134)
 // - Parkovka Exit Gate (in middle of Parking east wall): x = -30, z = -6
-// - Inter-Zone Road (between Parkovka & Free Zone, facing the main highway): x = -22 (width 14, z = -46 .. +43)
+// - Inter-Zone Road (between Parkovka & Free Zone, facing the main highway): x = -22 (width 15.2, z = -46 .. +43)
 // - Free Zone Entry Gate / O'zbekiston darvozasi (in middle of Free Zone west wall): x = -14, z = -6
 // - Free Zone (300+ trucks + internal Tarozi at x=14, z=18): x = -14 .. +90 (center +38, width 104)
 // - Afg'oniston darvozasi / KPP1 (in middle of Free Zone east wall): x = +90, z = -6
-// - Chegara Post: x = +91 .. +151 (center +122, width 60)
+// - Main Highway Chegara Gate (between Katta yo'l and Chegara): x = +90, z = +43
+// - Chegara Post (extended to cover both Free Zone exit and Main Highway exit): x = +90 .. +152 (z = -46.5 .. +48.5)
 const areas={parking:-98,inside:38,border:122};
 
 const views={
-  all:[-4,0,-2,255],
+  all:[-4,0,0,258],
   parking:[-98,0,-6,122],
   inside:[38,0,-4,110],
   gate1:[-22,0,-2,54],
-  gate2:[90,0,-6,48],
+  gate2:[90,0,16,74],
   scale:[14,0,18,44],
-  border:[122,0,-4,76],
-  top:[-4,0,-2,282]
+  border:[122,0,6,88],
+  top:[-4,0,0,285]
 };
 
 const box=new T.BoxGeometry(1,1,1),wheel=new T.CylinderGeometry(1,1,1,14),cyl=new T.CylinderGeometry(1,1,1,16),cone=new T.ConeGeometry(1,1,10);
@@ -43,7 +45,7 @@ function instance(geometry,items,scene,matOpts={roughness:.62,metalness:.2}){
 
 export function createScene(canvas,select,connectLabels){
   const renderer=new T.WebGLRenderer({canvas,antialias:true,powerPreference:"high-performance"});
-  renderer.setPixelRatio(Math.min(devicePixelRatio,1.6));
+  renderer.setPixelRatio(Math.min(devicePixelRatio,1.5));
   renderer.toneMapping=T.ACESFilmicToneMapping;
   renderer.toneMappingExposure=1.22;
   const scene=new T.Scene();
@@ -88,22 +90,22 @@ export function createScene(canvas,select,connectLabels){
   addMatte(-5,0.02,55.5,326,0.12,4.5,0x1a3829);
   for(let x=-158;x<=148;x+=18){
     if(Math.abs(x+22)>9)addTree(x,-51);
-    if(Math.abs(x+22)>10 && (x<-36||x>98))addTree(x,55.5);
+    if(Math.abs(x+22)>10 && x<84)addTree(x,55.5);
   }
 
   // =========================================================================
-  // 2. THREE ZONES + DEDICATED AVENUE BETWEEN PARKOVKA & FREE ZONE
+  // 2. THREE ZONES + DEDICATED AVENUE + CHEGARA EXTENDED TO MAIN HIGHWAY
   //    - E-navbat Parkovka: x = -164 .. -30 (center -97, width 134, depth 78)
   //    - Inter-Zone Corridor Road: x = -30 .. -14 (center -22, width 16, runs z = -46.5 to +43)
   //    - Free Zone: x = -14 .. +90 (center +38, width 104, depth 78)
-  //    - Chegara Post: x = +90 .. +152 (center +121, width 62, depth 78)
+  //    - Chegara Post: x = +90 .. +152 (center +121, width 62, extended z = -46.5 .. +49.5)
   // =========================================================================
   addMatte(-97,.04,-7,134,.16,78,0x152338); // E-navbat Parkovka pad
   addMatte(38,.04,-7,104,.16,78,0x1a213d);  // Free Zone pad
-  addMatte(121,.04,-7,62,.16,78,0x281d27);  // Chegara pad
+  addMatte(121,.04,1.5,62,.16,95,0x281d27); // Extended Chegara pad (covers both KPP1 & Main Highway end!)
 
   // INTER-ZONE ROAD (x = -22, width 15.2) between E-navbat Parkovka (-30) and Free Zone (-14)
-  // Runs all the way from the north perimeter (-46) straight down into the main highway (z = +43)!
+  // Runs all the way from the north perimeter (-46) straight down into the main highway (z = +43)
   addMatte(-22,.06,-1.5,15.2,.15,89,0x0d1624);
   // Glowing curbs & center lane dividers on the Inter-Zone Road (x = -22)
   addGlow(-29.2,.15,-4,0.22,.06,74,0x00e5ff);
@@ -131,21 +133,26 @@ export function createScene(canvas,select,connectLabels){
     }
   }
 
-  // Southern Main Highway / Katta Yo'l (z = 43)
-  addMatte(-5,.05,43,326,.15,10.5,0x0f1828);
-  addGlow(-5,.14,37.6,326,.05,.24,0xff8533);
-  addGlow(-5,.14,48.4,326,.05,.24,0xff8533);
-  for(let x=-158;x<=148;x+=8){
-    addGlow(x,.14,43,3.6,.04,.22,0xff9e5e);
+  // Southern Main Highway / Katta Yo'l (z = 43) leading straight through Highway Border Gate (x=90, z=43) into Chegara!
+  addMatte(-5,.07,43,326,.15,10.8,0x0f1828);
+  addGlow(-5,.15,37.5,326,.05,.24,0xff8533);
+  addGlow(-5,.15,48.5,326,.05,.24,0xff8533);
+  for(let x=-158;x<=146;x+=8){
+    if(Math.abs(x-90)>4.5){
+      addGlow(x,.15,43,3.6,.04,.22,0xff9e5e);
+    }
   }
-  // Slip road from Main Highway into Chegara (x = 122)
-  addMatte(122,.05,35,12,.14,9,0x121d30);
+  // Internal connection road inside Chegara linking Highway Gate (z=43) and KPP1 Gate (z=-6)
+  addMatte(122,.07,18.5,12,.14,56,0x121d30);
+  addGlow(116,.15,18.5,.18,.05,46,0xff8533);
+  addGlow(128,.15,18.5,.18,.05,46,0xff8533);
 
   // =========================================================================
-  // 3. PERIMETER WALLS & THREE REALISTIC GATE COMPLEXES:
-  //    1) E-navbat Parkovka East Wall (x = -30) with its own Gate in the middle (z = -6)
+  // 3. PERIMETER WALLS & FOUR REALISTIC GATE COMPLEXES:
+  //    1) E-navbat Parkovka East Wall (x = -30) with its Gate in the middle (z = -6)
   //    2) Free Zone West Wall (x = -14) with O'zbekiston darvozasi (KPP2) in the middle (z = -6)
   //    3) Free Zone East Wall (x = +90) with Afg'oniston darvozasi (KPP1) in the middle (z = -6)
+  //    4) Katta Yo'l Chegara Gate (x = +90, z = +43) where the border continues across the Main Highway!
   // =========================================================================
   // Rear security wall (z = -46.5), split by the Inter-Zone Road at x = -22
   addMatte(-97,1.5,-46.5,134,3.0,.5,0x273b59);
@@ -160,70 +167,73 @@ export function createScene(canvas,select,connectLabels){
   // Left of Inter-Zone Road: encloses E-navbat Parkovka (x = -164 .. -30)
   addMatte(-97,1.3,32.5,134,2.6,.45,0x273b59);
   addGlow(-97,2.65,32.5,134,.12,.5,0x00e5ff);
-  // Right of Inter-Zone Road: encloses Free Zone (x = -14 .. +90) & Chegara (with exit opening at 122)
-  addMatte(50,1.3,32.5,128,2.6,.45,0x273b59);
-  addGlow(50,2.65,32.5,128,.12,.5,0xb388ff);
-  addMatte(140,1.3,32.5,24,2.6,.45,0x273b59);
+  // Right of Inter-Zone Road: encloses Free Zone (x = -14 .. +90)
+  addMatte(38,1.3,32.5,104,2.6,.45,0x273b59);
+  addGlow(38,2.65,32.5,104,.12,.5,0xb388ff);
+  // Southern perimeter wall of the extended Chegara zone (x = 90 .. 152 at z = 49.5)
+  addMatte(121,1.5,49.5,62,3.0,.5,0x3b2230);
+  addGlow(121,3.05,49.5,62,.14,.6,0xff8533);
+  // Eastern perimeter wall of Chegara zone (x = 152, z = -46.5 .. +49.5)
+  addMatte(152,1.5,1.5,.55,3.0,96,0x3b2230);
+  addGlow(152,3.05,1.5,.65,.15,96,0xff8533);
 
   // WALL A (x = -30): E-navbat Parkovka East Wall facing the Inter-Zone Road
-  // North segment (z = -46.5 to -12.5, length 34, center -29.5)
   addMatte(-30,1.5,-29.5,.55,3.0,34,0x2b4468);
   addGlow(-30,3.05,-29.5,.65,.15,34,0x00e5ff);
-  // South segment (z = +0.5 to +32.5, length 32, center +16.5)
   addMatte(-30,1.5,16.5,.55,3.0,32,0x2b4468);
   addGlow(-30,3.05,16.5,.65,.15,32,0x00e5ff);
   for(const z of [-42,-34,-26,-18,5,13,21,29])addGloss(-30,1.7,z,.85,3.4,.85,0x456691);
 
   // WALL B (x = -14): Free Zone West Wall facing the Inter-Zone Road
-  // North segment (z = -46.5 to -12.5, length 34, center -29.5)
   addMatte(-14,1.5,-29.5,.55,3.0,34,0x2b4468);
   addGlow(-14,3.05,-29.5,.65,.15,34,0xb388ff);
-  // South segment (z = +0.5 to +32.5, length 32, center +16.5)
   addMatte(-14,1.5,16.5,.55,3.0,32,0x2b4468);
   addGlow(-14,3.05,16.5,.65,.15,32,0xb388ff);
   for(const z of [-42,-34,-26,-18,5,13,21,29])addGloss(-14,1.7,z,.85,3.4,.85,0x456691);
 
-  // WALL C (x = +90): Free Zone East Wall separating Free Zone & Chegara
+  // WALL C (x = +90): Border Wall separating Free Zone & Main Highway from Chegara
   // North segment (z = -46.5 to -12.5, length 34, center -29.5)
   addMatte(90,1.5,-29.5,.55,3.0,34,0x2b4468);
   addGlow(90,3.05,-29.5,.65,.15,34,0xff6b8b);
-  // South segment (z = +0.5 to +32.5, length 32, center +16.5)
-  addMatte(90,1.5,16.5,.55,3.0,32,0x2b4468);
-  addGlow(90,3.05,16.5,.65,.15,32,0xff6b8b);
-  for(const z of [-42,-34,-26,-18,5,13,21,29])addGloss(90,1.7,z,.85,3.4,.85,0x456691);
+  // Middle segment between KPP1 gate (z = 0.5) and Main Highway gate (z = 36.5), length 36, center +18.5
+  addMatte(90,1.5,18.5,.55,3.0,36,0x2b4468);
+  addGlow(90,3.05,18.5,.65,.15,36,0xff8533);
+  for(const z of [-42,-34,-26,-18,5,13,21,29,35])addGloss(90,1.7,z,.85,3.4,.85,0x456691);
 
-  // Build the 3 Gate Portals:
-  // - Gate at x = -30 (E-navbat Parkovka gate onto Inter-Zone Road)
-  // - Gate at x = -14 (Free Zone / O'zbekiston darvozasi KPP2 from Inter-Zone Road)
-  // - Gate at x = +90 (Afg'oniston darvozasi KPP1 between Free Zone & Chegara)
+  // Build the 4 Gate Portals:
+  // 0: Gate at (x = -30, z = -6) — E-navbat Parkovka exit gate onto Inter-Zone Road
+  // 1: Gate at (x = -14, z = -6) — Free Zone / O'zbekiston darvozasi (KPP2)
+  // 2: Gate at (x = +90, z = -6) — Afg'oniston darvozasi (KPP1) between Free Zone & Chegara
+  // 3: Gate at (x = +90, z = +43) — Katta Yo'l Chegara darvozasi (Main Highway Border Gate for E-navbat trucks!)
   const gateSpecs=[
-    {x:-30,accent:0x00e5ff,boothSide:-1},
-    {x:-14,accent:0xb388ff,boothSide:1},
-    {x:90,accent:0xff6b8b,boothSide:-1}
+    {x:-30,z:-6,accent:0x00e5ff,boothSide:-1},
+    {x:-14,z:-6,accent:0xb388ff,boothSide:1},
+    {x:90,z:-6,accent:0xff6b8b,boothSide:-1},
+    {x:90,z:43,accent:0xff8533,boothSide:-1}
   ];
   for(const g of gateSpecs){
-    const gx=g.x,accent=g.accent,bs=g.boothSide;
-    // Portal pillars flanking the gate passage (z = -11.6 and z = -0.4)
-    addGloss(gx,3.8,-11.6,1.8,7.6,1.8,0x2c4263);
-    addGloss(gx,3.8,-0.4,1.8,7.6,1.8,0x2c4263);
+    const gx=g.x,gz=g.z,accent=g.accent,bs=g.boothSide;
+    // Portal pillars flanking the gate passage (gz - 5.6 and gz + 5.6)
+    addGloss(gx,3.8,gz-5.6,1.8,7.6,1.8,0x2c4263);
+    addGloss(gx,3.8,gz+5.6,1.8,7.6,1.8,0x2c4263);
     // Overhead canopy arch
-    addGloss(gx,7.8,-6.0,5.2,.8,14.4,0x1b2d48);
-    addGlow(gx-2.62,7.8,-6.0,.12,.38,14.2,accent);
-    addGlow(gx+2.62,7.8,-6.0,.12,.38,14.2,accent);
-    addGlow(gx,7.36,-6.0,1.8,.08,11.0,0xe6f7ff);
+    addGloss(gx,7.8,gz,5.2,.8,14.4,0x1b2d48);
+    addGlow(gx-2.62,7.8,gz,.12,.38,14.2,accent);
+    addGlow(gx+2.62,7.8,gz,.12,.38,14.2,accent);
+    addGlow(gx,7.36,gz,1.8,.08,11.0,0xe6f7ff);
     // Security cabin beside the gate
-    addMatte(gx+bs*2.2,2.0,-10.5,3.4,4.0,2.8,0x1d304d);
-    addGloss(gx+bs*2.2,4.15,-10.5,3.9,.35,3.3,0x314b70);
-    addGlow(gx+bs*2.2,2.3,-9.05,2.6,1.25,.08,0x8ceeff);
+    addMatte(gx+bs*2.2,2.0,gz-4.5,3.4,4.0,2.8,0x1d304d);
+    addGloss(gx+bs*2.2,4.15,gz-4.5,3.9,.35,3.3,0x314b70);
+    addGlow(gx+bs*2.2,2.3,gz-3.05,2.6,1.25,.08,0x8ceeff);
     // Zebra crosswalk stripes in the gateway
-    for(let sz=-9.0;sz<=-3.0;sz+=1.2){
+    for(let sz=gz-3.0;sz<=gz+3.0;sz+=1.2){
       addGlow(gx-2.2,.16,sz,1.1,.04,.5,0xf0f7ff);
       addGlow(gx+2.2,.16,sz,1.1,.04,.5,0xf0f7ff);
     }
-    // Yellow/black barrier housing pedestal at (gx, 0, -2.2)
-    addGloss(gx,1.65,-2.2,1.0,3.3,1.0,0xe5a93c);
-    addMatte(gx,.3,-2.2,1.3,.6,1.3,0x1b283d);
-    for(const bz of [-3.2,-1.2])addGlow(gx+bs*1.0,.55,bz,.2,1.1,.2,0xffae00);
+    // Yellow/black barrier housing pedestal at (gx, 0, gz + 3.8)
+    addGloss(gx,1.65,gz+3.8,1.0,3.3,1.0,0xe5a93c);
+    addMatte(gx,.3,gz+3.8,1.3,.6,1.3,0x1b283d);
+    for(const bz of [gz+2.8,gz+4.8])addGlow(gx+bs*1.0,.55,bz,.2,1.1,.2,0xffae00);
   }
 
   // =========================================================================
@@ -273,7 +283,7 @@ export function createScene(canvas,select,connectLabels){
   addMatte(72,1.3,25.2,6.5,2.5,2.6,0x2a9d8f);
   addMatte(64.5,1.3,23.5,6.5,2.5,2.6,0xf4a261);
 
-  // C. Chegara Complex (x = 122, z = -38)
+  // C. Chegara Complex (x = 122, z = -38) & Southern Highway Border Booth (x = 122, z = 34)
   addMatte(122,2.9,-38,28,5.8,8.8,0x3b2230);
   addGloss(122,6.0,-37.8,30.4,.55,10.4,0x592e42);
   addGlow(122,6.05,-32.5,30.5,.2,.16,0xff7838);
@@ -298,27 +308,33 @@ export function createScene(canvas,select,connectLabels){
   function groundLabel(text,sub,x,z,w,h,colorHex){
     const c=document.createElement("canvas");c.width=512;c.height=128;
     const ctx=c.getContext("2d");
-    ctx.fillStyle="rgba(10, 20, 38, 0.55)";
+    ctx.fillStyle="rgba(10, 20, 38, 0.58)";
     ctx.beginPath();ctx.roundRect(6,6,500,116,18);ctx.fill();
     ctx.strokeStyle=colorHex;ctx.lineWidth=3;ctx.stroke();
-    ctx.fillStyle=colorHex;ctx.font="800 34px 'Segoe UI', sans-serif";
-    ctx.textAlign="center";ctx.fillText(text,256,56);
-    ctx.fillStyle="#c9dff8";ctx.font="600 20px 'Segoe UI', sans-serif";
+    ctx.fillStyle=colorHex;ctx.font="800 32px 'Segoe UI', sans-serif";
+    ctx.textAlign="center";ctx.fillText(text,256,54);
+    ctx.fillStyle="#c9dff8";ctx.font="600 19px 'Segoe UI', sans-serif";
     ctx.fillText(sub,256,92);
     const tex=new T.CanvasTexture(c);
     const plane=new T.PlaneGeometry(w,h);plane.rotateX(-Math.PI/2);
-    const mesh=new T.Mesh(plane,new T.MeshBasicMaterial({map:tex,transparent:true,opacity:.88,depthWrite:false}));
+    const mesh=new T.Mesh(plane,new T.MeshBasicMaterial({map:tex,transparent:true,opacity:.9,depthWrite:false}));
     mesh.position.set(x,.21,z);scene.add(mesh);
   }
-  groundLabel("E-NAVBAT PARKOVKA","1000+ O‘RINLI TASHQI KUTISH HUDUDI",-98,27.5,28,6.5,"#00e5ff");
+  groundLabel("E-NAVBAT PARKOVKA","1000+ O‘RINLI KUTISH HUDUDI (FZ VA CHEGARA)",-98,27.5,32,6.5,"#00e5ff");
   groundLabel("FREE ZONE","300+ O‘RINLI BOJXONA VA LOGISTIKA HUDUDI",44,27.5,28,6.5,"#b388ff");
   groundLabel("TAROZI","FREE ZONE TAROZI NUQTASI",14,13.0,16,4,"#ffd166");
-  groundLabel("CHEGARA","CHIQISH NAZORAT HUDUDI",122,27.5,22,5.5,"#ff8533");
+  groundLabel("CHEGARA HUDUDI","FREE ZONE VA KATTA YO‘L CHIQISH NAZORATI",122,27.5,26,6.0,"#ff8533");
+  groundLabel("KATTA YO‘L → CHEGARA","PARKOVKADAN O‘NGGA VA CHAPGA → CHEGARA DARVOZASI",34,43,34,5.2,"#ff9e5e");
 
-  // Gate status indicator beacons on all 3 gates: [-30 (Parking gate), -14 (Free Zone KPP2 gate), +90 (Ayritom KPP1 gate)]
-  const gateLights=[-30,-14,90].map(x=>{
+  // Gate status indicator beacons on all 4 gates:
+  // 0: (-30, -2.2) Parkovka gate
+  // 1: (-14, -2.2) Free Zone KPP2 gate
+  // 2: (+90, -2.2) Afg'oniston darvozasi KPP1 gate
+  // 3: (+90, 46.8) Katta Yo'l Chegara gate
+  const gateCoords=[[-30,-2.2],[-14,-2.2],[90,-2.2],[90,46.8]];
+  const gateLights=gateCoords.map(([gx,gz])=>{
     const lamp=new T.Mesh(cyl,new T.MeshBasicMaterial({color:0x00e676}));
-    lamp.position.set(x,3.45,-2.2);lamp.scale.set(.3,.25,.3);
+    lamp.position.set(gx,3.45,gz);lamp.scale.set(.3,.25,.3);
     scene.add(lamp);return lamp;
   });
 
@@ -334,12 +350,13 @@ export function createScene(canvas,select,connectLabels){
   const drawColor=new T.Color();
   const followDelta=new T.Vector3();
 
-  // Articulated barrier arms at:
+  // Articulated barrier arms at all 4 gates:
   // 0: E-navbat Parkovka gate (-30, z=-2.2)
   // 1: Free Zone / O'zbekiston darvozasi KPP2 (-14, z=-2.2)
   // 2: Afg'oniston darvozasi KPP1 (+90, z=-2.2)
-  const gates=[-30,-14,90].map(x=>{
-    const arm=new T.Group();arm.position.set(x,2.95,-2.2);
+  // 3: Katta Yo'l Chegara darvozasi (+90, z=46.8)
+  const gates=gateCoords.map(([gx,gz])=>{
+    const arm=new T.Group();arm.position.set(gx,2.95,gz);
     const bar=new T.Mesh(box,new T.MeshStandardMaterial({color:0xf5f8ff,roughness:.35}));
     bar.position.z=-3.8;bar.scale.set(.22,.24,7.6);arm.add(bar);
     for(let s=-1;s>=-7;s-=2){
@@ -369,14 +386,12 @@ export function createScene(canvas,select,connectLabels){
     const i=slot-1,col=i%cols,row=Math.floor(i/cols);
     const half=Math.ceil(rows/2);
     if(area==="parking"){
-      // North bank (z = -32 to -12) and South bank (z = +1 to +24) across x = -159 .. -35 (width 124)
       const zPos=row<half
         ? -32+(row+.5)*(20/Math.max(1,half))
         : 1+((row-half)+.5)*(23/Math.max(1,rows-half));
       return vec(-159+(col+.5)*(124/cols),.22,zPos);
     }
     if(area==="inside"){
-      // North bank (z = -32 to -12) and Central-East bank (z = +1 to +12) across x = -8 .. +86 (width 94)
       const zPos=row<half
         ? -32+(row+.5)*(20/Math.max(1,half))
         : 1+((row-half)+.5)*(11/Math.max(1,rows-half));
@@ -437,10 +452,12 @@ export function createScene(canvas,select,connectLabels){
   function draw(){
     raf=0;if(document.hidden)return;
     const now=performance.now();let moving=false;
-    // Map 2 logical gate states (gateData[0] = KPP2, gateData[1] = KPP1) to the 3 physical barriers [-30, -14, +90]
+    // Map 2 logical gate states (gateData[0] = KPP2, gateData[1] = KPP1) to the 4 physical barriers:
+    // 0: Parkovka (-30,-6), 1: Free Zone (-14,-6), 2: Free Zone -> Chegara (90,-6), 3: Katta Yo'l -> Chegara (90,43)
     const gateLift=[
       gateStates[0]?.state==='open'?1:0,
       gateStates[0]?.state==='open'?1:0,
+      gateStates[1]?.state==='open'?1:0,
       gateStates[1]?.state==='open'?1:0
     ];
     let positionsChanged=false;
@@ -457,11 +474,11 @@ export function createScene(canvas,select,connectLabels){
       positionsChanged ||= updatePose;
       let angle=v.angle||0;
       if(animating){
-        const phase=Math.max(0,1-(m.finish-now)/3200),smooth=phase*phase*(3-2*phase);
+        const phase=Math.max(0,1-(m.finish-now)/3400),smooth=phase*phase*(3-2*phase);
         p=m.path.getPoint(smooth);const tangent=m.path.getTangent(smooth);angle=Math.atan2(tangent.x,tangent.z);moving=true;
         gates.forEach((g,k)=>{
           const st=gateStates[k<2?0:1]?.state;
-          if(p.distanceTo(g.position)<12&&['open','closed',undefined].includes(st))gateLift[k]=1;
+          if(p.distanceTo(g.position)<13&&['open','closed',undefined].includes(st))gateLift[k]=1;
         });
       }else if(v.removed)p=vec(0,-40,0);
       if(mode==="follow" && v.id===selected && v.position && animating){
@@ -531,7 +548,7 @@ export function createScene(canvas,select,connectLabels){
     })),...departed.map(v=>({...v,removed:true}))];
     moves=trucks.map(v=>{
       const old=previous.get(v.id);
-      const exitX={ayritom:124,kpp2:-22,parkovka_tashqi:124}[exitPoints.get(v.id)];
+      const exitX={ayritom:136,kpp2:-22,parkovka_tashqi:136}[exitPoints.get(v.id)];
       const end=v.removed?vec(exitX,.22,exitPoints.get(v.id)==="kpp2"?43:(v.flow==="CH"?43:-6)):location(v.area,v.slot,cfg[v.area+"_capacity"]);
       if(!v.removed&&v.area==="parking"&&v.parking_departed_at){
         // In-transit trucks waiting along the Inter-Zone Road (x = -22) right between Parking Gate (-30) and Free Zone Gate (-14)
@@ -541,11 +558,12 @@ export function createScene(canvas,select,connectLabels){
       if(old?.position&&(old.area!==v.area||old.slot!==v.slot||old.parking_departed_at!==v.parking_departed_at||v.removed)&&!reduced){
         const via=[old.position,vec(old.position.x,.22,-6)];
         if(v.removed && v.flow==="CH"){
-          // Exiting Parkovka via Parkovka Gate (-30,-6) -> Inter-Zone Road (x=-22) -> Main Highway (z=43) -> Chegara (124,43)
-          via.push(vec(-30,.22,-6),vec(-22,.22,-6),vec(-22,.22,43),end);
+          // Exiting E-navbat Parkovka via Parkovka Gate (-30,-6) -> turns RIGHT onto Inter-Zone Road (-22,-6 -> -22,43)
+          // -> turns LEFT onto Main Highway (z=43) -> passes through Main Highway Chegara Gate (90,43) -> enters Chegara (136,43)
+          via.push(vec(-30,.22,-6),vec(-22,.22,-6),vec(-22,.22,43),vec(90,.22,43),end);
         }else if(v.removed && v.flow!=="CH"){
           if(exitPoints.get(v.id)==="ayritom"){
-            // Exiting Free Zone via Tarozi (14,18) -> Afg'oniston darvozasi (90,-6) -> Chegara (124,-6)
+            // Exiting Free Zone via Tarozi (14,18) -> Afg'oniston darvozasi (90,-6) -> Chegara (136,-6)
             via.push(vec(14,.22,18),vec(28,.22,-6),vec(90,.22,-6),end);
           }else{
             // Exiting via Free Zone Gate (-14,-6) -> Inter-Zone Road (-22) -> Main Highway
@@ -561,7 +579,7 @@ export function createScene(canvas,select,connectLabels){
         if(waypoints.length>=2)path=new T.CatmullRomCurve3(waypoints,false,'centripetal');
       }
       else if(old && previousMoves.get(v.id)?.finish>performance.now())return previousMoves.get(v.id);
-      return {end,path,finish:performance.now()+3200};
+      return {end,path,finish:performance.now()+3400};
     });
     makeParts(trucks.length);if(mode==="follow")view(mode);invalidate();
   }
@@ -574,7 +592,7 @@ export function createScene(canvas,select,connectLabels){
   });
   canvas.addEventListener('dblclick',()=>{if(selected)view('follow')});
   new ResizeObserver(()=>{const w=canvas.clientWidth,h=canvas.clientHeight;if(w&&h){renderer.setSize(w,h,false);camera.aspect=w/h;camera.updateProjectionMatrix();if(mode==='all')view('all');invalidate()}}).observe(canvas);
-  camera.position.set(68,142,194);controls.target.set(-4,0,-2);
+  camera.position.set(68,142,194);controls.target.set(-4,0,0);
   document.addEventListener("visibilitychange",invalidate);
   function restore(viewpoint){
     const valid=v=>Array.isArray(v)&&v.length===3&&v.every(n=>Number.isFinite(n)&&Math.abs(n)<1000);

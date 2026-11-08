@@ -2,11 +2,11 @@
 <html lang="uz">
 <head>
   <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width,initial-scale=1,interactive-widget=resizes-content">
+  <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,interactive-widget=resizes-content">
   <title>{{ points.get(user.role,'Airitom') }}</title>
-  <link rel="stylesheet" href="/static/kpp-parking.css?v=5">
-  <link rel="stylesheet" href="/static/kpp-station.css?v=7">
-  <script src="/static/kpp.js?v=6" defer></script>
+  <link rel="stylesheet" href="/static/kpp-parking.css?v=6">
+  <link rel="stylesheet" href="/static/kpp-station.css?v=8">
+  <script src="/static/kpp.js?v=7" defer></script>
 </head>
 <body class="kpp" data-csrf="{{ csrf_token() }}" data-role="{{ user.role }}" data-user="{{ user.id }}" data-mode="{{ mode }}" data-receipt-id="{{ receipt_id|default(0) }}" data-print-attempts="{{ receipt.print_attempts if receipt is defined else 0 }}">
 {% macro csrf() %}<input type="hidden" name="csrf_token" value="{{ csrf_token() }}">{% endmacro %}
@@ -63,9 +63,18 @@
           <circle cx="5.8" cy="3.5" r="2.2" fill="#0099b5" />
         </svg>
       </div>
-      <input class="plate-input" id="plate" name="plate" placeholder="01 A 123 BA" required minlength="2" maxlength="20" autocomplete="off" autocapitalize="characters" enterkeyhint="go" spellcheck="false" aria-label="Davlat raqami">
+      <input class="plate-input" id="plate" name="plate" placeholder="75 A 123 BA" required minlength="2" maxlength="20" autocomplete="off" autocapitalize="characters" enterkeyhint="go" spellcheck="false" aria-label="Davlat raqami">
+      <button type="button" id="plate-clear" class="plate-clear-btn" aria-label="Tozalash" title="Tozalash">⌫</button>
     </div>
-    {% if user.role=='kpp2' %}<button type="button" id="scan-ticket" class="btn-secondary compact">Navbat QRni o‘qish</button>{% endif %}
+    <div class="plate-quick-chips" aria-label="Viloyat kodini tez tanlash">
+      <button type="button" class="region-chip" data-prefix="75 ">75 Surxondaryo</button>
+      <button type="button" class="region-chip" data-prefix="01 ">01 Toshkent</button>
+      <button type="button" class="region-chip" data-prefix="10 ">10 Tosh. vil</button>
+      <button type="button" class="region-chip" data-prefix="30 ">30 Samarqand</button>
+      <button type="button" class="region-chip" data-prefix="70 ">70 Qashqadaryo</button>
+      <button type="button" class="region-chip" data-prefix="80 ">80 Buxoro</button>
+    </div>
+    {% if user.role=='kpp2' %}<button type="button" id="scan-ticket" class="btn-secondary compact qr-scan-btn">📷 Navbat QR kodini o‘qish</button>{% endif %}
     <p id="plate-error" class="message" role="alert"></p>
     <div class="modal-actions-row"><button type="button" class="btn-secondary" id="plate-back">Orqaga</button><button class="btn-primary" type="submit">Davom etish →</button></div>
   </form>
@@ -81,7 +90,16 @@
       <div class="info-row"><span>Kunlik tarif</span><strong id="pay-rate">—</strong></div>
       <div class="info-row"><span>Oldin to‘langan</span><strong id="pay-paid">—</strong></div>
       <div class="price-row"><span>To‘lov</span><strong id="pay-amount">—</strong></div>
-      <div id="paid-fields"><label class="method-label" for="method">To‘lov usuli</label><select id="method" name="method"><option value="cash">Naqd</option><option value="card">Karta</option><option value="bank">Hisob raqam</option></select><label class="paid-check-label"><input type="checkbox" id="received" name="received" value="yes"><span>To‘lovni to‘liq qabul qildim</span></label></div>
+      <div id="paid-fields">
+        <label class="method-label" for="method">To‘lov usuli</label>
+        <div class="method-pills" role="group" aria-label="To‘lov usulini tanlash">
+          <button type="button" class="method-pill active" data-method="cash">💵 Naqd</button>
+          <button type="button" class="method-pill" data-method="card">💳 Karta</button>
+          <button type="button" class="method-pill" data-method="bank">🏦 Hisob raqam</button>
+        </div>
+        <select id="method" name="method" class="sr-select"><option value="cash">Naqd</option><option value="card">Karta</option><option value="bank">Hisob raqam</option></select>
+        <label class="paid-check-label"><input type="checkbox" id="received" name="received" value="yes"><span>To‘lovni to‘liq qabul qildim</span></label>
+      </div>
       <p id="payment-error" class="message" role="alert"></p>
       <div class="modal-actions-row"><button id="payment-back" class="btn-secondary" type="button">Orqaga</button><button id="confirm" class="btn-primary" type="submit">Tasdiqlash va chek</button></div>
     </form>
@@ -103,7 +121,7 @@
   </div>
 </dialog>
 <script src="/static/kpp-printer.js?v=4" defer></script>
-{% if user.role=='kpp2' %}<dialog id="scan-window" class="kiosk-dialog"><div class="modal-card"><video id="scanner-video" playsinline muted style="width:100%;max-height:45vh"></video><p id="scan-status" role="status"></p><button type="button" id="scan-close" class="btn-secondary">Yopish</button></div></dialog><script src="/static/scan-ticket.js" defer></script>{% endif %}
+{% if user.role=='kpp2' %}<dialog id="scan-window" class="kiosk-dialog"><div class="modal-card"><video id="scanner-video" playsinline muted style="width:100%;max-height:45vh;border-radius:12px"></video><p id="scan-status" role="status"></p><button type="button" id="scan-close" class="btn-secondary">Yopish</button></div></dialog><script src="/static/scan-ticket.js" defer></script>{% endif %}
 {% if mode=='confirm' %}<script type="application/json" id="initial-quote">{{ {'quote':q,'ticket':token}|tojson }}</script>{% endif %}
 {% if mode=='error' %}<dialog id="server-error" class="kiosk-dialog" open><div class="modal-card"><h2>Amal bajarilmadi</h2><p class="message" role="alert">{{ message }}</p><a href="/zone" class="btn-primary">Qayta tekshirish</a></div></dialog>{% endif %}
 </body></html>
