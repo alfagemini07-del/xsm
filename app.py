@@ -59,7 +59,7 @@ SUPABASE_DB_LIMIT_BYTES = max(
 )
 from freezone import POINTS, register_zone
 
-ALLOWED_ROLES = {"operator", "admin", "techadmin", "display", *POINTS}
+ALLOWED_ROLES = {"operator", "admin", "techadmin", "display", "observer", *POINTS}
 ADMIN_ROLES = {"admin", "techadmin"}
 MUTATING_METHODS = {"POST", "PUT", "PATCH", "DELETE"}
 TARIFFS = {
@@ -255,6 +255,11 @@ def load_request_context():
         if user and user["is_active"] and session.get("auth_version") == hashlib.sha256(user["password_hash"].encode()).hexdigest():
             g.user = user
             if user["role"]=="display" and request.endpoint not in {"index","login","logout","zone_home","queue_display","queue_display_data"}:
+                abort(403)
+            if user["role"] == "observer" and request.endpoint not in {
+                "index", "login", "logout", "zone_home", "control_room", "room_data",
+                "visit_timeline", "queue_display", "queue_display_data"
+            }:
                 abort(403)
             if session.get("device_id"):
                 if not user["device_approved"] or user["device_blocked"] or user["device_role"] != user["role"]:
@@ -1026,7 +1031,9 @@ def sync_state():
                     COALESCE((SELECT MAX(updated_at) FROM settings), TIMESTAMPTZ '1970-01-01'),
                     COALESCE((SELECT MAX(updated_at) FROM users), TIMESTAMPTZ '1970-01-01'),
                     COALESCE((SELECT MAX(imported_at) FROM import_batches), TIMESTAMPTZ '1970-01-01'),
-                    COALESCE((SELECT MAX(received_at) FROM zone_events), TIMESTAMPTZ '1970-01-01')
+                    COALESCE((SELECT MAX(received_at) FROM zone_events), TIMESTAMPTZ '1970-01-01'),
+                    COALESCE((SELECT MAX(started) FROM zone_visits), TIMESTAMPTZ '1970-01-01'),
+                    COALESCE((SELECT MAX(parking_departed_at) FROM zone_visits), TIMESTAMPTZ '1970-01-01')
                 ) AS changed_at
             """
         ).fetchone()
@@ -1059,6 +1066,278 @@ def weighing_detail(weighing_id):
     if not row or not can_access_weighing(row):
         abort(404)
     return jsonify(success=True, weighing=serialize_weighing(row))
+
+
+@app.get("/api/admin/vehicles/<path:plate>/history")
+@login_required
+def vehicle_history(plate: str):
+    if g.user["role"] not in ("admin", "techadmin"):
+        abort(403)
+    cleaned = clean_plate(plate)
+    if not cleaned:
+        return jsonify(success=False, message="Avtomobil raqami noto‘g‘ri"), 400
+
+    events = []
+    total_paid = 0
+    visit_ids = set()
+
+    with get_pool().connection() as conn:
+        # Zone events & visits
+        z_rows = conn.execute(
+            """
+            SELECT e.id as event_id, e.visit_id, e.occurred, e.point, e.action, e.location,
+                   e.operator_name, e.amount, e.method, v.plate, v.purpose, v.queue_no
+            FROM zone_events e
+            JOIN zone_visits v ON v.id = e.visit_id
+            WHERE v.plate_key = %s
+            ORDER BY e.occurred DESC
+            LIMIT 200
+            """,
+            (cleaned,),
+        ).fetchall()
+
+        for r in z_rows:
+            visit_ids.add(r["visit_id"])
+            amt = int(r["amount"] or 0)
+            total_paid += amt
+            kind = "zone_payment" if amt > 0 else ("zone_entry" if r["action"] == "in" else "zone_exit")
+            events.append({
+                "type": kind,
+                "occurred_at": r["occurred"].isoformat() if r["occurred"] else None,
+                "point": r["point"],
+                "action": r["action"],
+                "location": r["location"],
+                "amount": amt,
+                "method": r["method"],
+                "operator": r["operator_name"],
+                "visit_id": r["visit_id"],
+                "event_id": r["event_id"],
+                "queue_no": r["queue_no"],
+                "purpose": r["purpose"],
+            })
+
+        # Weighings
+        w_rows = conn.execute(
+            """
+            SELECT w.id as weighing_id, w.created_at, w.plate, w.payment_method, w.price,
+                   w.status, w.first_weight, w.second_weight, w.cargo_type, u.username as operator_name
+            FROM weighings w
+            LEFT JOIN users u ON u.id = w.created_by
+            WHERE w.plate_key = %s
+            ORDER BY w.created_at DESC
+            LIMIT 200
+            """,
+            (cleaned,),
+        ).fetchall()
+
+        for w in w_rows:
+            price = int(w["price"] or 0)
+            if w["status"] == "paid":
+                total_paid += price
+            events.append({
+                "type": "weighing",
+                "occurred_at": w["created_at"].isoformat() if w["created_at"] else None,
+                "point": "tarozi",
+                "action": "weigh",
+                "location": "scale",
+                "amount": price,
+                "method": w["payment_method"],
+                "operator": w["operator_name"],
+                "weighing_id": w["weighing_id"],
+                "status": w["status"],
+                "first_weight": w["first_weight"],
+                "second_weight": w["second_weight"],
+                "cargo_type": w["cargo_type"],
+            })
+
+    events.sort(key=lambda x: x["occurred_at"] or "", reverse=True)
+    last_seen = events[0]["occurred_at"] if events else None
+
+    return jsonify(
+        success=True,
+        plate=plate.upper(),
+        events=events,
+        summary={
+            "total_paid": total_paid,
+            "visit_count": len(visit_ids),
+            "weighing_count": len(w_rows),
+            "last_seen": last_seen,
+        },
+    )
+
+
+@app.post("/api/admin/weighings/<int:weighing_id>/correct")
+@login_required
+def correct_weighing(weighing_id: int):
+    if g.user["role"] not in ("admin", "techadmin"):
+        abort(403)
+    data = request.get_json(silent=True) or {}
+    field = str(data.get("field") or "").strip()
+    new_value = str(data.get("new_value") or "").strip()
+    reason = str(data.get("reason") or "").strip()
+
+    if not reason:
+        return jsonify(success=False, message="Tuzatish sababini ko‘rsating"), 400
+
+    allowed_fields = {"plate", "payment_method", "price", "cargo_type", "driver_name", "note"}
+    if field not in allowed_fields:
+        return jsonify(success=False, message=f"Maydonni tuzatishga ruxsat yo‘q: {field}"), 400
+
+    with get_pool().connection() as conn:
+        row = conn.execute("SELECT * FROM weighings WHERE id = %s FOR UPDATE", (weighing_id,)).fetchone()
+        if not row:
+            abort(404)
+
+        old_value = str(row[field] if row[field] is not None else "")
+
+        # Save correction record
+        conn.execute(
+            """
+            INSERT INTO corrections (table_name, record_id, field, old_value, new_value, reason, corrected_by, corrected_at)
+            VALUES ('weighings', %s, %s, %s, %s, %s, %s, now())
+            """,
+            (weighing_id, field, old_value, new_value, reason, g.user["id"]),
+        )
+
+        # Apply update
+        if field == "plate":
+            cleaned = clean_plate(new_value)
+            conn.execute(
+                "UPDATE weighings SET plate = %s, plate_key = %s, updated_at = now() WHERE id = %s",
+                (new_value.upper(), cleaned, weighing_id),
+            )
+        elif field == "price":
+            try:
+                price_val = int(new_value)
+                if price_val < 0:
+                    raise ValueError()
+            except ValueError:
+                return jsonify(success=False, message="Narx musbat son bo‘lishi kerak"), 400
+            conn.execute(
+                "UPDATE weighings SET price = %s, updated_at = now() WHERE id = %s",
+                (price_val, weighing_id),
+            )
+        else:
+            conn.execute(
+                f"UPDATE weighings SET {field} = %s, updated_at = now() WHERE id = %s",
+                (new_value, weighing_id),
+            )
+
+    return jsonify(success=True, message="Tuzatish kiritildi", old_value=old_value, new_value=new_value)
+
+
+@app.get("/api/admin/weighings/<int:weighing_id>/corrections")
+@login_required
+def get_weighing_corrections(weighing_id: int):
+    if g.user["role"] not in ("admin", "techadmin"):
+        abort(403)
+    with get_pool().connection() as conn:
+        rows = conn.execute(
+            """
+            SELECT c.*, u.username as user_name
+            FROM corrections c
+            LEFT JOIN users u ON u.id = c.corrected_by
+            WHERE c.table_name = 'weighings' AND c.record_id = %s
+            ORDER BY c.corrected_at DESC
+            """,
+            (weighing_id,),
+        ).fetchall()
+
+    return jsonify(
+        success=True,
+        corrections=[
+            {
+                "id": r["id"],
+                "field": r["field"],
+                "old_value": r["old_value"],
+                "new_value": r["new_value"],
+                "reason": r["reason"],
+                "user_name": r["user_name"],
+                "corrected_at": r["corrected_at"].isoformat() if r["corrected_at"] else None,
+            }
+            for r in rows
+        ],
+    )
+
+
+@app.post("/api/admin/zone-events/<int:event_id>/correct")
+@login_required
+def correct_zone_event(event_id: int):
+    if g.user["role"] not in ("admin", "techadmin"):
+        abort(403)
+    data = request.get_json(silent=True) or {}
+    field = str(data.get("field") or "").strip()
+    new_value = str(data.get("new_value") or "").strip()
+    reason = str(data.get("reason") or "").strip()
+
+    if not reason:
+        return jsonify(success=False, message="Tuzatish sababini ko‘rsating"), 400
+
+    allowed_fields = {"method", "amount"}
+    if field not in allowed_fields:
+        return jsonify(success=False, message=f"Maydonni tuzatishga ruxsat yo‘q: {field}"), 400
+
+    with get_pool().connection() as conn:
+        row = conn.execute("SELECT * FROM zone_events WHERE id = %s FOR UPDATE", (event_id,)).fetchone()
+        if not row:
+            abort(404)
+
+        old_value = str(row[field] if row[field] is not None else "")
+
+        conn.execute(
+            """
+            INSERT INTO corrections (table_name, record_id, field, old_value, new_value, reason, corrected_by, corrected_at)
+            VALUES ('zone_events', %s, %s, %s, %s, %s, %s, now())
+            """,
+            (event_id, field, old_value, new_value, reason, g.user["id"]),
+        )
+
+        if field == "amount":
+            try:
+                amt_val = int(new_value)
+                if amt_val < 0:
+                    raise ValueError()
+            except ValueError:
+                return jsonify(success=False, message="Summa musbat son bo‘lishi kerak"), 400
+            conn.execute("UPDATE zone_events SET amount = %s WHERE id = %s", (amt_val, event_id))
+        else:
+            conn.execute(f"UPDATE zone_events SET {field} = %s WHERE id = %s", (new_value, event_id))
+
+    return jsonify(success=True, message="Tuzatish kiritildi", old_value=old_value, new_value=new_value)
+
+
+@app.get("/api/admin/zone-events/<int:event_id>/corrections")
+@login_required
+def get_zone_event_corrections(event_id: int):
+    if g.user["role"] not in ("admin", "techadmin"):
+        abort(403)
+    with get_pool().connection() as conn:
+        rows = conn.execute(
+            """
+            SELECT c.*, u.username as user_name
+            FROM corrections c
+            LEFT JOIN users u ON u.id = c.corrected_by
+            WHERE c.table_name = 'zone_events' AND c.record_id = %s
+            ORDER BY c.corrected_at DESC
+            """,
+            (event_id,),
+        ).fetchall()
+
+    return jsonify(
+        success=True,
+        corrections=[
+            {
+                "id": r["id"],
+                "field": r["field"],
+                "old_value": r["old_value"],
+                "new_value": r["new_value"],
+                "reason": r["reason"],
+                "user_name": r["user_name"],
+                "corrected_at": r["corrected_at"].isoformat() if r["corrected_at"] else None,
+            }
+            for r in rows
+        ],
+    )
 
 
 @app.get("/receipt/<int:weighing_id>/pdf")
@@ -2373,6 +2652,8 @@ from control_room import register_control_room
 register_control_room(app, get_pool, roles_required)
 from export_jobs import register_exports
 register_exports(app, get_pool, roles_required)
+from shifts import register_shifts
+register_shifts(app, get_pool, roles_required)
 
 
 @app.errorhandler(400)

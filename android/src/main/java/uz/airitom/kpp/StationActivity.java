@@ -205,24 +205,60 @@ public final class StationActivity extends Activity {
         PrintManager manager=(PrintManager)getSystemService(PRINT_SERVICE);PrintJob job=manager.print("Airitom chek "+eid,page.createPrintDocumentAdapter("Airitom chek"),null);
         Runnable poll=new Runnable(){public void run(){if(job.isCompleted())finish(id,eid,"android","confirmed","Android chop xizmati tasdiqladi");else if(job.isFailed()||job.isCancelled())finish(id,eid,"android",job.isCancelled()?"cancelled":"failed","Android chop xizmati");else if(active.equals(id))ui.postDelayed(this,1500);}};ui.postDelayed(poll,1500);
     }
-    private void settings(){new AlertDialog.Builder(this).setTitle("Chek printeri").setItems(new String[]{"SUNMI V2s ichki printeri · 58 mm","Bluetooth ESC/POS printer","Wi-Fi / LAN ESC/POS printer","Android chop xizmati"},(d,which)->{
+    private void settings(){
+        if(printing){toast("Chek chop etilishi tugashini kuting");return;}
+        String[] modes={"internal","bluetooth","wifi","android"};
+        int selected=Arrays.asList(modes).indexOf(preferences.getString("method","internal"));
+        new AlertDialog.Builder(this).setTitle("Chek printeri").setSingleChoiceItems(new String[]{"SUNMI V2s ichki printeri · 58 mm","Bluetooth ESC/POS printer","Wi-Fi / LAN ESC/POS printer","Android chop xizmati"}, selected,(d,which)->{
+        d.dismiss();
         if(which==0){preferences.edit().putString("method","internal").apply();bindPrinter();toast("SUNMI ichki printer tanlandi");}
         if(which==1)bluetooth();if(which==2)wifi();if(which==3){preferences.edit().putString("method","android").apply();toast("Android chop xizmati tanlandi");}
-    }).show();}
+    }).setNegativeButton("Yopish",null).show();}
     private void bluetooth(){
         if(Build.VERSION.SDK_INT>=31&&checkSelfPermission(Manifest.permission.BLUETOOTH_CONNECT)!=PackageManager.PERMISSION_GRANTED){requestPermissions(new String[]{Manifest.permission.BLUETOOTH_CONNECT},41);return;}
         BluetoothAdapter adapter=BluetoothAdapter.getDefaultAdapter();if(adapter==null||!adapter.isEnabled()){toast("Android sozlamasida Bluetoothni yoqing va printerni juftlang");return;}
         ArrayList<BluetoothDevice> devices=new ArrayList<>(adapter.getBondedDevices());String[] labels=new String[devices.size()];for(int i=0;i<labels.length;i++)labels[i]=devices.get(i).getName()+" · "+devices.get(i).getAddress();
         if(labels.length==0){toast("Avval Android sozlamasida printerni juftlang");return;}
-        new AlertDialog.Builder(this).setTitle("Juftlangan printer").setItems(labels,(d,i)->{preferences.edit().putString("method","bluetooth").putString("address",devices.get(i).getAddress()).apply();paper();}).show();
+        new AlertDialog.Builder(this).setTitle("Juftlangan printer").setItems(labels,(d,i)->paper(preferences.edit().putString("method","bluetooth").putString("address",devices.get(i).getAddress()))).show();
     }
     private void wifi(){
-        LinearLayout form=new LinearLayout(this);form.setOrientation(LinearLayout.VERTICAL);form.setPadding(24,12,24,12);
-        EditText host=new EditText(this);host.setHint("Printer IP: 192.168.1.100");host.setSingleLine();host.setText(preferences.getString("host",""));form.addView(host);
-        EditText port=new EditText(this);port.setInputType(2);port.setText(String.valueOf(preferences.getInt("port",9100)));form.addView(port);
-        AlertDialog dialog=new AlertDialog.Builder(this).setTitle("Wi-Fi / LAN printer").setView(form).setPositiveButton("Saqlash",null).setNegativeButton("Bekor",null).create();dialog.setOnShowListener(d->dialog.getButton(-1).setOnClickListener(v->{try{int p=Integer.parseInt(port.getText().toString());String h=host.getText().toString().trim();if(p<1||p>65535||!h.matches("[a-zA-Z0-9.:-]{1,253}"))throw new Exception();preferences.edit().putString("method","wifi").putString("host",h).putInt("port",p).apply();dialog.dismiss();paper();}catch(Exception e){host.setError("IP manzil va portni tekshiring");}}));dialog.show();
+        LinearLayout form=new LinearLayout(this);
+        form.setOrientation(LinearLayout.VERTICAL);
+        int pad=Math.round(16*getResources().getDisplayMetrics().density);
+        form.setPadding(pad,pad/2,pad,pad/2);
+        EditText host=new EditText(this);
+        host.setHint("Printer IP yoki nomi");host.setSingleLine();
+        host.setText(preferences.getString("host",""));
+        host.setImeOptions(android.view.inputmethod.EditorInfo.IME_ACTION_NEXT);
+        form.addView(host);
+        EditText port=new EditText(this);
+        port.setSingleLine();port.setHint("Port");port.setContentDescription("Printer porti");port.setInputType(android.text.InputType.TYPE_CLASS_NUMBER);
+        port.setText(String.valueOf(preferences.getInt("port",9100)));form.addView(port);
+        android.widget.ScrollView fields=new android.widget.ScrollView(this);
+        fields.addView(form);
+        AlertDialog dialog=new AlertDialog.Builder(this).setTitle("Wi-Fi / LAN printer").setView(fields)
+            .setPositiveButton("Davom etish",null).setNegativeButton("Bekor",null).create();
+        dialog.setOnShowListener(d->{
+            dialog.getWindow().setSoftInputMode(android.view.WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE);
+            dialog.getButton(-1).setOnClickListener(v->{
+                String h=host.getText().toString().trim();
+                if(!h.matches("[a-zA-Z0-9.:-]{1,253}")){host.setError("Printer manzilini tekshiring");host.requestFocus();return;}
+                int p;
+                try{p=Integer.parseInt(port.getText().toString());}catch(NumberFormatException e){p=0;}
+                if(p<1||p>65535){port.setError("Port 1–65535 orasida bo‘lsin");port.requestFocus();return;}
+                dialog.dismiss();
+                paper(preferences.edit().putString("method","wifi").putString("host",h).putInt("port",p));
+            });
+        });
+        dialog.show();
     }
-    private void paper(){new AlertDialog.Builder(this).setTitle("Tashqi printer qog‘ozi").setItems(new String[]{"58 mm","80 mm"},(d,i)->{preferences.edit().putInt("width",i==0?384:576).apply();toast("Printer saqlandi");}).show();}
+    private void paper(SharedPreferences.Editor configuration){
+        int selected=preferences.getInt("width",384)==384?0:1;
+        new AlertDialog.Builder(this).setTitle("Tashqi printer qog‘ozi")
+            .setSingleChoiceItems(new String[]{"58 mm","80 mm"},selected,(d,i)->{
+                configuration.putInt("width",i==0?384:576).apply();d.dismiss();toast("Printer saqlandi");
+            }).setNegativeButton("Bekor",null).show();
+    }
     private void toast(String text){Toast.makeText(this,text,Toast.LENGTH_LONG).show();}
     @Override public void onRequestPermissionsResult(int code,String[] permissions,int[] results){
         super.onRequestPermissionsResult(code,permissions,results);

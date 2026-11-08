@@ -110,6 +110,9 @@
 }
 .kpp .receipt-card{height:calc(var(--visible-height,100vh) - 24px)}
 .kpp .journal-card{height:min(700px,calc(var(--visible-height,100vh) - 24px))}
+.kpp .queue-banner{display:flex;flex-wrap:wrap;justify-content:center;gap:4px 24px}
+.kpp .queue-banner>span{display:flex;align-items:center;gap:12px}
+.kpp .queue-banner strong{font-variant-numeric:tabular-nums;min-width:2ch;color:#fff}
 
 @media screen {
  .kpp{font-family:Roboto,"Segoe UI",sans-serif;background:#0e1b2c}
@@ -140,8 +143,17 @@
  @keyframes kpp-enter{from{opacity:.4;transform:translateY(5px)}to{opacity:1;transform:none}}
 }
 @media screen and (max-width:600px){
- .kpp .main-header{gap:7px}
- .kpp .header-session{flex:none}
+ .kpp .main-header{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:6px 12px;padding:10px 12px}
+ .kpp .header-logo{grid-column:1;grid-row:1}
+ .kpp .logo-title{font-size:17px;letter-spacing:0;line-height:1.2;white-space:normal;overflow-wrap:normal}
+ .kpp .main-header>form{grid-column:2;grid-row:1}
+ .kpp .header-session{grid-column:1/-1;grid-row:2;display:flex;justify-content:space-between;align-items:center;width:100%;margin:0;text-align:left}
+ .kpp .header-session small{font-size:12px}
+ .kpp .header-time{font-size:14px;font-variant-numeric:tabular-nums}
+ .kpp .queue-banner{display:grid;gap:4px;padding:8px 12px;font-size:12px}
+ .kpp .queue-banner>span{justify-content:space-between}
+ .kpp .station-footer{display:grid;grid-template-columns:minmax(0,1fr) auto;padding:8px 10px;gap:8px}
+ .kpp .station-footer small{display:none}
  .kpp .station-footer button{min-height:40px}
  /* Pin the form on opening, before the keyboard sends its first resize. */
  .kpp #vehicle[open]{inset:auto;top:calc(var(--visible-top,0px) + 6px);left:50%;transform:translateX(-50%);margin:0;width:min(460px,calc(100vw - 16px));max-height:calc(var(--visible-height,100vh) - 12px)}

@@ -6,10 +6,13 @@ import json
 from datetime import date, datetime
 from decimal import Decimal
 from uuid import UUID
+from zipfile import BadZipFile
+from zlib import error as CompressionError
 
 from flask import abort, g, jsonify, request, send_file
 from psycopg import DataError, IntegrityError, sql
 from psycopg.types.json import Jsonb
+from backup_archive import export_archive, read_archive
 
 TABLES = {
     "users": ("id", "username", "role", "created_at"),
@@ -53,6 +56,8 @@ def register_transfer(app, pool, roles):
     def transfer_export():
         with pool().connection() as conn:
             conn.execute("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY")
+            if request.args.get("format") == "zip":
+                return export_archive(conn,TABLES,encode)
             result = {}
             for table, columns in TABLES.items():
                 selection = (
@@ -88,22 +93,27 @@ def register_transfer(app, pool, roles):
     def transfer_import():
         upload = request.files.get("backup")
         if not upload:
-            abort(400, description="XSM JSON zaxira faylini tanlang")
-        raw = upload.read(32 * 1024 * 1024 + 1)
-        if len(raw) > 32 * 1024 * 1024:
-            abort(400, description="Zaxira 32 MB dan oshdi")
-        try:
-            data = json.loads(raw)
-            expected = LEGACY_TABLES if data["format"] == "xsm-operations-v1" else set(TABLES)
-            if data["format"] not in ("xsm-operations-v1","xsm-operations-v2") or set(data["tables"]) != expected:
-                raise ValueError()
-            if any(not isinstance(rows, list) for rows in data["tables"].values()):
-                raise ValueError()
-            if sum(len(rows) for rows in data["tables"].values()) > 100000:
-                raise ValueError()
-        except (ValueError, KeyError, TypeError):
-            abort(400, description="Zaxira formati noto‘g‘ri")
-        digest = hashlib.sha256(raw).hexdigest()
+            abort(400, description="XSM JSON yoki ZIP zaxira faylini tanlang")
+        prefix = upload.read(4)
+        upload.stream.seek(0)
+        if prefix == b"PK\x03\x04":
+            data, digest = read_archive(upload.stream,TABLES)
+        else:
+            raw = upload.read(32 * 1024 * 1024 + 1)
+            if len(raw) > 32 * 1024 * 1024:
+                abort(400, description="JSON 32 MB dan oshdi. ZIP zaxiradan foydalaning.")
+            try:
+                data = json.loads(raw)
+                expected = LEGACY_TABLES if data["format"] == "xsm-operations-v1" else set(TABLES)
+                if data["format"] not in ("xsm-operations-v1","xsm-operations-v2") or set(data["tables"]) != expected:
+                    raise ValueError()
+                if any(not isinstance(rows, list) for rows in data["tables"].values()):
+                    raise ValueError()
+                if sum(len(rows) for rows in data["tables"].values()) > 100000:
+                    raise ValueError()
+            except (ValueError, KeyError, TypeError):
+                abort(400, description="Zaxira formati noto‘g‘ri")
+            digest = hashlib.sha256(raw).hexdigest()
         inserted = 0
         skipped = 0
         preview = request.form.get("preview") == "1"
@@ -245,7 +255,7 @@ def register_transfer(app, pool, roles):
                             "INSERT INTO transfer_imports(digest,imported_by) VALUES(%s,%s)",
                             (digest, g.user["id"]),
                         )
-        except (ValueError, TypeError, KeyError) as exc:
+        except (ValueError, TypeError, KeyError, BadZipFile, EOFError, CompressionError) as exc:
             abort(409, description=str(exc))
         except (IntegrityError, DataError):
             abort(

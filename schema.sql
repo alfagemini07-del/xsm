@@ -133,11 +133,12 @@ CREATE INDEX IF NOT EXISTS idx_print_created ON print_attempts(created_at DESC);
 
 -- Extend roles on existing installations as well as new databases.
 DO $$ BEGIN
-    IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conrelid='users'::regclass AND conname='users_display_role_check') THEN
+    IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conrelid='users'::regclass AND conname='users_monitor_role_check') THEN
         ALTER TABLE users DROP CONSTRAINT IF EXISTS users_role_check;
         ALTER TABLE users DROP CONSTRAINT IF EXISTS users_zone_role_check;
-        ALTER TABLE users ADD CONSTRAINT users_display_role_check CHECK
-            (role IN ('operator','admin','techadmin','parkovka_tashqi','kpp2','ayritom','display'));
+        ALTER TABLE users DROP CONSTRAINT IF EXISTS users_display_role_check;
+        ALTER TABLE users ADD CONSTRAINT users_monitor_role_check CHECK
+            (role IN ('operator','admin','techadmin','parkovka_tashqi','kpp2','ayritom','display','observer'));
     END IF;
 END $$;
 CREATE TABLE IF NOT EXISTS zone_visits (
@@ -281,6 +282,8 @@ CREATE TABLE IF NOT EXISTS dispatch_config (
 );
 INSERT INTO dispatch_config(id) VALUES(true) ON CONFLICT DO NOTHING;
 ALTER TABLE dispatch_config ADD COLUMN IF NOT EXISTS no_show_minutes integer NOT NULL DEFAULT 5 CHECK(no_show_minutes BETWEEN 1 AND 120);
+ALTER TABLE dispatch_config ADD COLUMN IF NOT EXISTS warning_percent integer NOT NULL DEFAULT 80 CHECK(warning_percent BETWEEN 1 AND 98);
+ALTER TABLE dispatch_config ADD COLUMN IF NOT EXISTS critical_percent integer NOT NULL DEFAULT 90 CHECK(critical_percent BETWEEN 2 AND 99 AND critical_percent>warning_percent);
 CREATE TABLE IF NOT EXISTS dispatch_spots (
  area text NOT NULL CHECK(area IN ('parking','inside')), slot integer NOT NULL CHECK(slot BETWEEN 1 AND 500),
  state text NOT NULL CHECK(state IN ('reserved','disabled')), reason text NOT NULL,
@@ -358,3 +361,32 @@ CREATE TABLE IF NOT EXISTS export_jobs (
  CHECK(content IS NULL OR octet_length(content)<=12582912)
 );
 CREATE INDEX IF NOT EXISTS export_jobs_pending ON export_jobs(created_at) WHERE state IN ('queued','running');
+
+CREATE TABLE IF NOT EXISTS corrections (
+    id SERIAL PRIMARY KEY,
+    table_name TEXT NOT NULL,
+    record_id BIGINT NOT NULL,
+    field TEXT NOT NULL,
+    old_value TEXT,
+    new_value TEXT NOT NULL,
+    reason TEXT NOT NULL,
+    corrected_by BIGINT REFERENCES users(id),
+    corrected_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS idx_corrections_record ON corrections(table_name, record_id);
+
+CREATE TABLE IF NOT EXISTS shifts (
+    id SERIAL PRIMARY KEY,
+    point TEXT NOT NULL,
+    opened_by BIGINT REFERENCES users(id),
+    opened_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    closed_by BIGINT REFERENCES users(id),
+    closed_at TIMESTAMPTZ,
+    system_cash BIGINT,
+    counted_cash BIGINT,
+    difference BIGINT,
+    note TEXT,
+    open_note TEXT,
+    status TEXT NOT NULL DEFAULT 'open' CHECK(status IN ('open','closed'))
+);
+CREATE INDEX IF NOT EXISTS idx_shifts_point_status ON shifts(point, status);

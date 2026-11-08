@@ -1,5 +1,6 @@
 """Shared read model for the control room. Animation never writes business events."""
 from datetime import datetime, timedelta
+from hashlib import sha256
 from threading import Lock
 from time import monotonic
 from uuid import UUID
@@ -34,7 +35,22 @@ def register_control_room(app, pool, roles):
                 latest = conn.execute("""
                     SELECT receipt_no,plate,point,action,amount,occurred FROM operation_ledger
                     WHERE status='paid' ORDER BY occurred DESC,id DESC LIMIT 12""")
-                counts = conn.execute("SELECT area,count(*) n FROM dispatch_tickets WHERE area<>'closed' GROUP BY area")
+                counts = conn.execute("""SELECT t.area,count(*) n,
+                    count(*) FILTER (WHERE t.area='parking' AND v.parking_departed_at IS NULL) parked,
+                    count(*) FILTER (WHERE t.area='parking' AND v.parking_departed_at IS NOT NULL) in_transit,
+                    count(*) FILTER (WHERE t.area='parking' AND v.parking_departed_at IS NULL AND t.flow='CH') border_wait
+                    FROM dispatch_tickets t JOIN zone_visits v ON v.id=t.visit_id
+                    WHERE t.area<>'closed' GROUP BY t.area""")
+                crossings = conn.execute("""SELECT point,count(*) FILTER (WHERE action='in') arrivals,
+                         count(*) FILTER (WHERE action='out') departures FROM zone_events
+                    WHERE point IN ('kpp2','ayritom') AND occurred >= %s AND occurred < %s
+                    GROUP BY point""", (midnight, midnight+timedelta(days=1)))
+                weighed = conn.execute("""SELECT count(DISTINCT plate_search) n FROM weighings
+                    WHERE status='paid' AND paid_at >= %s AND paid_at < %s""",
+                    (midnight, midnight+timedelta(days=1)))
+                exits = conn.execute("""SELECT visit_id,point FROM zone_events
+                    WHERE received_at >= now()-interval '2 minutes' AND action='out' AND location='closed'
+                    ORDER BY received_at DESC,id DESC LIMIT 1000""")
                 calls = conn.execute("SELECT l.at,l.action,l.actor,l.detail,v.plate FROM dispatch_log l LEFT JOIN zone_visits v ON v.id=l.visit_id ORDER BY l.id DESC LIMIT 8")
                 spots = conn.execute("SELECT * FROM dispatch_spots ORDER BY area,slot")
                 gates = conn.execute("SELECT * FROM dispatch_gates ORDER BY id")
@@ -44,34 +60,46 @@ def register_control_room(app, pool, roles):
                     WHERE t.area='parking' GROUP BY t.flow,t.queue_state""")
             return dict(at=now.isoformat(),config=config.fetchone(),vehicles=vehicles.fetchall(),
                         totals=totals.fetchall(),events=latest.fetchall(),counts=counts.fetchall(),calls=calls.fetchall(),
-                        spots=spots.fetchall(),gates=gates.fetchall(),queue=queue.fetchall())
+                        spots=spots.fetchall(),gates=gates.fetchall(),queue=queue.fetchall(),
+                        crossings=crossings.fetchall(),recent_exits=exits.fetchall(),weighed_today=weighed.fetchone()["n"])
 
     def cached_snapshot():
         with lock:
             if monotonic() >= cache.get("until",0):
-                cache["data"] = snapshot()
+                data = snapshot()
+                stable = {key: value for key, value in data.items() if key != "at"}
+                cache["etag"] = sha256(app.json.dumps(stable).encode()).hexdigest()
+                cache["payload"] = app.json.dumps(data)
+                cache["data"] = data
                 cache["until"] = monotonic()+5
-            return cache["data"]
+            return cache["data"], cache["payload"], cache["etag"]
 
     @app.get("/admin/control-room")
-    @roles("admin","techadmin")
+    @roles("admin","techadmin","observer")
     def control_room():
         return render_template("control_room.html",csrf_token_value=app.jinja_env.globals["csrf_token"](),user=g.user)
 
     @app.get("/api/admin/control-room")
-    @roles("admin","techadmin")
+    @roles("admin","techadmin","observer")
     def room_data():
-        return jsonify(cached_snapshot())
+        data, payload, tag = cached_snapshot()
+        if request.if_none_match.contains_weak(tag):
+            response = app.response_class(status=304)
+        else:
+            response = app.response_class(payload, mimetype="application/json")
+        response.set_etag(tag, weak=True)
+        response.headers["X-Snapshot-Time"] = data["at"]
+        return response
 
     @app.get("/admin/queue-display")
-    @roles("admin","techadmin","display")
+    @roles("admin","techadmin","display","observer")
     def queue_display():
         return render_template("queue_display.html")
 
     @app.get("/api/admin/queue-display")
-    @roles("admin","techadmin","display")
+    @roles("admin","techadmin","display","observer")
     def queue_display_data():
-        data=cached_snapshot()
+        data, _, _ = cached_snapshot()
         # The wall display contains no payments, names, plate numbers or device details.
         return jsonify(at=data["at"],tickets=[{k:v[k] for k in ("id","flow","number","day","queue_state","called_at","priority")}
             for v in data["vehicles"] if v["area"]=="parking" and v["queue_state"] in ("waiting","called")])
@@ -113,12 +141,22 @@ def register_control_room(app, pool, roles):
         except (ValueError,TypeError,KeyError): abort(400)
         if not (1<=a<=500 and 1<=b<=500 and 0<=h<=23 and 1<=timeout<=120): abort(400)
         with pool().connection() as conn:
-            conn.execute("SELECT id FROM dispatch_config WHERE id FOR UPDATE")
+            cfg = conn.execute("SELECT * FROM dispatch_config WHERE id FOR UPDATE").fetchone()
+            try:
+                warning = int(data.get("warning_percent", cfg["warning_percent"]))
+                critical = int(data.get("critical_percent", cfg["critical_percent"]))
+            except (ValueError, TypeError):
+                abort(400)
+            if not 1 <= warning < critical < 100:
+                return jsonify(message="Bandlik chegaralari 1–99 orasida va o‘sish tartibida bo‘lsin"), 400
             used=conn.execute("""SELECT 1 FROM (SELECT area,slot FROM dispatch_tickets UNION ALL SELECT area,slot FROM dispatch_spots) s
                 WHERE (area='parking' AND slot>%s) OR (area='inside' AND slot>%s) LIMIT 1""",(a,b)).fetchone()
             if used: return jsonify(message="Band joyni o‘chirib bo‘lmaydi"),409
-            conn.execute("UPDATE dispatch_config SET parking_capacity=%s,inside_capacity=%s,reset_hour=%s,no_show_minutes=%s",(a,b,h,timeout))
-            conn.execute("INSERT INTO dispatch_log(action,actor) VALUES(%s,%s)",(f"capacity {a}/{b}, reset {h}",g.user["username"]))
+            conn.execute("""UPDATE dispatch_config SET parking_capacity=%s,inside_capacity=%s,reset_hour=%s,
+                         no_show_minutes=%s,warning_percent=%s,critical_percent=%s""",(a,b,h,timeout,warning,critical))
+            conn.execute("INSERT INTO dispatch_log(action,actor,detail) VALUES(%s,%s,%s)",
+                         ("settings",g.user["username"],Jsonb(dict(parking=a,inside=b,reset_hour=h,no_show_minutes=timeout,
+                                                                  warning_percent=warning,critical_percent=critical))))
         with lock: cache.clear()
         return jsonify(success=True)
 
@@ -188,7 +226,7 @@ def register_control_room(app, pool, roles):
         return jsonify(success=True)
 
     @app.get("/api/admin/visits/<int:vid>/timeline")
-    @roles("admin","techadmin")
+    @roles("admin","techadmin","observer")
     def visit_timeline(vid):
         with pool().connection() as conn:
             visit=conn.execute("SELECT id,plate,purpose,started FROM zone_visits WHERE id=%s",(vid,)).fetchone()

@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width,initial-scale=1,interactive-widget=resizes-content">
   <title>{{ points.get(user.role,'Airitom') }}</title>
   <link rel="stylesheet" href="/static/kpp-parking.css?v=4">
-  <link rel="stylesheet" href="/static/kpp-station.css?v=5">
+  <link rel="stylesheet" href="/static/kpp-station.css?v=6">
   <script src="/static/kpp.js?v=5" defer></script>
 </head>
 <body class="kpp" data-csrf="{{ csrf_token() }}" data-role="{{ user.role }}" data-user="{{ user.id }}" data-mode="{{ mode }}" data-receipt-id="{{ receipt_id|default(0) }}" data-print-attempts="{{ receipt.print_attempts if receipt is defined else 0 }}">
@@ -25,7 +25,7 @@
     </div>
     <div class="stats-bar"><div class="stat-item"><span class="stat-val" id="stat-active">—</span><span class="stat-label">Hozir hudud ichida</span></div><div class="stat-divider"></div><div class="stat-item"><span class="stat-val" id="stat-count">—</span><span class="stat-label">Bugun chiqdi</span></div><div class="stat-divider"></div><div class="stat-item"><span class="stat-val" id="stat-total">—</span><span class="stat-label">Bugungi tushum (so‘m)</span></div></div>
   </main>
-  <div class="queue-banner">{{ 'O‘zbekiston darvozasiga' if user.role=='kpp2' else 'Afg‘oniston darvozasiga' }} navbat: <strong id="stat-waiting">—</strong> ta · E-navbat parkovkadan chiqqan: <strong id="stat-departed">—</strong></div><footer class="station-footer"><button id="journal-open" class="btn-secondary compact" type="button">▤ Navbat va cheklar</button><button id="printer-settings" class="btn-secondary compact" type="button">Printer</button><small>{{ user.username }}</small></footer>
+  <div class="queue-banner"><span>O‘zbekiston darvozasiga navbat <strong id="stat-waiting">—</strong></span><span>E-navbat parkovkadan chiqqan <strong id="stat-departed">—</strong></span></div><footer class="station-footer"><button id="journal-open" class="btn-secondary compact" type="button">▤ Navbat va cheklar</button><button id="printer-settings" class="btn-secondary compact" type="button">Printer</button><small title="{{ user.username }}">{{ user.username }}</small></footer>
 </div>
 
 <dialog id="vehicle" class="kiosk-dialog">

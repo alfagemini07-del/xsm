@@ -33,11 +33,11 @@
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), 20000);
     try {
-    const response = await fetch(url, { credentials: "same-origin", ...options, headers, signal: options.signal || controller.signal });
-    const data = await response.json().catch(() => ({ success: false, message: "Server javobi noto'g'ri" }));
-    if (response.status === 401) { window.location.href = "/login"; throw new Error("Kirish talab qilinadi"); }
-    if (!response.ok || data.success === false) throw new Error(data.message || "So'rov bajarilmadi");
-    return data;
+      const response = await fetch(url, { credentials: "same-origin", ...options, headers, signal: options.signal || controller.signal });
+      const data = await response.json().catch(() => ({ success: false, message: "Server javobi noto'g'ri" }));
+      if (response.status === 401) { window.location.href = "/login"; throw new Error("Kirish talab qilinadi"); }
+      if (!response.ok || data.success === false) throw new Error(data.message || "So'rov bajarilmadi");
+      return data;
     } catch (error) {
       if (error.name === "AbortError") throw new Error("Server javobi kechikdi. Aloqani tekshirib, qayta urinib ko‘ring.");
       throw error;
@@ -117,9 +117,22 @@
   }
 
   function actionButton(text, handler, kind = "secondary") { const button = document.createElement("button"); button.type = "button"; button.className = `button ${kind} table-action`; button.textContent = text; button.addEventListener("click", handler); return button; }
+  function makePlateCell(plate) {
+    const el = td(plate, "plate-cell");
+    el.style.cursor = "pointer";
+    el.title = "Avtomobil tarixini ko‘rish";
+    el.addEventListener("click", () => window.showVehicleHistory(plate));
+    return el;
+  }
   function buildRow(item, index, page, perPage) {
-    if(item.kind==='zone'){const row=document.createElement("tr");row.append(td((page-1)*perPage+index+1),td(item.queue_no||item.receipt_no),td(item.plate_number,"plate-cell"),td(item.price_fmt+" so‘m"),td(item.point+" · "+item.reason),td(item.created_at),td(item.operator));const action=td("");action.append(actionButton("Chek",()=>window.showZoneReceipt(item.id)));row.append(action);return row;}
-    const row = document.createElement("tr"); row.append(td((page - 1) * perPage + index + 1), td(item.receipt_no, "receipt-id"), td(item.plate_number, "plate-cell"), td(`${item.price_fmt} so'm`));
+    if (item.kind === 'zone') {
+      const row = document.createElement("tr");
+      row.append(td((page - 1) * perPage + index + 1), td(item.queue_no || item.receipt_no), makePlateCell(item.plate_number), td(item.price_fmt + " so‘m"), td(item.point + " · " + item.reason), td(item.created_at), td(item.operator));
+      const action = td(""); action.append(actionButton("Chek", () => window.showZoneReceipt(item.id)));
+      row.append(action); return row;
+    }
+    const row = document.createElement("tr");
+    row.append(td((page - 1) * perPage + index + 1), td(item.receipt_no, "receipt-id"), makePlateCell(item.plate_number), td(`${item.price_fmt} so'm`));
     const statusCell = document.createElement("td"); statusCell.append(badge(item.status)); row.append(statusCell, td(item.created_at), td(item.operator));
     const action = document.createElement("td"); action.append(actionButton("Ko'rish", () => openDetail(item))); if (item.status === "paid") action.append(actionButton("▤ Chek", event => reprint(item.id, event.currentTarget), "secondary")); row.append(action); return row;
   }
@@ -152,16 +165,16 @@
   }
 
   async function localPrint(receipt) {
-    const attempt_id=crypto.randomUUID();
-    await api(`/api/weighings/${receipt.id}/print`,{method:"POST",body:JSON.stringify({attempt_id,state:"requested",method:"agent"})});
-    const controller=new AbortController(),timer=setTimeout(()=>controller.abort(),4500);
+    const attempt_id = crypto.randomUUID();
+    await api(`/api/weighings/${receipt.id}/print`, { method: "POST", body: JSON.stringify({ attempt_id, state: "requested", method: "agent" }) });
+    const controller = new AbortController(), timer = setTimeout(() => controller.abort(), 4500);
     try {
-      const response=await fetch("http://127.0.0.1:17832/print",{method:"POST",mode:"cors",headers:{"Content-Type":"application/json"},body:JSON.stringify(receipt),signal:controller.signal});
-      const data=await response.json().catch(()=>({}));if(!response.ok || !data.success)throw new Error(data.message || "Printer agenti xatosi");
-      await api(`/api/weighings/${receipt.id}/print`,{method:"POST",body:JSON.stringify({attempt_id,state:"spooled",method:"agent"})}).catch(()=>showToast("Chek yuborildi, ammo chop jurnali saqlanmadi",true));
+      const response = await fetch("http://127.0.0.1:17832/print", { method: "POST", mode: "cors", headers: { "Content-Type": "application/json" }, body: JSON.stringify(receipt), signal: controller.signal });
+      const data = await response.json().catch(() => ({})); if (!response.ok || !data.success) throw new Error(data.message || "Printer agenti xatosi");
+      await api(`/api/weighings/${receipt.id}/print`, { method: "POST", body: JSON.stringify({ attempt_id, state: "spooled", method: "agent" }) }).catch(() => showToast("Chek yuborildi, ammo chop jurnali saqlanmadi", true));
       return data;
-    } catch(error) {await api(`/api/weighings/${receipt.id}/print`,{method:"POST",body:JSON.stringify({attempt_id,state:"failed",method:"agent"})}).catch(()=>{});throw error;}
-    finally {clearTimeout(timer);}
+    } catch (error) { await api(`/api/weighings/${receipt.id}/print`, { method: "POST", body: JSON.stringify({ attempt_id, state: "failed", method: "agent" }) }).catch(() => { }); throw error; }
+    finally { clearTimeout(timer); }
   }
   async function reprint(id, button) {
     setBusy(button, true, "..."); const fallback = window.open("about:blank", "tarozi-receipt", "width=520,height=800");
@@ -182,7 +195,7 @@
     try {
       const perPage = Number(document.getElementById("report-page-size").value || 15); const data = await api(`/api/admin/operations/report?start=${start}&end=${end}&page=${reportPage}&per_page=${perPage}`); reportPages = data.total_pages; reportData = [...data.daily].reverse(); document.getElementById("report-count").textContent = fmt(data.total_count); document.getElementById("report-total").textContent = data.total_fmt; document.getElementById("report-average").textContent = data.total_days ? Math.round(data.total_count / data.total_days) : 0;
       const cash = data.payment_methods.cash?.count || 0; const card = data.payment_methods.card?.count || 0; document.getElementById("report-methods").textContent = `${cash} / ${card}`; document.getElementById("report-period-label").textContent = `${start} — ${end} · Hisob: ${data.as_of} (Toshkent) · Oxirgi kelgan: ${data.last_received}`;
-      document.getElementById("report-service-weighing").textContent = `${data.service_totals.weighing_fmt} so'm`; document.getElementById("report-service-entry").textContent = `${data.service_totals.entry_fmt} so'm`; document.getElementById("report-service-reload").textContent = `${data.service_totals.reload_fmt} so'm`; document.getElementById("report-service-parking").textContent=`${data.service_totals.parking_fmt} so‘m`;
+      document.getElementById("report-service-weighing").textContent = `${data.service_totals.weighing_fmt} so'm`; document.getElementById("report-service-entry").textContent = `${data.service_totals.entry_fmt} so'm`; document.getElementById("report-service-reload").textContent = `${data.service_totals.reload_fmt} so'm`; document.getElementById("report-service-parking").textContent = `${data.service_totals.parking_fmt} so‘m`;
       const body = document.getElementById("report-body"); body.replaceChildren(); if (!data.daily.length) emptyRow(body, 4, "Bu oraliqda ma'lumot yo'q"); else data.daily.forEach(item => { const row = document.createElement("tr"); row.append(td(item.date), td(`${item.count} ta`), td(`${item.total_fmt} so'm`), td(item.count ? `${fmt(Math.round(item.total / item.count))} so'm` : "0")); body.append(row); }); document.getElementById("report-count-label").textContent = `${data.total_days} kun`; document.getElementById("report-page-info").textContent = `${data.page} / ${data.total_pages}`; document.getElementById("report-prev").disabled = data.page <= 1; document.getElementById("report-next").disabled = data.page >= data.total_pages; drawBarChart("report-chart", reportData);
     } catch (error) { if (!silent) showToast(error.message, true); } finally { if (!silent) setBusy(button, false); }
   }
@@ -269,18 +282,18 @@
     });
     const body = document.getElementById("tariff-history-body"); body.replaceChildren();
     if (!history.length) emptyRow(body, 6, "Tarif hali o'zgartirilmagan");
-    history.forEach(item => { const row = document.createElement("tr"); row.append(td(item.changed_at),td(item.label),td(`${fmt(item.amount)} so'm`),td(item.enabled ? "Faol" : "O'chirilgan"),td(item.applied_to_existing ? `${item.affected_rows} ta` : "Faqat yangi"),td(item.username)); body.append(row); });
+    history.forEach(item => { const row = document.createElement("tr"); row.append(td(item.changed_at), td(item.label), td(`${fmt(item.amount)} so'm`), td(item.enabled ? "Faol" : "O'chirilgan"), td(item.applied_to_existing ? `${item.affected_rows} ta` : "Faqat yangi"), td(item.username)); body.append(row); });
   }
   async function saveTariff(code, amountInput, activeInput, applyInput, button) {
     const amount = Number(amountInput.value); if (!Number.isInteger(amount) || amount < 0 || amount > 1000000000 || (activeInput.checked && amount < 1)) { showToast("Faol tarif summasini to'g'ri kiriting", true); return; }
     setBusy(button, true, "Saqlanmoqda...");
-    try { const saved = await api(`/api/admin/settings/tariffs/${code}`, {method:"PUT",body:JSON.stringify({amount,enabled:activeInput.checked,apply_existing:Boolean(applyInput?.checked)})}); showToast(saved.affected_rows ? `Tarif saqlandi va ${saved.affected_rows} ta ochiq yozuvga qo'llandi` : "Tarif saqlandi"); lastSyncVersion=null; await loadTech(); }
-    catch (error) { showToast(error.message,true); } finally { setBusy(button,false); }
+    try { const saved = await api(`/api/admin/settings/tariffs/${code}`, { method: "PUT", body: JSON.stringify({ amount, enabled: activeInput.checked, apply_existing: Boolean(applyInput?.checked) }) }); showToast(saved.affected_rows ? `Tarif saqlandi va ${saved.affected_rows} ta ochiq yozuvga qo'llandi` : "Tarif saqlandi"); lastSyncVersion = null; await loadTech(); }
+    catch (error) { showToast(error.message, true); } finally { setBusy(button, false); }
   }
   async function loadUsers() { if (role !== "techadmin") return; try { const perPage = document.getElementById("users-page-size").value || 15; const data = await api(`/api/admin/users?page=${usersPage}&per_page=${perPage}`); usersPages = data.total_pages; renderUsers(data.users); document.getElementById("users-count-label").textContent = `${data.total} ta foydalanuvchi`; document.getElementById("users-page-info").textContent = `${data.page} / ${data.total_pages}`; document.getElementById("users-prev").disabled = data.page <= 1; document.getElementById("users-next").disabled = data.page >= data.total_pages; } catch (error) { showToast(error.message, true); } }
   function renderUsers(users) {
-    const roleNames={operator:"Tarozi operatori",parkovka_tashqi:"E-navbat parkovka",ayritom:"Afg‘oniston darvozasi",kpp2:"O‘zbekiston darvozasi",admin:"Admin",techadmin:"Techadmin",display:"Navbat tablosi"};
-    const body = document.getElementById("users-body"); body.replaceChildren(); users.forEach(user => { const row = document.createElement("tr"); row.append(td(user.username), td(roleNames[user.role]||user.role)); const state = document.createElement("td"); const stateBadge = badge(user.is_active ? "paid" : "cancelled"); stateBadge.textContent = user.is_active ? "Faol" : "Bloklangan"; state.append(stateBadge); row.append(state, td(user.last_login_at || "Hali kirmagan")); const actions = document.createElement("td"); actions.append(actionButton("Parol", () => openPasswordModal(user)), actionButton(user.is_active ? "Bloklash" : "Faollashtirish", event => toggleUser(user.id, event.currentTarget), "danger-soft")); row.append(actions); body.append(row); });
+    const roleNames = { operator: "Tarozi operatori", parkovka_tashqi: "E-navbat parkovka", ayritom: "Afg‘oniston darvozasi", kpp2: "O‘zbekiston darvozasi", admin: "Admin", techadmin: "Techadmin", display: "Navbat tablosi", observer: "3D kuzatuvchi" };
+    const body = document.getElementById("users-body"); body.replaceChildren(); users.forEach(user => { const row = document.createElement("tr"); row.append(td(user.username), td(roleNames[user.role] || user.role)); const state = document.createElement("td"); const stateBadge = badge(user.is_active ? "paid" : "cancelled"); stateBadge.textContent = user.is_active ? "Faol" : "Bloklangan"; state.append(stateBadge); row.append(state, td(user.last_login_at || "Hali kirmagan")); const actions = document.createElement("td"); actions.append(actionButton("Parol", () => openPasswordModal(user)), actionButton(user.is_active ? "Bloklash" : "Faollashtirish", event => toggleUser(user.id, event.currentTarget), "danger-soft")); row.append(actions); body.append(row); });
   }
   function renderTokens(tokens) {
     const body = document.getElementById("tokens-body"); body.replaceChildren(); if (!tokens.length) return emptyRow(body, 5, "Backup token yaratilmagan"); tokens.forEach(token => { const row = document.createElement("tr"); row.append(td(token.name), td(token.created_at), td(token.last_used_at || "Ishlatilmagan")); const state = document.createElement("td"); const stateBadge = badge(token.revoked ? "cancelled" : "paid"); stateBadge.textContent = token.revoked ? "Bekor qilingan" : "Faol"; state.append(stateBadge); row.append(state); const actions = document.createElement("td"); if (!token.revoked) actions.append(actionButton("Bekor qilish", event => revokeToken(token.id, event.currentTarget), "danger-soft")); row.append(actions); body.append(row); });
@@ -302,18 +315,141 @@
   async function createToken() { const button = document.getElementById("btn-create-token"); setBusy(button, true); try { const data = await api("/api/admin/backup-tokens", { method: "POST", body: JSON.stringify({ name: document.getElementById("token-name").value.trim() }) }); document.getElementById("new-token-value").textContent = data.token; document.getElementById("new-token-box").classList.remove("hidden"); document.getElementById("token-name").value = ""; tokensPage = 1; await loadTech(); showToast("Backup token yaratildi"); } catch (error) { showToast(error.message, true); } finally { setBusy(button, false); } }
   async function revokeToken(id, button) { if (!window.confirm("Bu tokenni bekor qilasizmi?")) return; setBusy(button, true); try { await api(`/api/admin/backup-tokens/${id}/revoke`, { method: "POST" }); await loadTech(); showToast("Token bekor qilindi"); } catch (error) { showToast(error.message, true); } finally { setBusy(button, false); } }
 
-  const loaders = { dashboard: loadDashboard, reports: runReport, search: doSearch, history: loadHistory, monitor: loadMonitor, users: loadUsers, tech: loadTech };
+  async function loadShifts() {
+    try {
+      const [curRes, archRes] = await Promise.all([
+        api("/api/admin/shifts/current"),
+        api("/api/admin/shifts?limit=30")
+      ]);
+      const actBody = document.getElementById("shifts-active-body");
+      const arcBody = document.getElementById("shifts-archive-body");
+      if (actBody) {
+        actBody.replaceChildren();
+        if (!curRes.shifts || !curRes.shifts.length) {
+          const tr = actBody.insertRow();
+          const td = tr.insertCell();
+          td.colSpan = 5;
+          td.textContent = "Hozirda ochiq smenalar mavjud emas.";
+        } else {
+          for (const s of curRes.shifts) {
+            const tr = actBody.insertRow();
+            tr.insertCell().textContent = s.point_label;
+            tr.insertCell().textContent = s.opener_display || s.opener_name;
+            tr.insertCell().textContent = s.opened_at ? new Date(s.opened_at).toLocaleString("uz-UZ", { timeZone: "Asia/Tashkent" }) : "—";
+            tr.insertCell().textContent = s.open_note || "—";
+            const tdAct = tr.insertCell();
+            const btn = document.createElement("button");
+            btn.className = "button danger compact";
+            btn.textContent = "Smenani yopish";
+            btn.onclick = () => openCloseShiftModal(s);
+            tdAct.appendChild(btn);
+          }
+        }
+      }
+      if (arcBody) {
+        arcBody.replaceChildren();
+        if (!archRes.shifts || !archRes.shifts.length) {
+          const tr = arcBody.insertRow();
+          const td = tr.insertCell();
+          td.colSpan = 10;
+          td.textContent = "Yopilgan smenalar mavjud emas.";
+        } else {
+          for (const s of archRes.shifts) {
+            const tr = arcBody.insertRow();
+            tr.insertCell().textContent = "#" + s.id;
+            tr.insertCell().textContent = s.point_label;
+            tr.insertCell().textContent = s.opener_display || s.opener_name;
+            tr.insertCell().textContent = s.opened_at ? new Date(s.opened_at).toLocaleTimeString("uz-UZ", { timeZone: "Asia/Tashkent", hour: "2-digit", minute: "2-digit" }) : "—";
+            tr.insertCell().textContent = s.closer_display || s.closer_name || "—";
+            tr.insertCell().textContent = s.closed_at ? new Date(s.closed_at).toLocaleTimeString("uz-UZ", { timeZone: "Asia/Tashkent", hour: "2-digit", minute: "2-digit" }) : "—";
+            tr.insertCell().textContent = s.system_cash != null ? Number(s.system_cash).toLocaleString() + " so‘m" : "—";
+            tr.insertCell().textContent = s.counted_cash != null ? Number(s.counted_cash).toLocaleString() + " so‘m" : "—";
+            const tdDiff = tr.insertCell();
+            if (s.difference != null) {
+              tdDiff.textContent = (s.difference > 0 ? "+" : "") + Number(s.difference).toLocaleString() + " so‘m";
+              tdDiff.style.color = s.difference === 0 ? "var(--color-green, #10b981)" : (s.difference < 0 ? "#ef4444" : "#f59e0b");
+              tdDiff.style.fontWeight = "bold";
+            } else {
+              tdDiff.textContent = "—";
+            }
+            tr.insertCell().textContent = s.status === "open" ? "Ochiq" : "Yopilgan";
+          }
+        }
+      }
+    } catch (err) {
+      showToast(err.message, true);
+    }
+  }
+
+  function openCloseShiftModal(s) {
+    document.getElementById("shift-close-id").value = s.id;
+    document.getElementById("shift-close-title").textContent = `${s.point_label} · Ochgan: ${s.opener_display || s.opener_name}`;
+    document.getElementById("shift-close-counted").value = "";
+    document.getElementById("shift-close-note").value = "";
+    document.getElementById("shift-close-modal").classList.remove("hidden");
+  }
+
+  window.showVehicleHistory = async function (plate) {
+    if (!plate) return;
+    try {
+      const data = await api(`/api/admin/vehicles/${encodeURIComponent(plate)}/history`);
+      const modal = document.getElementById("vehicle-history-modal");
+      if (!modal) return;
+      document.getElementById("vehicle-history-title").textContent = `${data.plate} · Oxirgi ko‘ringan: ${data.summary.last_seen ? new Date(data.summary.last_seen).toLocaleString("uz-UZ", { timeZone: "Asia/Tashkent" }) : "Noma'lum"}`;
+      const sumEl = document.getElementById("vehicle-history-summary");
+      sumEl.innerHTML = `
+        <article class="metric-card blue"><small>Jami to‘lovlar</small><strong>${Number(data.summary.total_paid).toLocaleString()} so‘m</strong></article>
+        <article class="metric-card violet"><small>Tashriflar soni</small><strong>${data.summary.visit_count} ta</strong></article>
+        <article class="metric-card orange"><small>Tarozi o‘lchovlari</small><strong>${data.summary.weighing_count} ta</strong></article>
+      `;
+      const body = document.getElementById("vehicle-history-body");
+      body.replaceChildren();
+      if (!data.events || !data.events.length) {
+        const tr = body.insertRow();
+        const td = tr.insertCell();
+        td.colSpan = 6;
+        td.textContent = "Ushbu avtomobil bo‘yicha hodisalar topilmadi.";
+      } else {
+        const names = {
+          zone_payment: "To‘lov qabul qilindi",
+          zone_entry: "Hududga kirdi",
+          zone_exit: "Hududdan chiqdi",
+          weighing: "Tarozi xizmati"
+        };
+        const points = {
+          ayritom: "Afg‘oniston darvozasi",
+          kpp2: "O‘zbekiston darvozasi",
+          parkovka_tashqi: "E-navbat parkovka",
+          tarozi: "Tarozi"
+        };
+        for (const ev of data.events) {
+          const tr = body.insertRow();
+          tr.insertCell().textContent = ev.occurred_at ? new Date(ev.occurred_at).toLocaleString("uz-UZ", { timeZone: "Asia/Tashkent" }) : "—";
+          tr.insertCell().textContent = `${points[ev.point] || ev.point} · ${names[ev.type] || ev.type}`;
+          tr.insertCell().textContent = ev.queue_no ? `Navbat #${ev.queue_no}` : (ev.cargo_type ? `Yuk: ${ev.cargo_type}` : (ev.location || "—"));
+          tr.insertCell().textContent = ev.amount ? Number(ev.amount).toLocaleString() + " so‘m" : "—";
+          tr.insertCell().textContent = ev.method ? (ev.method === 'cash' ? 'Naqd' : (ev.method === 'card' ? 'Karta' : ev.method)) : "—";
+          tr.insertCell().textContent = ev.operator || "—";
+        }
+      }
+      modal.classList.remove("hidden");
+    } catch (err) {
+      showToast(err.message, true);
+    }
+  };
+
+  const loaders = { dashboard: loadDashboard, shifts: loadShifts, reports: runReport, search: doSearch, history: loadHistory, monitor: loadMonitor, users: loadUsers, tech: loadTech };
   function activateTab(name) {
     const target = document.getElementById(`tab-${name}`); if (!target) return;
     activeTab = name;
     document.querySelectorAll(".nav-link").forEach(link => link.classList.toggle("active", link.dataset.tab === name)); document.querySelectorAll(".admin-tab").forEach(tab => tab.classList.toggle("hidden", tab !== target));
-    history.replaceState(null,"","/admin?tab="+encodeURIComponent(name));
-    document.dispatchEvent(new CustomEvent("admin:tab",{detail:name}));
-    clearInterval(monitorTimer); monitorTimer = null; if (loaders[name]) loaders[name](); if (name === "monitor") monitorTimer = setInterval(()=>{if(!document.hidden)loadMonitor();}, 30000); window.scrollTo(0, 0);
+    history.replaceState(null, "", "/admin?tab=" + encodeURIComponent(name));
+    document.dispatchEvent(new CustomEvent("admin:tab", { detail: name }));
+    clearInterval(monitorTimer); monitorTimer = null; if (loaders[name]) loaders[name](); if (name === "monitor") monitorTimer = setInterval(() => { if (!document.hidden) loadMonitor(); }, 30000); window.scrollTo(0, 0);
   }
 
   async function pollSync() {
-    if (syncBusy || document.hidden || !["history","dashboard","reports","search"].includes(activeTab)) return; syncBusy = true;
+    if (syncBusy || document.hidden || !["history", "dashboard", "reports", "search"].includes(activeTab)) return; syncBusy = true;
     const indicator = document.getElementById("sync-status");
     try {
       const data = await api("/api/sync/state");
@@ -336,6 +472,51 @@
   });
   document.querySelectorAll("[data-go]").forEach(button => { if (!document.getElementById(`tab-${button.dataset.go}`)) button.classList.add("hidden"); else button.addEventListener("click", () => activateTab(button.dataset.go)); });
   document.querySelectorAll("[data-close]").forEach(button => button.addEventListener("click", () => document.getElementById(button.dataset.close).classList.add("hidden")));
+  document.getElementById("btn-open-shift-modal")?.addEventListener("click", () => {
+    document.getElementById("shift-open-note").value = "";
+    document.getElementById("shift-open-modal").classList.remove("hidden");
+  });
+  document.getElementById("btn-refresh-shifts")?.addEventListener("click", loadShifts);
+  document.getElementById("btn-confirm-open-shift")?.addEventListener("click", async () => {
+    const btn = document.getElementById("btn-confirm-open-shift");
+    setBusy(btn, true, "Ochilmoqda...");
+    try {
+      const point = document.getElementById("shift-open-point").value;
+      const note = document.getElementById("shift-open-note").value.trim();
+      const res = await api("/api/admin/shifts/open", {
+        method: "POST",
+        body: JSON.stringify({ point, note })
+      });
+      document.getElementById("shift-open-modal").classList.add("hidden");
+      showToast(res.message || "Smena ochildi");
+      await loadShifts();
+    } catch (e) {
+      showToast(e.message, true);
+    } finally {
+      setBusy(btn, false);
+    }
+  });
+  document.getElementById("btn-confirm-close-shift")?.addEventListener("click", async () => {
+    const btn = document.getElementById("btn-confirm-close-shift");
+    setBusy(btn, true, "Yopilmoqda...");
+    try {
+      const shiftId = document.getElementById("shift-close-id").value;
+      const counted = document.getElementById("shift-close-counted").value;
+      const note = document.getElementById("shift-close-note").value.trim();
+      const res = await api(`/api/admin/shifts/${shiftId}/close`, {
+        method: "POST",
+        body: JSON.stringify({ counted_cash: counted, note })
+      });
+      document.getElementById("shift-close-modal").classList.add("hidden");
+      showToast(`Smena yopildi. Tafovut: ${res.difference > 0 ? "+" : ""}${Number(res.difference).toLocaleString()} so‘m`);
+      await loadShifts();
+    } catch (e) {
+      showToast(e.message, true);
+    } finally {
+      setBusy(btn, false);
+    }
+  });
+
   document.getElementById("btn-refresh-dashboard")?.addEventListener("click", loadDashboard);
   document.getElementById("btn-report").addEventListener("click", () => { reportPage = 1; runReport(); }); document.querySelectorAll("[data-range]").forEach(button => button.addEventListener("click", () => { setReportRange(button.dataset.range); reportPage = 1; runReport(); }));
   document.getElementById("report-page-size").addEventListener("change", () => { reportPage = 1; runReport(); }); document.getElementById("report-prev").addEventListener("click", () => { if (reportPage > 1) { reportPage -= 1; runReport(); } }); document.getElementById("report-next").addEventListener("click", () => { if (reportPage < reportPages) { reportPage += 1; runReport(); } });

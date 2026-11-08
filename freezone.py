@@ -40,7 +40,7 @@ POINTS = {
 LABEL = {
     **POINTS,
     "scale": "Tarozi",
-    "border": "Ayritom postiga navbat",
+    "border": "Afg‘oniston darvozasiga navbat",
     "zone": "Free Zone",
     "outside": "E-navbat parkovka",
     "parking": "E-navbat parkovka",
@@ -196,7 +196,7 @@ def register_zone(app, pool, roles, clean_plate, qr):
     )
 
     @app.get("/zone")
-    @roles(*POINTS, *ADMINS, "display")
+    @roles(*POINTS, *ADMINS, "display", "observer")
     def zone_home():
         point = g.user["role"]
         if point=="display": return redirect(url_for("queue_display"))
@@ -459,8 +459,12 @@ def register_zone(app, pool, roles, clean_plate, qr):
             + "\n".join(f"{k}: {v}" for k, v in fields),
             border=4,
         )
-        from printing import artwork
-        picture = artwork(fields, code)
+        try:
+            from printing import artwork
+            picture = artwork(fields, code)
+        except Exception as _art_err:
+            app.logger.warning("Receipt artwork failed for event %s: %s", eid, _art_err)
+            picture = None
         if request.is_json or request.accept_mimetypes.best == "application/json":
             return jsonify(id=eid, fields=fields, qr=code, plate=e["plate"], image=picture,print_attempts=e["print_attempts"],print_confirmed=e["print_confirmed"],print_last=e["print_last"])
         return page(mode="receipt", fields=fields, receipt=e, qr=code, picture=picture, receipt_id=eid)

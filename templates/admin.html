@@ -60,10 +60,78 @@
           <article class="industrial-card table-card"><div class="table-scroll"><table><thead><tr><th>#</th><th>Chek ID</th><th>Davlat raqami</th><th>Jami summa</th><th>To'lov</th><th>Sana &amp; vaqt</th><th>Operator</th><th>Amallar</th></tr></thead><tbody id="history-body"></tbody></table></div><div class="pagination"><label>Sahifada <select id="history-page-size"><option value="10">10 ta</option><option value="15" selected>15 ta</option><option value="20">20 ta</option><option value="50">50 ta</option><option value="100">100 ta</option></select></label><span id="history-count-label">0 ta yozuv</span><button id="history-prev" type="button">Oldingi</button><b id="history-page-info">1 / 1</b><button id="history-next" type="button">Keyingi</button></div></article>
         </section>
 
-        <section id="tab-transfer" class="admin-tab hidden"><article class="industrial-card transfer-card"><h2>Umumiy ma’lumotlar</h2><p>Tarozi, parkovka, KPP, cheklar va ulanish jurnali. Parollar va qurilma kalitlari eksportga kiritilmaydi.</p><a class="button success" href="/api/admin/transfer/export">Umumiy zaxira (.json)</a>{% if user.role=='techadmin' %}<label class="file-picker"><input id="transfer-file" type="file" accept=".json"></label><button id="transfer-preview" class="button secondary" type="button">Faylni tekshirish</button><button id="transfer-import" class="button primary" type="button" disabled>Tekshirilgan faylni import qilish</button><p id="transfer-result" role="status"></p>{% endif %}</article>
+        <section id="tab-transfer" class="admin-tab hidden"><article class="industrial-card transfer-card"><h2>Umumiy ma’lumotlar</h2><p>Tarozi, E-navbat parkovka, darvozalar, cheklar va ulanish jurnali.</p>
+        <a class="button success" href="/api/admin/transfer/export?format=zip">Siqilgan zaxira (.zip)</a>
+        <a class="button secondary" href="/api/admin/transfer/export">Umumiy zaxira (.json)</a>
+        {% if user.role=='techadmin' %}<label class="file-picker">Tiklash fayli<input id="transfer-file" type="file" accept=".json,.zip"></label><button id="transfer-preview" class="button secondary" type="button">Faylni tekshirish</button><button id="transfer-import" class="button primary" type="button" disabled>Tekshirilgan faylni import qilish</button><p id="transfer-result" role="status"></p>{% endif %}</article>
           <header class="page-title"><div><span class="eyebrow">MA'LUMOTLARNI BOSHQARISH</span><h1>Import va Zaxira Nusxa</h1><p>Eski SQLite bazani ko'chirish va xavfsiz backup olish.</p></div></header>
           <div class="transfer-grid"><article class="industrial-card transfer-card"><span class="large-icon">⇧</span><h2>Tarozi bazasini alohida import qilish</h2><p>Eski <b>tarozi.db</b> faylidagi operatsiyalar, sanalar, narxlar va holatlar ko'chiriladi. Foydalanuvchi parollari import qilinmaydi.</p><label class="file-picker"><input id="import-file" type="file" accept=".db,.sqlite,.sqlite3"><span id="import-file-name">.db faylni tanlash</span></label><div id="upload-progress" class="upload-progress hidden"><div><i id="upload-progress-bar"></i></div><strong id="upload-progress-percent">0%</strong><span id="upload-progress-text">Fayl serverga yuklanmoqda...</span></div><button id="btn-import" class="button primary" type="button" disabled>Importni boshlash</button><div id="import-result" class="alert hidden"></div></article>
           <article class="industrial-card transfer-card backup"><span class="large-icon">⇩</span><h2>Tarozi SQLite zaxirasi</h2><p>{% if user.role == 'techadmin' %}Supabase'dagi tarozi foydalanuvchilari, sozlamalari va tarozi operatsiyalari bitta tekshiriladigan SQLite faylga yoziladi.{% else %}Supabase'dagi barcha tarozi, to'lov va xizmat sozlamalari import qilinadigan SQLite faylga yoziladi. Parol xeshlari kiritilmaydi.{% endif %}</p><div class="backup-note"><b>Fayl nomi:</b><span id="manual-backup-name">bugungi sana 00-00 holatiga backup.db</span></div><a id="btn-manual-backup" class="button success" href="{{ '/api/admin/backup/download' if user.role == 'techadmin' else '/api/backup/download' }}">Zaxira Nusxa (.db)</a>{% if user.role == 'techadmin' %}<small>Avtomatik lokal backup ixtiyoriy va Sozlamalar bo'limida yashirilgan.</small>{% endif %}</article></div>
+        </section>
+
+        <section id="tab-shifts" class="admin-tab hidden">
+          <header class="page-title">
+            <div>
+              <span class="eyebrow">SMENA TOPSHIRISH VA KASSA SOLISHTIRISH</span>
+              <h1>Smenalar va Kassa</h1>
+              <p>Operatorlar smenasi, kassa naqd pulini topshirish va tafovutlarni qayd etish.</p>
+            </div>
+            <div class="title-actions">
+              <button id="btn-open-shift-modal" class="button primary compact" type="button">+ Yangi smena ochish</button>
+              <button id="btn-refresh-shifts" class="button secondary compact" type="button">⟳ Yangilash</button>
+            </div>
+          </header>
+
+          <article class="industrial-card">
+            <div class="section-heading">
+              <div>
+                <h2>Ochiq smenalar</h2>
+                <p>Ayni paytda faoliyat olib borayotgan postlar va operatorlar.</p>
+              </div>
+            </div>
+            <div class="table-scroll">
+              <table>
+                <thead>
+                  <tr>
+                    <th>Post / Nuqta</th>
+                    <th>Operator</th>
+                    <th>Ochilgan vaqti</th>
+                    <th>Izoh</th>
+                    <th>Amal</th>
+                  </tr>
+                </thead>
+                <tbody id="shifts-active-body"></tbody>
+              </table>
+            </div>
+          </article>
+
+          <article class="industrial-card table-card">
+            <div class="section-heading">
+              <div>
+                <h2>Smenalar arxivi</h2>
+                <p>Yopilgan smenalar, kassa hisob-kitobi va aniqlangan tafovutlar.</p>
+              </div>
+            </div>
+            <div class="table-scroll">
+              <table>
+                <thead>
+                  <tr>
+                    <th>ID</th>
+                    <th>Nuqta</th>
+                    <th>Ochdi</th>
+                    <th>Ochilgan vaqt</th>
+                    <th>Yopdi</th>
+                    <th>Yopilgan vaqt</th>
+                    <th>Tizimdagi naqd pul</th>
+                    <th>Sanalgan naqd pul</th>
+                    <th>Farq</th>
+                    <th>Holat</th>
+                  </tr>
+                </thead>
+                <tbody id="shifts-archive-body"></tbody>
+              </table>
+            </div>
+          </article>
         </section>
 
         {% if user.role == 'techadmin' %}
@@ -83,7 +151,7 @@
 
         <section id="tab-users" class="admin-tab hidden">
           <header class="page-title"><div><span class="eyebrow">FAQAT TEXADMIN</span><h1>Foydalanuvchilarni Boshqarish</h1><p>Operator, admin va techadmin loginlarini yarating hamda boshqaring.</p></div></header>
-          <article class="industrial-card settings-block"><div class="section-heading"><div><h2>Yangi foydalanuvchi qo'shish</h2><p>Parol kamida 8 belgidan iborat bo'lishi kerak.</p></div></div><div class="user-create-grid"><input id="new-username" type="text" minlength="3" maxlength="40" autocomplete="off" placeholder="Yangi login"><input id="new-password" type="password" minlength="8" autocomplete="new-password" placeholder="Kamida 8 belgili parol"><select id="new-role"><option value="operator">Tarozi operatori</option><option value="parkovka_tashqi">E-navbat parkovka</option><option value="kpp2">O‘zbekiston darvozasi</option><option value="ayritom">Afg‘oniston darvozasi</option><option value="admin">Admin</option><option value="techadmin">Techadmin</option></select><button id="btn-create-user" class="button primary" type="button">Foydalanuvchi yaratish</button></div><div class="table-scroll"><table><thead><tr><th>Login</th><th>Rol</th><th>Holat</th><th>Oxirgi kirish</th><th>Amallar</th></tr></thead><tbody id="users-body"></tbody></table></div><div class="pagination"><label>Sahifada <select id="users-page-size"><option value="10">10 ta</option><option value="15" selected>15 ta</option><option value="20">20 ta</option><option value="50">50 ta</option><option value="100">100 ta</option></select></label><span id="users-count-label">0 ta foydalanuvchi</span><button id="users-prev" type="button">Oldingi</button><b id="users-page-info">1 / 1</b><button id="users-next" type="button">Keyingi</button></div></article>
+          <article class="industrial-card settings-block"><div class="section-heading"><div><h2>Yangi foydalanuvchi qo'shish</h2><p>Parol kamida 8 belgidan iborat bo'lishi kerak.</p></div></div><div class="user-create-grid"><input id="new-username" type="text" minlength="3" maxlength="40" autocomplete="off" placeholder="Yangi login"><input id="new-password" type="password" minlength="8" autocomplete="new-password" placeholder="Kamida 8 belgili parol"><select id="new-role"><option value="operator">Tarozi operatori</option><option value="parkovka_tashqi">E-navbat parkovka</option><option value="kpp2">O‘zbekiston darvozasi</option><option value="ayritom">Afg‘oniston darvozasi</option><option value="display">Navbat tablo ekrani</option><option value="observer">3D kuzatuvchi</option><option value="admin">Admin</option><option value="techadmin">Techadmin</option></select><button id="btn-create-user" class="button primary" type="button">Foydalanuvchi yaratish</button></div><div class="table-scroll"><table><thead><tr><th>Login</th><th>Rol</th><th>Holat</th><th>Oxirgi kirish</th><th>Amallar</th></tr></thead><tbody id="users-body"></tbody></table></div><div class="pagination"><label>Sahifada <select id="users-page-size"><option value="10">10 ta</option><option value="15" selected>15 ta</option><option value="20">20 ta</option><option value="50">50 ta</option><option value="100">100 ta</option></select></label><span id="users-count-label">0 ta foydalanuvchi</span><button id="users-prev" type="button">Oldingi</button><b id="users-page-info">1 / 1</b><button id="users-next" type="button">Keyingi</button></div></article>
         </section>
 
         <section id="tab-tech" class="admin-tab hidden">
@@ -101,6 +169,82 @@
   <div id="detail-modal" class="modal hidden" role="dialog" aria-modal="true"><div class="modal-card detail-modal"><header><div><h2>Chek Tafsilotlari</h2><p id="detail-receipt">—</p></div><button class="modal-close" data-close="detail-modal" type="button">×</button></header><div id="detail-body" class="detail-grid"></div><footer><button class="button secondary" data-close="detail-modal" type="button">Yopish</button><button id="detail-print" class="button success" type="button">▤ Qayta chop etish</button></footer></div></div>
   <div id="password-modal" class="modal hidden" role="dialog" aria-modal="true"><div class="modal-card narrow"><header><div><h2>Parolni yangilash</h2><p id="password-user">—</p></div><button class="modal-close" data-close="password-modal" type="button">×</button></header><div class="modal-body"><label>Yangi parol<input id="reset-password" type="password" placeholder="Kamida 8 belgi"></label></div><footer><button class="button secondary" data-close="password-modal" type="button">Bekor qilish</button><button id="btn-reset-password" class="button primary" type="button">Parolni reset qilish</button></footer></div></div>
   {% if user.role == 'techadmin' %}<div id="clear-data-modal" class="modal hidden" role="dialog" aria-modal="true"><div class="modal-card narrow destructive-modal"><header><div><h2>Barcha operatsiyalarni o'chirish</h2><p>Bu amalni ortga qaytarib bo'lmaydi.</p></div><button class="modal-close" data-close="clear-data-modal" type="button">×</button></header><div class="modal-body"><div class="destructive-warning">Tarozi o'lchovlari, Free Zone tashriflari, cheklar, to'lovlar va import tarixi butunlay o'chadi. Loginlar, tariflar va tariflar tarixi saqlanadi. Avval backup olish tavsiya qilinadi.</div><label>Joriy techadmin paroli<input id="clear-data-password" type="password" autocomplete="current-password" placeholder="Parolingiz"></label><label>Tasdiqlash uchun <b>BARCHASINI OCHIRISH</b> deb yozing<input id="clear-data-confirmation" type="text" autocomplete="off" placeholder="BARCHASINI OCHIRISH"></label></div><footer><button class="button secondary" data-close="clear-data-modal" type="button">Bekor qilish</button><button id="btn-confirm-clear-data" class="button danger" type="button" disabled>Hammasini o'chirish</button></footer></div></div>{% endif %}
+  <div id="shift-open-modal" class="modal hidden" role="dialog" aria-modal="true">
+    <div class="modal-card narrow">
+      <header>
+        <div><h2>Yangi smena ochish</h2><p>Postni tanlang va navbatchilikni boshlang</p></div>
+        <button class="modal-close" data-close="shift-open-modal" type="button">×</button>
+      </header>
+      <div class="modal-body">
+        <label>Nuqta / Post
+          <select id="shift-open-point">
+            <option value="tarozi">Tarozi</option>
+            <option value="parkovka_tashqi">E-navbat parkovka</option>
+            <option value="kpp2">O‘zbekiston darvozasi</option>
+            <option value="ayritom">Afg‘oniston darvozasi</option>
+          </select>
+        </label>
+        <label>Izoh (ixtiyoriy)
+          <input id="shift-open-note" type="text" placeholder="Masalan: 1-smena boshlandi">
+        </label>
+      </div>
+      <footer>
+        <button class="button secondary" data-close="shift-open-modal" type="button">Bekor qilish</button>
+        <button id="btn-confirm-open-shift" class="button primary" type="button">Smenani ochish</button>
+      </footer>
+    </div>
+  </div>
+
+  <div id="shift-close-modal" class="modal hidden" role="dialog" aria-modal="true">
+    <div class="modal-card narrow">
+      <header>
+        <div><h2>Smenani yopish va kassa topshirish</h2><p id="shift-close-title">—</p></div>
+        <button class="modal-close" data-close="shift-close-modal" type="button">×</button>
+      </header>
+      <div class="modal-body">
+        <input type="hidden" id="shift-close-id">
+        <label>Kassadagi sanalgan naqd pul (so‘m)
+          <input id="shift-close-counted" type="number" min="0" step="1000" placeholder="Masalan: 450000">
+        </label>
+        <label>Topshirish izohi / Sabab
+          <input id="shift-close-note" type="text" placeholder="Kassa to‘liq topshirildi">
+        </label>
+      </div>
+      <footer>
+        <button class="button secondary" data-close="shift-close-modal" type="button">Bekor qilish</button>
+        <button id="btn-confirm-close-shift" class="button danger" type="button">Smenani yopish</button>
+      </footer>
+    </div>
+  </div>
+
+  <div id="vehicle-history-modal" class="modal hidden" role="dialog" aria-modal="true">
+    <div class="modal-card detail-modal">
+      <header>
+        <div><h2>Avtomobil Tashrif Tarixi</h2><p id="vehicle-history-title">—</p></div>
+        <button class="modal-close" data-close="vehicle-history-modal" type="button">×</button>
+      </header>
+      <div id="vehicle-history-summary" class="metric-grid three" style="margin-bottom:1rem;"></div>
+      <div class="table-scroll">
+        <table>
+          <thead>
+            <tr>
+              <th>Vaqt</th>
+              <th>Nuqta / Amal</th>
+              <th>Tafsilot</th>
+              <th>Summa</th>
+              <th>To‘lov</th>
+              <th>Xodim</th>
+            </tr>
+          </thead>
+          <tbody id="vehicle-history-body"></tbody>
+        </table>
+      </div>
+      <footer>
+        <button class="button secondary" data-close="vehicle-history-modal" type="button">Yopish</button>
+      </footer>
+    </div>
+  </div>
+
   <div id="toast" class="toast hidden" role="status"><b id="toast-icon">✓</b><span id="toast-text"></span></div>
 <script src="{{ url_for('static', filename='devices.js', v='2') }}" defer></script>
 <link rel="stylesheet" href="/static/export-jobs.css"><script src="/static/export-jobs.js" defer></script>

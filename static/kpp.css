@@ -31,12 +31,14 @@ header small {
 }
 main {
   min-height: 0;
+  min-width: 0;
   display: grid;
   place-items: center;
   padding: 16px;
 }
 section {
   width: min(100%, 760px);
+  min-width: 0;
   max-height: 100%;
   min-height: 0;
 }
@@ -306,6 +308,9 @@ input:focus-visible {
 }
 .station-links a {
   flex: 1;
+  min-width: 0;
+  padding: 12px;
+  text-align: center;
   display: grid;
   align-content: center;
   justify-items: center;
@@ -404,6 +409,14 @@ dialog .buttons {
   align-items: center;
   justify-content: space-around;
   gap: 8px;
+}
+.station-links strong{font-size:clamp(18px,3vw,28px)}
+.apk-links a{min-width:0;flex:1;text-align:center;overflow-wrap:anywhere}
+@media(max-width:540px){
+ .station-links{flex-direction:column;height:clamp(180px,44dvh,320px);gap:12px;margin-bottom:16px}
+ .station-links a{gap:4px}
+ .apk-links{align-items:stretch}
+ .apk-links a{font-size:13px;line-height:1.4;padding:8px 4px}
 }
 #receipt-dialog {max-width:min(96vw,760px);width:max-content;max-height:96dvh;padding:10px;overflow:hidden}#receipt-dialog .receipt-layout{width:auto}#receipt-dialog .screen-only{display:block;margin:6px 0 0}
 @media print{#receipt-dialog{display:block;position:static;border:0;padding:0;margin:0;max-height:none;max-width:none;width:auto;background:white}#receipt-dialog::backdrop{background:transparent}#receipt-dialog .screen-only{display:none}}

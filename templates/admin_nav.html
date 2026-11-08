@@ -5,7 +5,7 @@
   <nav id="section-links" aria-label="Boshqaruv bo‘limlari">
     <a class="nav-link" aria-label="Hudud nazorati" title="Hudud nazorati · 3D" href="/zone"><span>⬡</span><b>Hudud nazorati · 3D</b></a>
     {% set sections = [('monitor','◉','Texnik monitoring'),('users','♙','Foydalanuvchilar')] if user.role == 'techadmin' else [('dashboard','▦','Umumiy ko‘rsatkichlar')] %}
-    {% set sections = sections + [('devices','▣','Qurilmalar'),('reports','▥','Hisobotlar'),('analytics','▤','Tahlil va eksport'),('search','⌕','Qidiruv'),('history','◴','Oxirgi operatsiyalar'),('transfer','⇅','Import va backup')] %}
+    {% set sections = sections + [('devices','▣','Qurilmalar'),('shifts','◒','Smenalar'),('reports','▥','Hisobotlar'),('analytics','▤','Tahlil va eksport'),('search','⌕','Qidiruv'),('history','◴','Oxirgi operatsiyalar'),('transfer','⇅','Import va backup')] %}
     {% if user.role == 'techadmin' %}{% set sections = sections + [('tech','⚙','Sozlamalar')] %}{% endif %}
     {% for tab,icon,label in sections %}
       {% if mode == 'dashboard' %}
