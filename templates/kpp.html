@@ -4,9 +4,9 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1,interactive-widget=resizes-content">
   <title>{{ points.get(user.role,'Airitom') }}</title>
-  <link rel="stylesheet" href="/static/kpp-parking.css?v=4">
-  <link rel="stylesheet" href="/static/kpp-station.css?v=6">
-  <script src="/static/kpp.js?v=5" defer></script>
+  <link rel="stylesheet" href="/static/kpp-parking.css?v=5">
+  <link rel="stylesheet" href="/static/kpp-station.css?v=7">
+  <script src="/static/kpp.js?v=6" defer></script>
 </head>
 <body class="kpp" data-csrf="{{ csrf_token() }}" data-role="{{ user.role }}" data-user="{{ user.id }}" data-mode="{{ mode }}" data-receipt-id="{{ receipt_id|default(0) }}" data-print-attempts="{{ receipt.print_attempts if receipt is defined else 0 }}">
 {% macro csrf() %}<input type="hidden" name="csrf_token" value="{{ csrf_token() }}">{% endmacro %}
@@ -18,10 +18,27 @@
     <form method="post" action="/logout">{{ csrf() }}<button class="btn-secondary compact" type="submit">Chiqish</button></form>
   </header>
   <main class="main-content">
-    <div class="hero-text"><h1>Transport nazorati</h1></div>
+    <div class="hero-text">
+      <h1 class="hero-title">Hudud Kirish-Chiqish<br><span class="hero-accent">Tizimi</span></h1>
+      <p class="hero-sub">Kirish yoki chiqishni tanlang</p>
+    </div>
     <div class="action-boxes">
-      <button type="button" class="action-box entry-box" data-action="in"><span class="action-box-inner"><span class="action-icon" aria-hidden="true">↘</span><span class="action-label">Kirish</span></span></button>
-      <button type="button" class="action-box exit-box" data-action="out"><span class="action-box-inner"><span class="action-icon" aria-hidden="true">↗</span><span class="action-label">Chiqish</span></span></button>
+      <button type="button" class="action-box entry-box" data-action="in">
+        <div class="action-box-glow entry-glow"></div>
+        <span class="action-box-inner">
+          <span class="action-orb orb-blue" aria-hidden="true"></span>
+          <span class="action-label">KIRISH</span>
+          <span class="action-sub">HUDUDGA KIRISH</span>
+        </span>
+      </button>
+      <button type="button" class="action-box exit-box" data-action="out">
+        <div class="action-box-glow exit-glow"></div>
+        <span class="action-box-inner">
+          <span class="action-orb orb-red" aria-hidden="true"></span>
+          <span class="action-label">CHIQISH</span>
+          <span class="action-sub">HUDUDDAN CHIQISH</span>
+        </span>
+      </button>
     </div>
     <div class="stats-bar"><div class="stat-item"><span class="stat-val" id="stat-active">—</span><span class="stat-label">Hozir hudud ichida</span></div><div class="stat-divider"></div><div class="stat-item"><span class="stat-val" id="stat-count">—</span><span class="stat-label">Bugun chiqdi</span></div><div class="stat-divider"></div><div class="stat-item"><span class="stat-val" id="stat-total">—</span><span class="stat-label">Bugungi tushum (so‘m)</span></div></div>
   </main>
@@ -32,8 +49,22 @@
   <form id="plate-form" class="modal-card" method="post" action="/zone/quote">
     {{ csrf() }}<input type="hidden" name="action" id="action">
     <button type="button" class="modal-close" id="back" aria-label="Yopish">✕</button>
-    <h2 id="title" class="modal-title">Avtomobil raqami</h2>
-    <div class="plate-input-wrap"><div class="plate-flag">UZ</div><input class="plate-input" id="plate" name="plate" placeholder="01 A 123 BA" required minlength="2" maxlength="20" autocomplete="off" autocapitalize="characters" enterkeyhint="go" spellcheck="false" aria-label="Davlat raqami"></div>
+    <div class="modal-car-badge" id="modal-car-icon">🚗</div>
+    <h2 id="title" class="modal-title">Chiqayotgan avtomobil</h2>
+    <div class="plate-input-wrap">
+      <div class="plate-flag">
+        <svg class="flag-icon" viewBox="0 0 32 20" width="30" height="19" style="border-radius:3px;overflow:hidden;box-shadow:0 1px 4px rgba(0,0,0,0.4)">
+          <rect width="32" height="7" fill="#0099b5" />
+          <rect width="32" height="6" y="7" fill="#ffffff" />
+          <rect width="32" height="7" y="13" fill="#1eb53a" />
+          <rect width="32" height="0.8" y="6.6" fill="#ce1126" />
+          <rect width="32" height="0.8" y="12.6" fill="#ce1126" />
+          <circle cx="5" cy="3.5" r="2.2" fill="#ffffff" />
+          <circle cx="5.8" cy="3.5" r="2.2" fill="#0099b5" />
+        </svg>
+      </div>
+      <input class="plate-input" id="plate" name="plate" placeholder="01 A 123 BA" required minlength="2" maxlength="20" autocomplete="off" autocapitalize="characters" enterkeyhint="go" spellcheck="false" aria-label="Davlat raqami">
+    </div>
     {% if user.role=='kpp2' %}<button type="button" id="scan-ticket" class="btn-secondary compact">Navbat QRni o‘qish</button>{% endif %}
     <p id="plate-error" class="message" role="alert"></p>
     <div class="modal-actions-row"><button type="button" class="btn-secondary" id="plate-back">Orqaga</button><button class="btn-primary" type="submit">Davom etish →</button></div>

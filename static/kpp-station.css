@@ -115,32 +115,402 @@
 .kpp .queue-banner strong{font-variant-numeric:tabular-nums;min-width:2ch;color:#fff}
 
 @media screen {
- .kpp{font-family:Roboto,"Segoe UI",sans-serif;background:#0e1b2c}
- .kpp .main-bg{background:#0e1b2c}
- .kpp .main-bg::after{content:none}
- .kpp .main-header,.kpp .stats-bar,.kpp .payment-card,.kpp .kiosk-dialog::backdrop{backdrop-filter:none}
- .kpp .main-header{background:#15263a;border-bottom:1px solid #304056}
- .kpp .header-logo,.kpp .logo-text{min-width:0}
- .kpp .logo-title,.kpp .hero-text h1,.kpp .action-label{background:none;color:#f6f8fc;-webkit-text-fill-color:currentColor}
- .kpp .hero-text{width:min(100%,1100px);text-align:left}
- .kpp .hero-text h1{margin:0;font-weight:650;letter-spacing:-.025em}
- .kpp .action-box{border:1px solid;border-radius:16px;transition:transform 120ms ease}
- .kpp .entry-box,.kpp .entry-box:hover{background:#15375a;border-color:#346795;box-shadow:none}
- .kpp .exit-box,.kpp .exit-box:hover{background:#422931;border-color:#794654;box-shadow:none}
- .kpp .action-box:hover{transform:none}
- .kpp .action-box:active{transform:scale(.985)}
- .kpp .action-box-inner{flex-direction:row;justify-content:flex-start;width:100%;gap:16px;padding:14px 20px}
- .kpp .action-icon{display:grid;place-items:center;width:1.7em;height:1.7em;font-size:26px;background:#ffffff12;color:#a9d7ff;border-radius:12px;filter:none}
- .kpp .exit-box .action-icon{color:#ffb8bd}
- .kpp .action-label{font-size:clamp(22px,5vw,36px);font-weight:650;letter-spacing:-.02em}
- .kpp .queue-banner{background:#132338;color:#d7e3f2;line-height:1.35}
- .kpp .station-footer{background:#15263a;border-top:1px solid #304056}
- .kpp .stats-bar{border-radius:12px;background:#15263a;box-shadow:none}
- .kpp .modal-card,.kpp .payment-card,.kpp .receipt-card,.kpp .journal-card{background:#15263a;border:1px solid #394b61;box-shadow:none}
- .kpp #vehicle .modal-title{text-align:left;padding-right:34px}
- .kpp #vehicle .plate-flag{font:700 14px Roboto,sans-serif;color:#a9d7ff}
- .kpp .kiosk-dialog[open] .modal-card{animation:kpp-enter 140ms ease-out}
- @keyframes kpp-enter{from{opacity:.4;transform:translateY(5px)}to{opacity:1;transform:none}}
+  .kpp { font-family: Outfit, "Segoe UI", sans-serif; background: #060b18; color: #e2e8f0; }
+  .kpp .main-bg {
+    position: absolute; inset: 0;
+    background:
+      radial-gradient(ellipse 80% 50% at 50% 0%, rgba(59,130,246,0.18) 0%, transparent 70%),
+      radial-gradient(ellipse 60% 40% at 80% 80%, rgba(16,185,129,0.12) 0%, transparent 60%),
+      linear-gradient(180deg, #060b18 0%, #0a1628 50%, #060b18 100%);
+    z-index: 0;
+  }
+  .kpp .main-bg::after {
+    content: ''; position: absolute; inset: 0;
+    background-image:
+      linear-gradient(rgba(59,130,246,0.06) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(59,130,246,0.06) 1px, transparent 1px);
+    background-size: 40px 40px;
+    opacity: 0.85;
+  }
+  .kpp .main-header {
+    background: rgba(6, 12, 26, 0.75);
+    border-bottom: 1px solid rgba(59, 130, 246, 0.22);
+    backdrop-filter: blur(14px);
+    -webkit-backdrop-filter: blur(14px);
+  }
+  .kpp .logo-title {
+    font-size: clamp(14px, 2.2vw, 20px);
+    font-weight: 800;
+    background: linear-gradient(90deg, #60a5fa, #34d399);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+  }
+  .kpp .header-time {
+    font-size: clamp(18px, 2.8vw, 30px);
+    font-weight: 750;
+    color: #38bdf8;
+    letter-spacing: 2px;
+    font-variant-numeric: tabular-nums;
+    text-shadow: 0 0 16px rgba(56, 189, 248, 0.4);
+  }
+  .kpp .hero-text {
+    text-align: center;
+    width: 100%;
+    margin: 4px 0 10px;
+  }
+  .kpp .hero-title {
+    font-size: clamp(24px, 4.2vw, 36px);
+    font-weight: 850;
+    line-height: 1.2;
+    background: linear-gradient(135deg, #ffffff 15%, #6ee7b7 60%, #38bdf8 100%);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    text-shadow: 0 0 30px rgba(56, 189, 248, 0.25);
+    margin: 0;
+    letter-spacing: 0.5px;
+  }
+  .kpp .hero-accent {
+    background: linear-gradient(135deg, #38bdf8 0%, #818cf8 100%);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+  }
+  .kpp .hero-sub {
+    font-size: clamp(13px, 1.8vw, 16px);
+    color: #8da4c4;
+    margin: 6px 0 0;
+    letter-spacing: 0.4px;
+  }
+  .kpp .action-boxes {
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+    width: min(100%, 460px);
+    margin: 0 auto;
+    flex: 1;
+    justify-content: center;
+    padding: 0 12px;
+  }
+  .kpp .action-box {
+    position: relative;
+    border-radius: 20px;
+    overflow: hidden;
+    min-height: 140px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    border: 2px solid transparent;
+    transition: transform 0.25s cubic-bezier(0.16, 1, 0.3, 1), box-shadow 0.25s cubic-bezier(0.16, 1, 0.3, 1), border-color 0.25s ease;
+    outline: none;
+  }
+  .kpp .entry-box {
+    background-color: #08142b;
+    background-image:
+      linear-gradient(rgba(59, 130, 246, 0.08) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(59, 130, 246, 0.08) 1px, transparent 1px),
+      radial-gradient(ellipse 90% 70% at 50% 20%, rgba(59, 130, 246, 0.22) 0%, transparent 80%),
+      linear-gradient(160deg, rgba(14, 34, 68, 0.75) 0%, rgba(6, 16, 36, 0.95) 100%);
+    background-size: 26px 26px, 26px 26px, 100% 100%, 100% 100%;
+    border-color: rgba(59, 130, 246, 0.45);
+    box-shadow: 0 8px 30px rgba(0, 0, 0, 0.5), 0 0 35px rgba(59, 130, 246, 0.2);
+  }
+  .kpp .exit-box {
+    background-color: #200c14;
+    background-image:
+      linear-gradient(rgba(239, 68, 68, 0.08) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(239, 68, 68, 0.08) 1px, transparent 1px),
+      radial-gradient(ellipse 90% 70% at 50% 20%, rgba(239, 68, 68, 0.22) 0%, transparent 80%),
+      linear-gradient(160deg, rgba(60, 16, 28, 0.75) 0%, rgba(30, 8, 14, 0.95) 100%);
+    background-size: 26px 26px, 26px 26px, 100% 100%, 100% 100%;
+    border-color: rgba(239, 68, 68, 0.45);
+    box-shadow: 0 8px 30px rgba(0, 0, 0, 0.5), 0 0 35px rgba(239, 68, 68, 0.2);
+  }
+  .kpp .action-box:hover, .kpp .action-box:active {
+    transform: translateY(-4px) scale(1.02);
+  }
+  .kpp .entry-box:hover, .kpp .entry-box:active {
+    border-color: #60a5fa;
+    box-shadow: 0 16px 45px rgba(0, 0, 0, 0.6), 0 0 55px rgba(59, 130, 246, 0.45);
+  }
+  .kpp .exit-box:hover, .kpp .exit-box:active {
+    border-color: #f87171;
+    box-shadow: 0 16px 45px rgba(0, 0, 0, 0.6), 0 0 55px rgba(239, 68, 68, 0.45);
+  }
+  .kpp .action-box-inner {
+    position: relative;
+    z-index: 2;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    padding: 16px;
+    width: 100%;
+  }
+  .kpp .action-orb {
+    display: block;
+    width: 44px;
+    height: 44px;
+    border-radius: 50%;
+    margin-bottom: 4px;
+  }
+  .kpp .orb-blue {
+    background: radial-gradient(circle at 35% 30%, #93c5fd 0%, #3b82f6 45%, #1d4ed8 85%, #1e3a8a 100%);
+    box-shadow: 0 0 20px #3b82f6, 0 0 40px rgba(59, 130, 246, 0.45), inset 0 2px 4px rgba(255, 255, 255, 0.9), inset 0 -3px 6px rgba(0, 0, 0, 0.5);
+    animation: orb-float-blue 3s ease-in-out infinite;
+  }
+  .kpp .orb-red {
+    background: radial-gradient(circle at 35% 30%, #fca5a5 0%, #ef4444 45%, #b91c1c 85%, #7f1d1d 100%);
+    box-shadow: 0 0 20px #ef4444, 0 0 40px rgba(239, 68, 68, 0.45), inset 0 2px 4px rgba(255, 255, 255, 0.9), inset 0 -3px 6px rgba(0, 0, 0, 0.5);
+    animation: orb-float-red 3s ease-in-out infinite;
+  }
+  @keyframes orb-float-blue {
+    0%, 100% { transform: translateY(0) scale(1); box-shadow: 0 0 20px #3b82f6, 0 0 35px rgba(59, 130, 246, 0.4); }
+    50% { transform: translateY(-3px) scale(1.05); box-shadow: 0 0 28px #60a5fa, 0 0 50px rgba(59, 130, 246, 0.6); }
+  }
+  @keyframes orb-float-red {
+    0%, 100% { transform: translateY(0) scale(1); box-shadow: 0 0 20px #ef4444, 0 0 35px rgba(239, 68, 68, 0.4); }
+    50% { transform: translateY(-3px) scale(1.05); box-shadow: 0 0 28px #f87171, 0 0 50px rgba(239, 68, 68, 0.6); }
+  }
+  .kpp .action-label {
+    font-size: clamp(26px, 5.5vw, 36px);
+    font-weight: 900;
+    letter-spacing: 3px;
+    color: #ffffff;
+    text-shadow: 0 2px 16px rgba(255,255,255,0.3);
+    line-height: 1.1;
+    margin: 0;
+  }
+  .kpp .action-sub {
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: 1.8px;
+    text-transform: uppercase;
+    margin-top: 2px;
+  }
+  .kpp .entry-box .action-sub { color: #93c5fd; }
+  .kpp .exit-box .action-sub { color: #fca5a5; }
+  .kpp .stats-bar {
+    display: flex;
+    align-items: center;
+    justify-content: space-around;
+    background: rgba(14, 25, 48, 0.8);
+    backdrop-filter: blur(14px);
+    -webkit-backdrop-filter: blur(14px);
+    border: 1px solid rgba(59, 130, 246, 0.25);
+    border-radius: 14px;
+    padding: 12px 16px;
+    width: min(100%, 460px);
+    margin: 0 auto;
+    box-shadow: 0 10px 25px rgba(0, 0, 0, 0.35);
+  }
+  .kpp .stat-item {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 3px;
+    flex: 1;
+    text-align: center;
+    min-width: 0;
+  }
+  .kpp .stat-val {
+    font-size: clamp(18px, 3.5vw, 24px);
+    font-weight: 800;
+    color: #38bdf8;
+    font-variant-numeric: tabular-nums;
+    text-shadow: 0 0 12px rgba(56, 189, 248, 0.35);
+  }
+  .kpp .stat-label {
+    font-size: 11px;
+    color: #94a3b8;
+    font-weight: 500;
+    white-space: normal;
+    line-height: 1.2;
+  }
+  .kpp .stat-divider {
+    width: 1px;
+    height: 32px;
+    background: rgba(59, 130, 246, 0.2);
+    flex: none;
+  }
+  .kpp .queue-banner {
+    background: rgba(10, 20, 38, 0.85);
+    border-top: 1px solid rgba(59, 130, 246, 0.18);
+    color: #94a3b8;
+    padding: 8px 14px;
+    font-size: 13px;
+    text-align: center;
+  }
+  .kpp .queue-banner strong { color: #38bdf8; font-weight: 700; }
+  .kpp .station-footer {
+    background: rgba(8, 14, 28, 0.9);
+    border-top: 1px solid rgba(59, 130, 246, 0.22);
+    padding: 8px 16px;
+  }
+  .kpp .station-footer .btn-secondary {
+    background: rgba(22, 38, 68, 0.8);
+    border: 1px solid rgba(59, 130, 246, 0.35);
+    border-radius: 8px;
+    color: #e2e8f0; font-size: 13px;
+  }
+  .kpp .station-footer .btn-secondary:hover {
+    background: rgba(30, 52, 92, 0.95);
+    border-color: #60a5fa;
+  }
+  .kpp .kiosk-dialog::backdrop {
+    background: rgba(4, 8, 18, 0.85);
+    backdrop-filter: blur(14px);
+    -webkit-backdrop-filter: blur(14px);
+  }
+  .kpp #vehicle .modal-card {
+    position: relative;
+    background: rgba(10, 18, 36, 0.96);
+    backdrop-filter: blur(24px);
+    -webkit-backdrop-filter: blur(24px);
+    border: 1.5px solid rgba(59, 130, 246, 0.4);
+    border-radius: 22px;
+    padding: 24px 20px;
+    box-shadow: 0 25px 70px rgba(0, 0, 0, 0.8), 0 0 50px rgba(59, 130, 246, 0.22);
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    text-align: center;
+    width: min(460px, calc(100vw - 20px));
+  }
+  .kpp .modal-close {
+    position: absolute;
+    top: 14px;
+    right: 14px;
+    width: 36px;
+    height: 36px;
+    border-radius: 10px;
+    background: rgba(255, 255, 255, 0.06);
+    border: 1px solid rgba(255, 255, 255, 0.12);
+    color: #94a3b8;
+    font-size: 16px;
+    display: grid;
+    place-items: center;
+    cursor: pointer;
+    transition: all 0.2s;
+  }
+  .kpp .modal-close:hover {
+    background: rgba(239, 68, 68, 0.2);
+    border-color: rgba(239, 68, 68, 0.5);
+    color: #fff;
+  }
+  .kpp .modal-car-badge {
+    font-size: 44px;
+    line-height: 1;
+    margin: 4px auto 10px;
+    filter: drop-shadow(0 4px 14px rgba(239, 68, 68, 0.4));
+    animation: car-wobble 2.5s ease-in-out infinite;
+  }
+  .kpp .modal-car-badge.car-blue {
+    filter: drop-shadow(0 4px 14px rgba(59, 130, 246, 0.5));
+  }
+  @keyframes car-wobble {
+    0%, 100% { transform: translateY(0); }
+    50% { transform: translateY(-4px) scale(1.05); }
+  }
+  .kpp #vehicle .modal-title {
+    font-size: 21px;
+    font-weight: 750;
+    color: #ffffff;
+    margin: 0 0 18px;
+    letter-spacing: 0.5px;
+    text-align: center;
+    padding: 0;
+  }
+  .kpp .plate-input-wrap {
+    width: 100%;
+    display: flex;
+    align-items: center;
+    background: rgba(6, 12, 26, 0.9);
+    border: 2px solid #3b82f6;
+    border-radius: 14px;
+    overflow: hidden;
+    box-shadow: 0 0 20px rgba(59, 130, 246, 0.35);
+    transition: all 0.25s;
+    margin: 0 0 16px;
+  }
+  .kpp .plate-input-wrap:focus-within {
+    border-color: #60a5fa;
+    box-shadow: 0 0 28px rgba(59, 130, 246, 0.6), 0 0 0 3px rgba(59, 130, 246, 0.25);
+  }
+  .kpp .plate-flag {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 10px 14px;
+    background: rgba(16, 30, 56, 0.7);
+    border-right: 1px solid rgba(59, 130, 246, 0.3);
+    flex: none;
+  }
+  .kpp .plate-input {
+    flex: 1;
+    min-width: 0;
+    background: transparent;
+    border: none;
+    outline: none;
+    font-family: Outfit, Segoe UI, monospace;
+    font-size: 24px;
+    font-weight: 800;
+    letter-spacing: 3px;
+    color: #ffffff;
+    text-transform: uppercase;
+    padding: 12px 14px;
+  }
+  .kpp .plate-input::placeholder {
+    color: rgba(148, 163, 184, 0.45);
+    font-weight: 500;
+  }
+  .kpp .modal-actions-row {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    width: 100%;
+    margin-top: 8px;
+  }
+  .kpp .modal-actions-row button {
+    flex: 1;
+    padding: 13px 18px;
+    font-size: 15px;
+    font-weight: 650;
+    border-radius: 10px;
+    min-height: 44px;
+  }
+  .kpp .btn-primary {
+    background: linear-gradient(135deg, #2563eb, #1d4ed8);
+    border: 1px solid #60a5fa;
+    box-shadow: 0 0 20px rgba(37, 99, 235, 0.4);
+    color: #fff;
+    cursor: pointer;
+    transition: all 0.2s;
+  }
+  .kpp .btn-primary:hover, .kpp .btn-primary:active {
+    background: linear-gradient(135deg, #3b82f6, #2563eb);
+    box-shadow: 0 0 30px rgba(59, 130, 246, 0.6);
+    transform: translateY(-2px);
+  }
+  .kpp .btn-secondary {
+    background: rgba(30, 48, 80, 0.75);
+    border: 1px solid rgba(75, 110, 160, 0.4);
+    color: #e2e8f0;
+    cursor: pointer;
+    transition: all 0.2s;
+  }
+  .kpp .btn-secondary:hover, .kpp .btn-secondary:active {
+    background: rgba(45, 70, 115, 0.9);
+    border-color: #60a5fa;
+    color: #fff;
+  }
+  .kpp .kiosk-dialog[open] .modal-card {
+    animation: kpp-modal-pop 0.28s cubic-bezier(0.16, 1, 0.3, 1);
+  }
+  @keyframes kpp-modal-pop {
+    0% { opacity: 0; transform: scale(0.92) translateY(12px); }
+    100% { opacity: 1; transform: scale(1) translateY(0); }
+  }
 }
 @media screen and (max-width:600px){
  .kpp .main-header{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:6px 12px;padding:10px 12px}

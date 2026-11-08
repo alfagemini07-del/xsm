@@ -38,6 +38,8 @@ function screen(payment) {
 function openVehicle(action) {
   el("action").value=action;
   el("title").textContent=action==="in"?"Kirayotgan avtomobil":"Chiqayotgan avtomobil";
+  const car=el("modal-car-icon");
+  if(car){car.textContent=action==="in"?"🚙":"🚗";car.className="modal-car-badge "+(action==="in"?"car-blue":"car-red");}
   el("plate").value="";el("plate-error").textContent="";
   delete el("plate").dataset.queue;
   if(el("scan-ticket"))el("scan-ticket").hidden=action!=="in";
