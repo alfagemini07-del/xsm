@@ -175,9 +175,6 @@ def ensure_schema() -> None:
                 if not inserted:
                     generated_bootstrap = None
             elif len(configured_password) >= 8:
-                # First-login recovery: an incorrectly configured initial password can be
-                # corrected on the next deploy, but never overwrite a password after the
-                # techadmin has logged in successfully for the first time.
                 bootstrap_user = conn.execute(
                     """SELECT id, password_hash, last_login_at FROM users
                        WHERE username=%s AND role='techadmin' AND is_active""",
@@ -189,8 +186,6 @@ def ensure_schema() -> None:
                             "UPDATE users SET password_hash=%s, updated_at=NOW() WHERE id=%s",
                             (generate_password_hash(configured_password, method="scrypt"), bootstrap_user["id"]),
                         )
-                    # Identifiers contain an irreversible IP+username hash. During the
-                    # one-time first-login recovery it is safe to clear stale lockouts.
                     conn.execute("DELETE FROM login_attempts")
                     synced_bootstrap = username
         if generated_bootstrap:
@@ -226,9 +221,11 @@ def load_request_context():
     g.user = None
     if request.endpoint in {"static", "health", "favicon"}:
         return None
-    if request.endpoint=="index" and request.method in {"GET","HEAD"} and not session.get("user_id") and not request.headers.get("Authorization"):
-        return redirect(url_for("login",next="/"))
-    if request.endpoint=="login" and request.method in {"GET","HEAD"} and not session.get("user_id"):
+    if request.method == "HEAD" and request.endpoint in {"index", "login"} and not session.get("user_id") and not request.headers.get("Authorization"):
+        return app.response_class("", status=200)
+    if request.endpoint == "index" and request.method in {"GET", "HEAD"} and not session.get("user_id") and not request.headers.get("Authorization"):
+        return redirect(url_for("login", next="/"))
+    if request.endpoint == "login" and request.method in {"GET", "HEAD"} and not session.get("user_id"):
         return None
     ensure_schema()
     from devices import authenticate_device, PUBLIC_DEVICE_ENDPOINTS
@@ -250,11 +247,11 @@ def load_request_context():
                 FROM users u LEFT JOIN devices d ON d.id=%s
                 WHERE u.id = %s
                 """,
-                (session.get("device_id"),user_id),
+                (session.get("device_id"), user_id),
             ).fetchone()
         if user and user["is_active"] and session.get("auth_version") == hashlib.sha256(user["password_hash"].encode()).hexdigest():
             g.user = user
-            if user["role"]=="display" and request.endpoint not in {"index","login","logout","zone_home","queue_display","queue_display_data"}:
+            if user["role"] == "display" and request.endpoint not in {"index", "login", "logout", "zone_home", "queue_display", "queue_display_data"}:
                 abort(403)
             if user["role"] == "observer" and request.endpoint not in {
                 "index", "login", "logout", "zone_home", "control_room", "room_data",
@@ -266,7 +263,7 @@ def load_request_context():
                     session.clear()
                     abort(403)
             if user["role"] in POINTS and request.endpoint not in {
-                "index", "login", "logout", "zone_home", "zone_quote", "zone_commit", "zone_receipt", "kpp_select", "kpp_entry", "web_heartbeat", "kpp_journal", "kpp_stats", "kpp_print"
+                "index", "login", "logout", "zone_home", "zone_quote", "zone_commit", "zone_receipt", "kpp_select", "kpp_entry", "web_heartbeat", "kpp_journal", "kpp_stats", "kpp_print", "sync_state"
             }:
                 abort(403)
         else:
@@ -289,7 +286,7 @@ def add_security_headers(response):
     if started is not None:
         elapsed_ms = (time.perf_counter() - started) * 1000
         response.headers["Server-Timing"] = f"app;dur={elapsed_ms:.1f}"
-        if elapsed_ms > 1000 and request.endpoint != "static":
+        if elapsed_ms > 2500 and request.endpoint != "static":
             app.logger.warning("SLOW REQUEST request_id=%s endpoint=%s method=%s duration_ms=%.0f",
                                g.request_id, request.endpoint, request.method, elapsed_ms)
         with _request_metrics_lock:
@@ -381,17 +378,21 @@ def get_service_prices(conn=None) -> dict:
         "weighing": 30000,
         "entry": 30000,
         "reload": 30000,
+        "zone_daily": 30000,
     }
 
-    def query(active_conn) -> dict[str, int]:
+    def query(active_conn) -> dict[str, int | bool]:
         keys = [key for price_key, enabled_key, _ in TARIFFS.values() for key in (price_key, enabled_key)]
         rows = active_conn.execute("SELECT key, value FROM settings WHERE key = ANY(%s)", (keys,)).fetchall()
         values = {row["key"]: row["value"] for row in rows}
         result = {}
         for code, (price_key, enabled_key, _label) in TARIFFS.items():
             fallback = defaults.get(code, 30000)
-            result[code] = max(0, int(values.get(price_key, fallback)))
-            result[f"{code}_enabled"] = values.get(enabled_key, "true").lower() == "true"
+            enabled = values.get(enabled_key, "true").lower() == "true"
+            raw_amount = max(0, int(values.get(price_key, fallback)))
+            result[code] = raw_amount
+            result[f"{code}_enabled"] = enabled
+            result[f"{code}_effective"] = raw_amount if enabled else 0
         return result
 
     if conn is not None:
@@ -595,7 +596,6 @@ _health_success = 0.0
 @app.get("/health")
 def health():
     global _health_success
-    # Reuse a recent successful check so platform probes do not open extra DB transactions.
     with _health_lock:
         if time.monotonic() - _health_success < 20:
             return jsonify(status="ok")
@@ -606,8 +606,8 @@ def health():
             _health_success = time.monotonic()
             return jsonify(status="ok")
         except Exception as error:
-            app.logger.error("Health check failed: %s",error)
-            return jsonify(status="error"),503
+            app.logger.error("Health check failed: %s", error)
+            return jsonify(status="error"), 503
 
 
 @app.get("/favicon.ico")
@@ -645,12 +645,18 @@ def login():
                         (user["id"],),
                     )
                     device_cookie = None
-                    if user["role"] in {"kpp2", "ayritom"}:
+                    if user["role"] in {"kpp2", "ayritom", "operator", "parkovka_tashqi"}:
                         from devices import web_device_login, set_web_device_cookie
                         from flask import make_response
                         did, device_cookie, device_error = web_device_login(conn, user, app)
                         if device_error:
                             response = make_response(render_template("login.html", error=device_error, username=username), 403)
+                            return set_web_device_cookie(response, device_cookie, app, user["role"])
+                        if user["role"] in {"operator", "parkovka_tashqi"}:
+                            session.clear()
+                            role_title = "Tarozi" if user["role"] == "operator" else "E-navbat Parkovka"
+                            msg = f"Kompyuter tasdiqlandi ✓ ({role_title}). Endi kompyuterdagi {role_title} dasturidan kiring — ruxsat avtomatik faol."
+                            response = make_response(render_template("login.html", error=msg, username=username), 200)
                             return set_web_device_cookie(response, device_cookie, app, user["role"])
                     session.clear()
                     session.permanent = True
@@ -659,12 +665,7 @@ def login():
                     if user["role"] in {"kpp2", "ayritom"}:
                         session["device_id"] = did
                     csrf_token()
-                    # Land on the workspace allowed for this role, even when login
-                    # was opened from another employee's admin link.
                     next_url = url_for("index" if user["role"] == "operator" else "zone_home")
-                    if user["role"] in {"operator", "parkovka_tashqi"}:
-                        session.clear()
-                        return render_template("login.html", error="Bu hisob bilan kompyuterdagi Tarozi yoki Parkovka dasturidan kiring.", username=username), 403
                     if user["role"] in {"ayritom", "kpp2"}:
                         next_url = url_for("kpp_entry", number=1 if user["role"] == "ayritom" else 2)
                     response = redirect(next_url)
@@ -698,7 +699,7 @@ def index():
 def admin_page():
     allowed_tabs = {"monitor", "users", "reports", "analytics", "search", "history", "transfer", "tech", "devices"}
     requested_tab = "devices" if request.endpoint == "devices_page" else request.args.get("tab", "")
-    permitted_tabs = allowed_tabs if g.user["role"] == "techadmin" else {"reports", "analytics", "search", "history", "transfer", "devices"}
+    permitted_tabs = allowed_tabs if g.user["role"] == "techadmin" else {"dashboard", "reports", "analytics", "search", "history", "transfer"}
     default_tab = requested_tab if requested_tab in permitted_tabs else (
         "monitor" if g.user["role"] == "techadmin" else "dashboard"
     )
@@ -783,12 +784,15 @@ def api_today_stats():
         count=row["count"],
         total=row["total"],
         total_fmt=money(row["total"]),
-        current_price=service_prices["weighing"],
-        entry_price=service_prices["entry"],
-        reload_price=service_prices["reload"],
+        current_price=service_prices["weighing"] if service_prices["weighing_enabled"] else 0,
+        entry_price=service_prices["entry"] if service_prices["entry_enabled"] else 0,
+        reload_price=service_prices["reload"] if service_prices["reload_enabled"] else 0,
+        zone_daily_price=service_prices["zone_daily"] if service_prices["zone_daily_enabled"] else 0,
         weighing_enabled=service_prices["weighing_enabled"],
         entry_enabled=service_prices["entry_enabled"],
         reload_enabled=service_prices["reload_enabled"],
+        zone_daily_enabled=service_prices["zone_daily_enabled"],
+        prices=service_prices,
         personal={item["payment_method"]: int(item["amount"]) for item in personal},
         last_receipt=last,
     )
@@ -981,17 +985,22 @@ def pay_weighing(weighing_id: int):
                 return jsonify(success=False, message="Hududga kirish tarifi techadmin tomonidan o'chirilgan"), 409
             if reload_service and not service_prices["reload_enabled"]:
                 return jsonify(success=False, message="Qayta yuklash tarifi techadmin tomonidan o'chirilgan"), 409
-            weighing_fee_value = row.get("weighing_fee")
-            weighing_fee = int(
-                weighing_fee_value
-                if weighing_fee_value is not None
-                else (row.get("price") or service_prices["weighing"])
-            )
-            entry_fee = service_prices["entry"] if entry_service else 0
-            reload_fee = service_prices["reload"] if reload_service else 0
+            # Always use the current live tariff set by techadmin when settling a pending weighing
+            weighing_fee = int(service_prices["weighing"] if service_prices["weighing_enabled"] else 0)
+            entry_fee = int(service_prices["entry"] if (entry_service and service_prices["entry_enabled"]) else 0)
+            reload_fee = int(service_prices["reload"] if (reload_service and service_prices["reload_enabled"]) else 0)
             total = weighing_fee + entry_fee + reload_fee
-            if data.get("expected_total") != total:
-                return jsonify(success=False, message="Tarif o‘zgardi. Hisobni yangilab qayta tasdiqlang."), 409
+            if data.get("expected_total") is not None and int(data.get("expected_total")) != total:
+                conn.execute(
+                    "UPDATE weighings SET weighing_fee=%s, price=%s, updated_at=NOW() WHERE id=%s",
+                    (weighing_fee, weighing_fee, weighing_id),
+                )
+                return jsonify(
+                    success=False,
+                    message="Tarif o‘zgardi. Hisobni yangilab qayta tasdiqlang.",
+                    service_prices=service_prices,
+                    expected_total=total,
+                ), 409
             row = conn.execute(
                 """
                 UPDATE weighings
@@ -1011,7 +1020,8 @@ def pay_weighing(weighing_id: int):
             ).fetchone()
             row["operator"] = g.user["username"]
         row = ensure_public_token(conn, row)
-    return jsonify(success=True, receipt=receipt_payload(row))
+        current_prices = get_service_prices(conn)
+    return jsonify(success=True, receipt=receipt_payload(row), service_prices=current_prices)
 
 
 @app.get("/api/sync/state")
@@ -1029,6 +1039,7 @@ def sync_state():
                 GREATEST(
                     COALESCE((SELECT MAX(updated_at) FROM weighings), TIMESTAMPTZ '1970-01-01'),
                     COALESCE((SELECT MAX(updated_at) FROM settings), TIMESTAMPTZ '1970-01-01'),
+                    COALESCE((SELECT MAX(changed_at) FROM tariff_history), TIMESTAMPTZ '1970-01-01'),
                     COALESCE((SELECT MAX(updated_at) FROM users), TIMESTAMPTZ '1970-01-01'),
                     COALESCE((SELECT MAX(imported_at) FROM import_batches), TIMESTAMPTZ '1970-01-01'),
                     COALESCE((SELECT MAX(received_at) FROM zone_events), TIMESTAMPTZ '1970-01-01'),
@@ -1037,11 +1048,13 @@ def sync_state():
                 ) AS changed_at
             """
         ).fetchone()
+        current_prices = get_service_prices(conn)
     changed = localize(row["changed_at"])
     return jsonify(
         success=True,
         version=changed.isoformat(),
         server_time=now_local().isoformat(),
+        prices=current_prices,
     )
 
 
@@ -1119,14 +1132,14 @@ def vehicle_history(plate: str):
                 "purpose": r["purpose"],
             })
 
-        # Weighings
+        # Weighings (using actual schema columns: plate_number, plate_search, weight_kg)
         w_rows = conn.execute(
             """
-            SELECT w.id as weighing_id, w.created_at, w.plate, w.payment_method, w.price,
-                   w.status, w.first_weight, w.second_weight, w.cargo_type, u.username as operator_name
+            SELECT w.id as weighing_id, w.created_at, w.plate_number, w.payment_method, w.price,
+                   w.status, w.weight_kg, w.entry_service, w.reload_service, u.username as operator_name
             FROM weighings w
             LEFT JOIN users u ON u.id = w.created_by
-            WHERE w.plate_key = %s
+            WHERE w.plate_search = %s
             ORDER BY w.created_at DESC
             LIMIT 200
             """,
@@ -1148,9 +1161,8 @@ def vehicle_history(plate: str):
                 "operator": w["operator_name"],
                 "weighing_id": w["weighing_id"],
                 "status": w["status"],
-                "first_weight": w["first_weight"],
-                "second_weight": w["second_weight"],
-                "cargo_type": w["cargo_type"],
+                "weight_kg": w["weight_kg"],
+                "cargo_type": f"{w['weight_kg']:,} kg".replace(",", " ") if w.get("weight_kg") else "",
             })
 
     events.sort(key=lambda x: x["occurred_at"] or "", reverse=True)
@@ -1170,10 +1182,8 @@ def vehicle_history(plate: str):
 
 
 @app.post("/api/admin/weighings/<int:weighing_id>/correct")
-@login_required
+@roles_required("techadmin")
 def correct_weighing(weighing_id: int):
-    if g.user["role"] not in ("admin", "techadmin"):
-        abort(403)
     data = request.get_json(silent=True) or {}
     field = str(data.get("field") or "").strip()
     new_value = str(data.get("new_value") or "").strip()
@@ -1182,47 +1192,49 @@ def correct_weighing(weighing_id: int):
     if not reason:
         return jsonify(success=False, message="Tuzatish sababini ko‘rsating"), 400
 
-    allowed_fields = {"plate", "payment_method", "price", "cargo_type", "driver_name", "note"}
+    allowed_fields = {"plate", "plate_number", "payment_method", "price", "weight_kg"}
     if field not in allowed_fields:
         return jsonify(success=False, message=f"Maydonni tuzatishga ruxsat yo‘q: {field}"), 400
+
+    db_field = "plate_number" if field == "plate" else field
 
     with get_pool().connection() as conn:
         row = conn.execute("SELECT * FROM weighings WHERE id = %s FOR UPDATE", (weighing_id,)).fetchone()
         if not row:
             abort(404)
 
-        old_value = str(row[field] if row[field] is not None else "")
+        old_value = str(row.get(db_field) if row.get(db_field) is not None else "")
 
-        # Save correction record
         conn.execute(
             """
             INSERT INTO corrections (table_name, record_id, field, old_value, new_value, reason, corrected_by, corrected_at)
             VALUES ('weighings', %s, %s, %s, %s, %s, %s, now())
             """,
-            (weighing_id, field, old_value, new_value, reason, g.user["id"]),
+            (weighing_id, db_field, old_value, new_value, reason, g.user["id"]),
         )
 
-        # Apply update
-        if field == "plate":
-            cleaned = clean_plate(new_value)
+        if db_field == "plate_number":
+            plate_disp, plate_key = clean_plate(new_value)
             conn.execute(
-                "UPDATE weighings SET plate = %s, plate_key = %s, updated_at = now() WHERE id = %s",
-                (new_value.upper(), cleaned, weighing_id),
+                "UPDATE weighings SET plate_number = %s, plate_search = %s, updated_at = now() WHERE id = %s",
+                (plate_disp, plate_key, weighing_id),
             )
-        elif field == "price":
+        elif db_field in {"price", "weight_kg"}:
             try:
-                price_val = int(new_value)
-                if price_val < 0:
+                num_val = int(new_value)
+                if num_val < 0:
                     raise ValueError()
             except ValueError:
-                return jsonify(success=False, message="Narx musbat son bo‘lishi kerak"), 400
+                return jsonify(success=False, message="Qiymat musbat son bo‘lishi kerak"), 400
             conn.execute(
-                "UPDATE weighings SET price = %s, updated_at = now() WHERE id = %s",
-                (price_val, weighing_id),
+                f"UPDATE weighings SET {db_field} = %s, updated_at = now() WHERE id = %s",
+                (num_val, weighing_id),
             )
-        else:
+        elif db_field == "payment_method":
+            if new_value not in {"cash", "card", "bank"}:
+                return jsonify(success=False, message="To‘lov usuli noto‘g‘ri"), 400
             conn.execute(
-                f"UPDATE weighings SET {field} = %s, updated_at = now() WHERE id = %s",
+                "UPDATE weighings SET payment_method = %s, updated_at = now() WHERE id = %s",
                 (new_value, weighing_id),
             )
 
@@ -1230,10 +1242,8 @@ def correct_weighing(weighing_id: int):
 
 
 @app.get("/api/admin/weighings/<int:weighing_id>/corrections")
-@login_required
+@roles_required("admin", "techadmin")
 def get_weighing_corrections(weighing_id: int):
-    if g.user["role"] not in ("admin", "techadmin"):
-        abort(403)
     with get_pool().connection() as conn:
         rows = conn.execute(
             """
@@ -1264,10 +1274,8 @@ def get_weighing_corrections(weighing_id: int):
 
 
 @app.post("/api/admin/zone-events/<int:event_id>/correct")
-@login_required
+@roles_required("techadmin")
 def correct_zone_event(event_id: int):
-    if g.user["role"] not in ("admin", "techadmin"):
-        abort(403)
     data = request.get_json(silent=True) or {}
     field = str(data.get("field") or "").strip()
     new_value = str(data.get("new_value") or "").strip()
@@ -1302,18 +1310,18 @@ def correct_zone_event(event_id: int):
                     raise ValueError()
             except ValueError:
                 return jsonify(success=False, message="Summa musbat son bo‘lishi kerak"), 400
-            conn.execute("UPDATE zone_events SET amount = %s WHERE id = %s", (amt_val, event_id))
+            conn.execute("UPDATE zone_events SET amount = %s, received_at = NOW() WHERE id = %s", (amt_val, event_id))
         else:
-            conn.execute(f"UPDATE zone_events SET {field} = %s WHERE id = %s", (new_value, event_id))
+            if new_value not in {"cash", "card", "bank", "none"}:
+                return jsonify(success=False, message="To‘lov usuli noto‘g‘ri"), 400
+            conn.execute("UPDATE zone_events SET method = %s, received_at = NOW() WHERE id = %s", (new_value, event_id))
 
     return jsonify(success=True, message="Tuzatish kiritildi", old_value=old_value, new_value=new_value)
 
 
 @app.get("/api/admin/zone-events/<int:event_id>/corrections")
-@login_required
+@roles_required("admin", "techadmin")
 def get_zone_event_corrections(event_id: int):
-    if g.user["role"] not in ("admin", "techadmin"):
-        abort(403)
     with get_pool().connection() as conn:
         rows = conn.execute(
             """
@@ -1417,29 +1425,36 @@ def admin_dashboard():
         services[key + "_fmt"] = money(services[key])
     week_total = sum(row["total"] for row in weekly)
 
-    # KPI: late devices (no signal in last 2 minutes), pending backlog
-    with get_pool().connection() as conn:
-        late_devices = conn.execute(
-            """SELECT COUNT(*) AS cnt FROM devices
-               WHERE approved AND NOT blocked
-               AND last_seen < now() - interval '2 minutes'
-               AND last_seen > now() - interval '8 hours'"""
-        ).fetchone()["cnt"]
-        backlog_summary = conn.execute(
-            """SELECT COALESCE(SUM((backlog->>'count')::int),0) AS total_unsent,
-                      COALESCE(SUM((backlog->>'amount')::bigint),0) AS total_amount,
-                      COALESCE(SUM((backlog->>'rejected')::int),0) AS total_rejected
-               FROM devices WHERE approved AND NOT blocked AND backlog IS NOT NULL"""
-        ).fetchone()
+    late_devices = 0
+    unsent_count = 0
+    unsent_amount = 0
+    conflicts = 0
+    if g.user["role"] == "techadmin":
+        with get_pool().connection() as conn:
+            late_devices = conn.execute(
+                """SELECT COUNT(*) AS cnt FROM devices
+                   WHERE approved AND NOT blocked
+                   AND last_seen < now() - interval '2 minutes'
+                   AND last_seen > now() - interval '8 hours'"""
+            ).fetchone()["cnt"]
+            backlog_summary = conn.execute(
+                """SELECT COALESCE(SUM((backlog->>'count')::int),0) AS total_unsent,
+                          COALESCE(SUM((backlog->>'amount')::bigint),0) AS total_amount,
+                          COALESCE(SUM((backlog->>'rejected')::int),0) AS total_rejected
+                   FROM devices WHERE approved AND NOT blocked AND backlog IS NOT NULL"""
+            ).fetchone()
+            unsent_count = int(backlog_summary["total_unsent"] or 0)
+            unsent_amount = int(backlog_summary["total_amount"] or 0)
+            conflicts = int(backlog_summary["total_rejected"] or 0)
 
     return jsonify(today_count=weekly[-1]["count"], today_total=weekly[-1]["total"],
                    today_total_fmt=weekly[-1]["total_fmt"], today_services=services,
                    week_count=sum(row["count"] for row in weekly), week_total=week_total,
                    week_total_fmt=money(week_total), weekly=weekly, as_of=as_time(meta["at"]),
                    kpi_late_devices=int(late_devices or 0),
-                   kpi_unsent_count=int(backlog_summary["total_unsent"] or 0),
-                   kpi_unsent_amount=int(backlog_summary["total_amount"] or 0),
-                   kpi_conflicts=int(backlog_summary["total_rejected"] or 0))
+                   kpi_unsent_count=unsent_count,
+                   kpi_unsent_amount=unsent_amount,
+                   kpi_conflicts=conflicts)
 
 
 @app.get("/api/admin/weighings")
@@ -1700,7 +1715,6 @@ def parse_legacy_datetime(value, fallback_date: date) -> datetime:
 
 
 def legacy_number(value, default: int = 0) -> int:
-    """Read SQLite INTEGER/REAL/TEXT money fields without rejecting old rows."""
     try:
         return max(0, int(float(str(value).strip())))
     except (TypeError, ValueError):
@@ -1929,7 +1943,7 @@ def import_sqlite():
                     inserted += max(0, pg_cursor.rowcount)
             if "print_attempts" in table_names:
                 print_columns = {r[1] for r in legacy.execute('PRAGMA table_info("print_attempts")')}
-                if {"id","receipt_no","username","state","method","created_at","updated_at"} <= print_columns:
+                if {"id", "receipt_no", "username", "state", "method", "created_at", "updated_at"} <= print_columns:
                     print_cursor = legacy.execute('SELECT * FROM "print_attempts"')
                     while True:
                         print_rows = print_cursor.fetchmany(1000)
@@ -1938,15 +1952,15 @@ def import_sqlite():
                         records = []
                         for item in print_rows:
                             item = dict(item)
-                            if item["state"] not in {"requested","dialog_closed","spooled","confirmed","failed"} or item["method"] not in {"browser","agent"}:
+                            if item["state"] not in {"requested", "dialog_closed", "spooled", "confirmed", "failed"} or item["method"] not in {"browser", "agent"}:
                                 continue
                             try:
                                 identifier = uuid.UUID(str(item["id"]))
                                 recorded = datetime.fromisoformat(item["created_at"])
                                 updated = datetime.fromisoformat(item["updated_at"])
-                            except (ValueError,TypeError):
+                            except (ValueError, TypeError):
                                 continue
-                            records.append((identifier,import_users.get(item["username"]),item["state"],item["method"],recorded,updated,item["receipt_no"]))
+                            records.append((identifier, import_users.get(item["username"]), item["state"], item["method"], recorded, updated, item["receipt_no"]))
                         with conn.cursor() as print_target:
                             print_target.executemany(
                                 """INSERT INTO print_attempts(id,weighing_id,user_id,state,method,created_at,updated_at)
@@ -1989,7 +2003,7 @@ def import_sqlite():
 
 
 @app.get("/api/admin/settings/tariffs")
-@roles_required("admin", "techadmin")
+@roles_required("techadmin")
 def list_tariffs():
     try:
         page = max(1, int(request.args.get("history_page", "1")))
@@ -2049,7 +2063,8 @@ def update_tariff(code: str):
     except (TypeError, ValueError):
         return jsonify(success=False, message="Tarif summasi noto'g'ri"), 400
     enabled = data.get("enabled") is True
-    apply_existing = data.get("apply_existing") is True and code in {"weighing", "zone_daily"}
+    # Default to True for immediate propagation across open/active visits & pending weighings unless explicitly False
+    apply_existing = (data.get("apply_existing") is not False) and (code in {"weighing", "zone_daily"})
     if amount < 0 or amount > 1_000_000_000 or (enabled and amount < 1):
         return jsonify(success=False, message="Faol tarif 1–1 000 000 000 so'm oralig'ida bo'lishi kerak"), 400
     price_key, enabled_key, _label = TARIFFS[code]
@@ -2068,15 +2083,36 @@ def update_tariff(code: str):
             ).rowcount
         elif apply_existing and code == "weighing":
             affected = conn.execute(
-                "UPDATE weighings SET weighing_fee=%s,price=%s,updated_at=NOW() WHERE status='pending'",
+                "UPDATE weighings SET weighing_fee=%s,price=%s+entry_fee+reload_fee,updated_at=NOW() WHERE status='pending'",
                 (effective_amount, effective_amount),
+            ).rowcount
+        elif code in {"entry", "reload"}:
+            col_fee = "entry_fee" if code == "entry" else "reload_fee"
+            col_svc = "entry_service" if code == "entry" else "reload_service"
+            affected = conn.execute(
+                f"""UPDATE weighings
+                    SET {col_fee} = CASE WHEN {col_svc} THEN %s ELSE 0 END,
+                        {col_svc} = CASE WHEN %s THEN {col_svc} ELSE FALSE END,
+                        price = weighing_fee + (CASE WHEN %s = 'entry' THEN (CASE WHEN entry_service AND %s THEN %s ELSE 0 END) ELSE entry_fee END)
+                                             + (CASE WHEN %s = 'reload' THEN (CASE WHEN reload_service AND %s THEN %s ELSE 0 END) ELSE reload_fee END),
+                        updated_at = NOW()
+                    WHERE status = 'pending'""",
+                (effective_amount, enabled, code, enabled, effective_amount, code, enabled, effective_amount),
             ).rowcount
         conn.execute(
             """INSERT INTO tariff_history(code,amount,enabled,applied_to_existing,affected_rows,changed_by)
                VALUES(%s,%s,%s,%s,%s,%s)""",
             (code, amount, enabled, apply_existing, max(0, affected), g.user["id"]),
         )
-    return jsonify(success=True, code=code, amount=amount, enabled=enabled, affected_rows=max(0, affected))
+        updated_prices = get_service_prices(conn)
+    return jsonify(
+        success=True,
+        code=code,
+        amount=amount,
+        enabled=enabled,
+        affected_rows=max(0, affected),
+        prices=updated_prices,
+    )
 
 
 @app.get("/api/admin/users")
@@ -2386,7 +2422,6 @@ def create_sqlite_backup(include_users: bool = True) -> str:
                 )
             settings = conn.execute("SELECT key, value FROM settings ORDER BY key").fetchall()
             if include_users:
-                # Append checkpoint journals to the restricted technical backup.
                 for table, columns in (
                     ("zone_visits", "id plate plate_key purpose location started daily_rate"),
                     ("zone_events", "id request_key visit_id occurred point action location operator_name days previous_paid amount method"),
@@ -2450,10 +2485,11 @@ def create_sqlite_backup(include_users: bool = True) -> str:
                 cursor.execute("""SELECT p.*,w.receipt_no,u.username FROM print_attempts p
                     JOIN weighings w ON w.id=p.weighing_id LEFT JOIN users u ON u.id=p.user_id ORDER BY p.created_at""")
                 while True:
-                    rows=cursor.fetchmany(2000)
-                    if not rows: break
+                    rows = cursor.fetchmany(2000)
+                    if not rows:
+                        break
                     backup.executemany("INSERT INTO print_attempts VALUES (?,?,?,?,?,?,?)",
-                        [(str(r["id"]),r["receipt_no"],r["username"],r["state"],r["method"],r["created_at"].isoformat(),r["updated_at"].isoformat()) for r in rows])
+                        [(str(r["id"]), r["receipt_no"], r["username"], r["state"], r["method"], r["created_at"].isoformat(), r["updated_at"].isoformat()) for r in rows])
         backup.commit()
         return path
     except Exception:
@@ -2506,6 +2542,8 @@ def clear_operational_data():
             message="Tasdiqlash maydoniga BARCHASINI OCHIRISH deb yozing",
         ), 400
     password = data.get("password") or ""
+    reset_devices = bool(data.get("reset_devices", True))
+    delete_devices = bool(data.get("delete_devices", False))
     with get_pool().connection() as conn:
         techadmin = conn.execute(
             "SELECT password_hash FROM users WHERE id = %s AND role = 'techadmin' AND is_active",
@@ -2518,19 +2556,29 @@ def clear_operational_data():
             SELECT
                 (SELECT COUNT(*) FROM weighings) AS weighings,
                 (SELECT COUNT(*) FROM import_batches) AS imports,
-                (SELECT COUNT(*) FROM zone_visits) AS zone_visits
+                (SELECT COUNT(*) FROM zone_visits) AS zone_visits,
+                (SELECT COUNT(*) FROM devices) AS devices
             """
         ).fetchone()
         conn.execute(
-            """TRUNCATE TABLE export_jobs, dispatch_tickets, dispatch_log, dispatch_numbers, receipt_jobs, transfer_imports, zone_events, zone_visits, print_attempts, weighings,
-               import_batches, daily_sequences RESTART IDENTITY"""
+            """TRUNCATE TABLE export_jobs, dispatch_tickets, dispatch_log, dispatch_numbers, receipt_jobs,
+               transfer_imports, zone_events, zone_visits, print_attempts, weighings,
+               import_batches, daily_sequences, station_events, corrections RESTART IDENTITY CASCADE"""
         )
+        if delete_devices:
+            conn.execute("TRUNCATE TABLE device_sessions, device_events, devices RESTART IDENTITY CASCADE")
+        elif reset_devices:
+            conn.execute("TRUNCATE TABLE device_sessions, device_events RESTART IDENTITY CASCADE")
+            conn.execute(
+                "UPDATE devices SET connected=FALSE, backlog=NULL, backlog_at=NULL, station_hash=NULL, tablet_hash=NULL"
+            )
     return jsonify(
         success=True,
         deleted_weighings=counts["weighings"],
         deleted_imports=counts["imports"],
         deleted_zone_visits=counts["zone_visits"],
-        message="Barcha tarozi, Free Zone tashriflari va pul operatsiyalari tozalandi",
+        deleted_devices=counts["devices"] if delete_devices else 0,
+        message="Barcha eski operatsiyalar, tashriflar va qurilmalar xotirasi to‘liq tozalandi — tizim noldan boshlashga tayyor!",
     )
 
 
@@ -2634,7 +2682,7 @@ def system_status():
         },
         application={
             "active_users": database["active_users"],
-            "version": "2.6 Pro",
+            "version": "2.8 Pro",
             "environment": os.getenv("RENDER_SERVICE_NAME", "local"),
             "last_import": (
                 {
@@ -2675,8 +2723,6 @@ from control_room import register_control_room
 register_control_room(app, get_pool, roles_required)
 from export_jobs import register_exports
 register_exports(app, get_pool, roles_required)
-from shifts import register_shifts
-register_shifts(app, get_pool, roles_required)
 
 
 @app.errorhandler(400)

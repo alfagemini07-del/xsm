@@ -20,8 +20,8 @@ def register_control_room(app, pool, roles):
         now = datetime.now(TZ)
         midnight = now.replace(hour=0, minute=0, second=0, microsecond=0)
         with pool().connection() as conn:
-            conn.execute("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY")
             with conn.pipeline():
+                conn.execute("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY")
                 config = conn.execute("SELECT * FROM dispatch_config WHERE id")
                 vehicles = conn.execute("""
                     SELECT v.id,v.plate,v.started,v.parking_departed_at,t.area,t.slot,t.flow,t.number,t.day,t.called_at,
@@ -71,7 +71,7 @@ def register_control_room(app, pool, roles):
                 cache["etag"] = sha256(app.json.dumps(stable).encode()).hexdigest()
                 cache["payload"] = app.json.dumps(data)
                 cache["data"] = data
-                cache["until"] = monotonic()+5
+                cache["until"] = monotonic()+8
             return cache["data"], cache["payload"], cache["etag"]
 
     @app.get("/admin/control-room")
