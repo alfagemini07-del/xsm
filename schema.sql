@@ -232,6 +232,8 @@ CREATE INDEX IF NOT EXISTS device_events_time ON device_events(occurred DESC);
 ALTER TABLE devices ADD COLUMN IF NOT EXISTS connected BOOLEAN NOT NULL DEFAULT FALSE;
 ALTER TABLE devices ADD COLUMN IF NOT EXISTS station_hash TEXT UNIQUE;
 ALTER TABLE devices ADD COLUMN IF NOT EXISTS tablet_hash TEXT UNIQUE;
+ALTER TABLE devices ADD COLUMN IF NOT EXISTS hw_id TEXT;
+CREATE INDEX IF NOT EXISTS idx_devices_hw_id ON devices(hw_id) WHERE hw_id IS NOT NULL;
 ALTER TABLE zone_visits ADD COLUMN IF NOT EXISTS station_id UUID REFERENCES devices(id);
 ALTER TABLE zone_visits ADD COLUMN IF NOT EXISTS station_local_id BIGINT;
 CREATE UNIQUE INDEX IF NOT EXISTS zone_local_ticket ON zone_visits(station_id,station_local_id);

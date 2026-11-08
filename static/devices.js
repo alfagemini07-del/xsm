@@ -25,9 +25,20 @@
       const d = await r.json(), body = el("devices-rows"); body.replaceChildren();
       for (const device of d.devices) {
         const tr = body.insertRow();
-        cell(tr, device.name); cell(tr, device.role + " / " + (device.last_user || "—")); cell(tr, device.ip || "—");
-        const status = cell(tr, device.blocked ? "Bloklangan" : !device.approved ? "Tasdiq kutilmoqda" : device.online ? "Online" : "Offline"); status.className = device.online && !device.blocked ? "device-online" : "device-inactive";
-        cell(tr, date(device.last_seen)); const actions = cell(tr, "");
+        cell(tr, device.name);
+        cell(tr, device.role + " / " + (device.last_user || "—"));
+        const ipCell = cell(tr, device.ip || "—");
+        ipCell.style.fontWeight = "600";
+        const hwCell = cell(tr, device.hw_id || "—");
+        if (device.hw_id) {
+          hwCell.style.fontFamily = "monospace";
+          hwCell.style.fontSize = "12px";
+          hwCell.style.color = "#7dd3fc";
+        }
+        const status = cell(tr, device.blocked ? "Bloklangan" : !device.approved ? "Tasdiq kutilmoqda" : device.online ? "Online" : "Offline");
+        status.className = device.online && !device.blocked ? "device-online" : "device-inactive";
+        cell(tr, date(device.last_seen));
+        const actions = cell(tr, "");
         if (device.backlog) {
           const p = document.createElement("p");
           const hasConflict = Boolean(device.backlog.rejected && device.backlog.rejected > 0);
@@ -40,9 +51,10 @@
           button(actions, "Tahrirlash", () => { selected = device.id; el("device-name").value = device.name; el("device-editor").returnValue = ""; el("device-editor").showModal(); });
           if (!device.approved || device.blocked) button(actions, "Ruxsat berish", () => change(device.id, "approve"));
           if (!device.blocked) button(actions, "Bloklash", () => { if (confirm(device.name + " bloklansinmi?")) change(device.id, "block"); });
+          button(actions, "O‘chirish", () => { if (confirm(device.name + " ro‘yxatdan butunlay o‘chirilsinmi?")) change(device.id, "delete"); });
         }
       }
-      if (!d.devices.length) cell(body.insertRow(), "Ro‘yxatdan o‘tgan qurilma yo‘q.").colSpan = 6;
+      if (!d.devices.length) cell(body.insertRow(), "Ro‘yxatdan o‘tgan qurilma yo‘q.").colSpan = 7;
       eventPage = d.event_page; eventPages = d.event_pages; el("event-page").textContent = eventPage + " / " + eventPages; el("event-total").textContent = d.event_total + " ta hodisa"; el("event-prev").disabled = eventPage <= 1; el("event-next").disabled = eventPage >= eventPages;
       const events = el("devices-events"); events.replaceChildren();
       const names = { login: "Kirdi", logout: "Chiqdi", offline: "Signal uzildi", reconnected: "Qayta ulandi", rename: "Nom o‘zgardi", approve: "Ruxsat berildi", block: "Bloklandi" };

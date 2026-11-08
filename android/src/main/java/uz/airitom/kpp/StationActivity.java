@@ -49,6 +49,57 @@ public final class StationActivity extends Activity {
     };
     private boolean trusted(Uri uri){return uri!=null&&"https".equals(uri.getScheme())&&origin.getEncodedAuthority().equalsIgnoreCase(uri.getEncodedAuthority());}
     private boolean trustedPage(){return page!=null&&trusted(Uri.parse(page.getUrl()==null?"":page.getUrl()));}
+
+    public String getHardwareId() {
+        String id = null;
+        try {
+            android.telephony.TelephonyManager tm = (android.telephony.TelephonyManager) getSystemService(TELEPHONY_SERVICE);
+            if (tm != null && checkSelfPermission(Manifest.permission.READ_PHONE_STATE) == PackageManager.PERMISSION_GRANTED) {
+                if (Build.VERSION.SDK_INT >= 26) {
+                    id = tm.getImei();
+                    if (id == null) id = tm.getMeid();
+                } else {
+                    id = tm.getDeviceId();
+                }
+            }
+        } catch (Throwable ignored) {}
+
+        if (id == null || id.isEmpty()) {
+            try {
+                if (Build.VERSION.SDK_INT < 26) {
+                    if (Build.SERIAL != null && !Build.SERIAL.equalsIgnoreCase("unknown")) {
+                        id = Build.SERIAL;
+                    }
+                }
+            } catch (Throwable ignored) {}
+        }
+
+        if (id == null || id.isEmpty()) {
+            try {
+                id = android.provider.Settings.Secure.getString(getContentResolver(), android.provider.Settings.Secure.ANDROID_ID);
+            } catch (Throwable ignored) {}
+        }
+
+        if (id == null || id.isEmpty() || "9774d56d682e549c".equals(id)) {
+            SharedPreferences sp = getSharedPreferences("device_identity", MODE_PRIVATE);
+            id = sp.getString("persistent_id", null);
+            if (id == null) {
+                id = UUID.randomUUID().toString().replace("-", "");
+                sp.edit().putString("persistent_id", id).apply();
+            }
+        }
+        return id != null ? id.trim() : "";
+    }
+
+    public String getDeviceModel() {
+        String manufacturer = Build.MANUFACTURER != null ? Build.MANUFACTURER : "";
+        String model = Build.MODEL != null ? Build.MODEL : "";
+        if (model.toLowerCase().startsWith(manufacturer.toLowerCase())) {
+            return model;
+        }
+        return (manufacturer + " " + model).trim();
+    }
+
     @Override public void onCreate(Bundle state){
         super.onCreate(state);
         preferences=getSharedPreferences("printer",MODE_PRIVATE);
@@ -72,8 +123,40 @@ public final class StationActivity extends Activity {
         content.addView(page, new FrameLayout.LayoutParams(-1, -1));
         setContentView(content);
         content.requestApplyInsets();
-        WebSettings settings=page.getSettings();settings.setJavaScriptEnabled(true);settings.setDomStorageEnabled(true);settings.setAllowFileAccess(false);settings.setAllowContentAccess(false);settings.setMixedContentMode(WebSettings.MIXED_CONTENT_NEVER_ALLOW);
-        android.webkit.CookieManager.getInstance().setAcceptThirdPartyCookies(page,false);
+
+        final String hwId = getHardwareId();
+        final String model = getDeviceModel();
+
+        WebSettings settings=page.getSettings();
+        settings.setJavaScriptEnabled(true);
+        settings.setDomStorageEnabled(true);
+        settings.setAllowFileAccess(false);
+        settings.setAllowContentAccess(false);
+        settings.setMixedContentMode(WebSettings.MIXED_CONTENT_NEVER_ALLOW);
+
+        String baseUa = settings.getUserAgentString();
+        settings.setUserAgentString(baseUa + " AiritomApp/2.0 (Model/" + model + "; HWID/" + hwId + ")");
+
+        android.webkit.CookieManager cookieManager = android.webkit.CookieManager.getInstance();
+        cookieManager.setAcceptCookie(true);
+        cookieManager.setAcceptThirdPartyCookies(page, false);
+        cookieManager.setCookie(origin.toString(), "xsm_hw_id=" + hwId + "; path=/; max-age=315360000; SameSite=Lax");
+        try {
+            cookieManager.setCookie(origin.toString(), "xsm_device_model=" + URLEncoder.encode(model, "UTF-8") + "; path=/; max-age=315360000; SameSite=Lax");
+        } catch (Exception ignored) {}
+        cookieManager.flush();
+
+        page.addJavascriptInterface(new Object() {
+            @JavascriptInterface
+            public String getHardwareId() {
+                return hwId;
+            }
+            @JavascriptInterface
+            public String getDeviceModel() {
+                return model;
+            }
+        }, "XsmDevice");
+
         page.setWebChromeClient(new WebChromeClient(){
             @Override public void onPermissionRequest(PermissionRequest req){
                 if (!trusted(req.getOrigin()) || !trustedPage() || !Arrays.asList(req.getResources()).contains(PermissionRequest.RESOURCE_VIDEO_CAPTURE)) {
@@ -102,7 +185,10 @@ public final class StationActivity extends Activity {
                 return !trusted(uri);
             }
             @Override public void onPageFinished(WebView view,String url){
-                if(trusted(Uri.parse(url))){view.evaluateJavascript("window.XsmNativePrinter=true;window.dispatchEvent(new Event('xsm-printer-ready'));",null);replay();}
+                if(trusted(Uri.parse(url))){
+                    view.evaluateJavascript("window.XsmNativePrinter=true;window.XsmNativeDevice={hwId:'" + hwId + "',model:'" + model.replace("'", "\\'") + "'};window.dispatchEvent(new Event('xsm-printer-ready'));",null);
+                    replay();
+                }
                 android.webkit.CookieManager.getInstance().flush();
             }
             @Override public void onReceivedError(WebView view,WebResourceRequest req,WebResourceError error){
@@ -112,7 +198,12 @@ public final class StationActivity extends Activity {
         openStation();
     }
     private void bindPrinter(){try{InnerPrinterManager.getInstance().bindService(this,connection);}catch(Exception ignored){}}
-    private void openStation(){page.loadUrl(BuildConfig.ORIGIN+BuildConfig.STATION);}
+    private void openStation(){
+        Map<String, String> headers = new HashMap<>();
+        headers.put("X-Device-HWID", getHardwareId());
+        headers.put("X-Device-Model", getDeviceModel());
+        page.loadUrl(BuildConfig.ORIGIN + BuildConfig.STATION, headers);
+    }
     private void save(JSONObject job){preferences.edit().putString("result-"+job.optString("attempt_id"),job.toString()).commit();}
     private void acknowledge(String id, String state) {
         if (id == null || state == null) return;

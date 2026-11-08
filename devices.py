@@ -47,40 +47,90 @@ def record_timeouts(conn):
 
 def web_device_login(conn, user, app):
     """A signed, persistent identity survives logout; new browsers need approval."""
+    import re
+    from urllib.parse import unquote
     from itsdangerous import URLSafeTimedSerializer, BadData
+
+    forwarded = request.headers.get("X-Forwarded-For", "").split(",")[0].strip()
+    client_ip = forwarded or request.remote_addr or ""
+
+    hw_id = (
+        request.form.get("device_hw_id")
+        or request.cookies.get("xsm_hw_id")
+        or request.headers.get("X-Device-HWID")
+        or ""
+    ).strip()
+    if not hw_id:
+        ua = request.headers.get("User-Agent", "")
+        match = re.search(r'HWID/([a-zA-Z0-9_\-\.:]+)', ua)
+        if match:
+            hw_id = match.group(1).strip()
+
+    device_model = (
+        request.form.get("device_model")
+        or unquote(request.cookies.get("xsm_device_model", ""))
+        or request.headers.get("X-Device-Model")
+        or ""
+    ).strip()
+    if not device_model:
+        ua = request.headers.get("User-Agent", "")
+        match = re.search(r'Model/([^;)]+)', ua)
+        if match:
+            device_model = match.group(1).strip()
 
     signer = URLSafeTimedSerializer(app.secret_key, salt="kpp-device")
     stored = request.cookies.get("kpp_device_" + user["role"]) or request.cookies.get(
         "kpp_device", ""
     )
-    known = (
-        conn.execute(
-            "SELECT id FROM devices WHERE tablet_hash=%s AND role=%s",
+    known = None
+    if hw_id:
+        known = conn.execute(
+            "SELECT id, approved, blocked, name FROM devices WHERE hw_id=%s AND role=%s",
+            (hw_id, user["role"]),
+        ).fetchone()
+
+    if not known and stored.startswith("kpp_"):
+        known = conn.execute(
+            "SELECT id, approved, blocked, name FROM devices WHERE tablet_hash=%s AND role=%s",
             (digest(stored), user["role"]),
         ).fetchone()
-        if stored.startswith("kpp_")
-        else None
-    )
-    try:
-        identity = signer.loads(stored, max_age=365 * 86400)
-        did = uuid.UUID(identity["id"])
-        if identity["role"] != user["role"]:
-            raise ValueError()
-    except (BadData, ValueError, KeyError, TypeError):
-        did = known["id"] if known else uuid.uuid4()
+
+    if known:
+        did = known["id"]
+    else:
+        try:
+            identity = signer.loads(stored, max_age=365 * 86400)
+            did = uuid.UUID(identity["id"])
+            if identity["role"] != user["role"]:
+                raise ValueError()
+        except (BadData, ValueError, KeyError, TypeError):
+            if hw_id:
+                did = uuid.uuid5(uuid.NAMESPACE_DNS, f"airitom:{user['role']}:{hw_id}")
+            else:
+                did = uuid.uuid4()
+
+    device_name = f"Planshet · {user['username']}"
+    if device_model:
+        device_name = f"{device_model} · {user['username']}"
+
     conn.execute(
-        "INSERT INTO devices(id,name,role,ip) VALUES(%s,%s,%s,%s) ON CONFLICT(id) DO NOTHING",
-        (did, "Planshet · " + user["username"], user["role"], request.remote_addr),
+        """INSERT INTO devices(id, name, role, ip, hw_id)
+           VALUES(%s, %s, %s, %s, %s)
+           ON CONFLICT(id) DO UPDATE SET
+               ip = EXCLUDED.ip,
+               hw_id = COALESCE(devices.hw_id, EXCLUDED.hw_id),
+               name = CASE WHEN devices.name LIKE 'Planshet%' AND %s != '' THEN %s ELSE devices.name END""",
+        (did, device_name, user["role"], client_ip, hw_id or None, device_model, device_name),
     )
     record_timeouts(conn)
     row = conn.execute(
         "SELECT * FROM devices WHERE id=%s FOR UPDATE", (did,)
     ).fetchone()
-    cookie = stored if known else "kpp_" + secrets.token_urlsafe(48)
-    if not known:
-        conn.execute(
-            "UPDATE devices SET tablet_hash=%s WHERE id=%s", (digest(cookie), did)
-        )
+    cookie = stored if (known and stored.startswith("kpp_")) else "kpp_" + secrets.token_urlsafe(48)
+    conn.execute(
+        "UPDATE devices SET tablet_hash=%s, hw_id=COALESCE(hw_id, %s) WHERE id=%s",
+        (digest(cookie), hw_id or None, did),
+    )
     error = (
         "Qurilma bloklangan. Techadminga murojaat qiling."
         if row["blocked"]
@@ -92,8 +142,8 @@ def web_device_login(conn, user, app):
     )
     if not error:
         conn.execute(
-            "UPDATE devices SET connected=TRUE,last_seen=NOW(),last_user=%s,ip=%s WHERE id=%s",
-            (user["username"], request.remote_addr, did),
+            "UPDATE devices SET connected=TRUE,last_seen=NOW(),last_user=%s,ip=%s,hw_id=COALESCE(hw_id, %s) WHERE id=%s",
+            (user["username"], client_ip, hw_id or None, did),
         )
         conn.execute(
             "INSERT INTO device_events(device_id,event) VALUES(%s,'login')", (did,)
@@ -182,6 +232,8 @@ def register_devices(
         did = session.get("device_id")
         if not did:
             return jsonify(message="Qayta login qiling"), 401
+        forwarded = request.headers.get("X-Forwarded-For", "").split(",")[0].strip()
+        client_ip = forwarded or request.remote_addr or ""
         with pool().connection() as conn:
             record_timeouts(conn)
             row = conn.execute(
@@ -201,7 +253,7 @@ def register_devices(
                 )
             conn.execute(
                 "UPDATE devices SET connected=TRUE,last_seen=NOW(),ip=%s WHERE id=%s",
-                (request.remote_addr, did),
+                (client_ip, did),
             )
             stats=checkpoint_stats(conn,g.user["role"])
         return jsonify(success=True,stats=stats)
@@ -365,7 +417,7 @@ def register_devices(
         with pool().connection() as conn:
             record_timeouts(conn)
             devices = conn.execute(
-                """SELECT id,name,role,approved,blocked,last_seen,last_user,ip,connected AS online,backlog,backlog_at
+                """SELECT id,name,role,approved,blocked,last_seen,last_user,ip,hw_id,connected AS online,backlog,backlog_at
                    FROM devices ORDER BY LOWER(name), id"""
             ).fetchall()
             total=conn.execute("SELECT COUNT(*) n FROM device_events").fetchone()["n"]
@@ -388,7 +440,7 @@ def register_devices(
             request.get_json(silent=True) if request.is_json else request.form
         ) or {}
         action = data.get("action")
-        if action not in {"approve", "block", "rename"}:
+        if action not in {"approve", "block", "rename", "delete"}:
             abort(400)
         name = data.get("name")
         if action == "rename" and (
@@ -402,7 +454,12 @@ def register_devices(
             ).fetchone()
             if not device:
                 abort(404)
-            if action == "rename":
+            if action == "delete":
+                conn.execute("DELETE FROM device_sessions WHERE device_id=%s", (device_id,))
+                conn.execute("DELETE FROM device_events WHERE device_id=%s", (device_id,))
+                conn.execute("DELETE FROM devices WHERE id=%s", (device_id,))
+                changed = False
+            elif action == "rename":
                 changed = name.strip() != device["name"]
                 if changed:
                     conn.execute(
