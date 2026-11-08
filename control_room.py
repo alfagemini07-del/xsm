@@ -27,7 +27,7 @@ def register_control_room(app, pool, roles):
                     SELECT v.id,v.plate,v.started,v.parking_departed_at,t.area,t.slot,t.flow,t.number,t.day,t.called_at,
                            t.queue_state,t.priority,t.version
                     FROM dispatch_tickets t JOIN zone_visits v ON v.id=t.visit_id
-                    WHERE t.area<>'closed' ORDER BY v.started,v.id LIMIT 1001""")
+                    WHERE t.area<>'closed' ORDER BY v.started,v.id LIMIT 2501""")
                 totals = conn.execute("""
                     SELECT point,COUNT(*) n,SUM(amount)::bigint amount FROM operation_ledger
                     WHERE status='paid' AND occurred>=%s AND occurred<%s GROUP BY point""",
@@ -139,7 +139,7 @@ def register_control_room(app, pool, roles):
             a,b,h=(int(data[k]) for k in ("parking_capacity","inside_capacity","reset_hour"))
             timeout=int(data.get("no_show_minutes",5))
         except (ValueError,TypeError,KeyError): abort(400)
-        if not (1<=a<=500 and 1<=b<=500 and 0<=h<=23 and 1<=timeout<=120): abort(400)
+        if not (1<=a<=2500 and 1<=b<=2500 and 0<=h<=23 and 1<=timeout<=120): abort(400)
         with pool().connection() as conn:
             cfg = conn.execute("SELECT * FROM dispatch_config WHERE id FOR UPDATE").fetchone()
             try:

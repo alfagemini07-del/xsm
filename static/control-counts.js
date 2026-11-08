@@ -1,10 +1,10 @@
 const places = [
-  { key: "parking", name: "E-navbat parkovka", label: "Hozir", title: "Hozir parkovkada turgan transport", anchor: [-62, 1, -4] },
-  { key: "inside", name: "Free Zone", label: "Hududda", title: "Hozir Free Zone ichidagi transport", anchor: [27, 1, -4] },
-  { key: "border", name: "Chegara yo‘nalishi", label: "Kutmoqda", title: "Chegara yo‘nalishida kutayotgan transport", anchor: [94, 1, -4] },
-  { key: "gate1", name: "O‘zbekiston darvozasi", point: "kpp2", title: "O‘zbekiston darvozasi (KPP2)", anchor: [-18, 3, 19] },
-  { key: "scale", name: "Tarozi", label: "Tortildi", title: "Bugun tarozida tortilgan transport", anchor: [24, 1, 33] },
-  { key: "gate2", name: "Afg‘oniston darvozasi", point: "ayritom", title: "Afg‘oniston darvozasi (KPP1)", anchor: [65, 3, 19] },
+  { key: "parking", name: "E-navbat parkovka", label: "ta", title: "Hozir parkovkada turgan transport", anchor: [-98, 11, -38] },
+  { key: "inside", name: "Free Zone", label: "ta", title: "Hozir Free Zone ichidagi transport", anchor: [36, 11, -38] },
+  { key: "border", name: "Chegara post", label: "ta", title: "Chegara yo‘nalishida kutayotgan transport", anchor: [122, 11, -32] },
+  { key: "gate1", name: "O‘zbekiston darvozasi", point: "kpp2", title: "O‘zbekiston darvozasi va parkovka chiqish yo‘li", anchor: [-22, 9.5, -6] },
+  { key: "scale", name: "Tarozi (Free Zone)", label: "tortildi", title: "Bugun Free Zone tarozisida tortilgan transport", anchor: [14, 6.5, 18] },
+  { key: "gate2", name: "Afg‘oniston darvozasi", point: "ayritom", title: "Afg‘oniston darvozasi (KPP1)", anchor: [90, 9.5, -6] },
 ];
 
 export const mapAnchors = places.map(place => place.anchor);
@@ -46,8 +46,8 @@ export function createCounters(container, selectCamera) {
     button.onclick = () => selectCamera(place.key);
     const title = document.createElement("strong");
     title.textContent = place.name;
-    const primary = valueField(place.point ? "↓ Kirdi" : place.label);
-    const secondary = place.point ? valueField("↑ Chiqdi") : null;
+    const primary = valueField(place.point ? "↓kirdi" : place.label);
+    const secondary = place.point ? valueField("↑chiqdi") : null;
     const fields = document.createElement("span");
     fields.className = "counter-fields";
     fields.append(primary.field);
@@ -56,33 +56,57 @@ export function createCounters(container, selectCamera) {
     container.append(button);
     return { place, button, primary, secondary };
   });
-  const lines = document.getElementById("map-leaders");
-  const ctx = lines.getContext("2d");
-  // Connect the fixed, legible cards to their world positions as the camera moves.
+
   function connect(points) {
-    if (!ctx || document.hidden || !lines.clientWidth || getComputedStyle(lines).display === "none") return;
-    const w = lines.clientWidth, h = lines.clientHeight;
-    if (lines.width !== w || lines.height !== h) { lines.width = w; lines.height = h; }
-    ctx.clearRect(0, 0, w, h);
-    const bounds = lines.getBoundingClientRect();
+    if (document.hidden) return;
+    const w = container.clientWidth, h = container.clientHeight;
+    if (!w || !h || window.innerWidth < 840) {
+      for (const { button } of cards) {
+        button.style.left = "";
+        button.style.top = "";
+        button.style.opacity = "";
+      }
+      return;
+    }
+    const placed = [];
     for (const [index, point] of points.entries()) {
-      if (point.z < -1 || point.z > 1 || Math.abs(point.x) > 1 || Math.abs(point.y) > 1) continue;
-      const button = cards[index].button, rect = button.getBoundingClientRect();
-      const x = (point.x + 1) * w / 2, y = (1 - point.y) * h / 2;
-      const startX = rect.left - bounds.left + rect.width / 2;
-      const startY = (index < 3 ? rect.bottom : rect.top) - bounds.top;
-      ctx.strokeStyle = getComputedStyle(button).getPropertyValue("--place").trim();
-      ctx.globalAlpha = .62;
-      ctx.beginPath(); ctx.moveTo(startX, startY); ctx.lineTo(x, y); ctx.stroke();
-      ctx.globalAlpha = 1;
-      ctx.fillStyle = ctx.strokeStyle;
-      ctx.beginPath(); ctx.arc(x, y, 3, 0, 2*Math.PI); ctx.fill();
+      const button = cards[index].button;
+      const bw = button.offsetWidth || 165, bh = button.offsetHeight || 30;
+      const inView = point.z >= -1 && point.z <= 1 && Math.abs(point.x) <= 1.08 && Math.abs(point.y) <= 1.08;
+      let x = (point.x + 1) * w / 2 - bw / 2;
+      let y = (1 - point.y) * h / 2 - bh / 2;
+      if (!inView || !Number.isFinite(x) || !Number.isFinite(y)) {
+        x = w - bw - 14 - (index % 2) * (bw + 8);
+        y = 12 + Math.floor(index / 2) * (bh + 6);
+        button.style.opacity = "0.68";
+      } else {
+        button.style.opacity = "1";
+      }
+      const minX = 12, maxX = Math.max(minX, w - bw - 12);
+      const minY = (x < 340 ? 54 : 12);
+      const maxY = Math.max(minY, h - bh - (x < 260 ? 52 : 12));
+      x = Math.max(minX, Math.min(maxX, x));
+      y = Math.max(minY, Math.min(maxY, y));
+      for (const prev of placed) {
+        if (Math.abs(x - prev.x) < (bw + prev.w) * 0.52 && Math.abs(y - prev.y) < (bh + prev.h) * 0.68) {
+          y = prev.y + bh + 6 <= maxY ? prev.y + bh + 6 : Math.max(minY, prev.y - bh - 6);
+        }
+      }
+      placed.push({ x, y, w: bw, h: bh });
+      button.style.left = Math.round(x) + "px";
+      button.style.top = Math.round(y) + "px";
     }
   }
+
   function update(data, reset) {
     const parking = data.counts.find(row => row.area === "parking");
     const inside = data.counts.find(row => row.area === "inside");
-    const occupied = { parking: parking?.parked ?? 0, inside: inside?.n ?? 0, border: parking?.border_wait ?? 0, scale:data.weighed_today };
+    const occupied = {
+      parking: parking?.parked ?? 0,
+      inside: inside?.n ?? 0,
+      border: parking?.border_wait ?? 0,
+      scale: data.weighed_today ?? 0
+    };
     for (const { place, primary, secondary } of cards) {
       if (place.point) {
         const count = data.crossings.find(row => row.point === place.point);

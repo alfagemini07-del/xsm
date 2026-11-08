@@ -6,10 +6,10 @@ const names={scale:"Tarozi",parkovka_tashqi:"E-navbat parkovka",ayritom:"Afg‘o
 let scene,state,demo=false,timer,request,selected,attempts={},demoState,command,commandAttempt,commandPayload;
 let lastLive;
 const statusNames={waiting:"Kutilmoqda",called:"Chaqirilgan",hold:"Kutishga qo‘yilgan",no_show:"Kelmagan",cancelled:"Navbat bekor",inside:"Hudud ichida",completed:"Yakunlangan"};
-const actionNames={hold:"Kutishga qo‘yish",resume:"Navbatga qaytarish",no_show:"Kelmadi",cancel:"Navbatni bekor qilish",recall:"Qayta chaqirish",priority:"Ustuvorlik",assign:"Joy ajratish",spot:"Joy holati",gate:"Virtual darvoza holati"};
+const actionNames={hold:"Kutishga qo‘yish",resume:"Navbatga qaytarish",no_show:"Kelmadi",cancel:"Navbatni bekor qilish",recall:"Qayta chaqirish",priority:"Ustuvorlik",assign:"Joy ajratish",spot:"Joy holati",gate:"Virtual darvoza holati","call.FZ":"Free Zone navbati chaqirildi","call.CH":"Chegara navbati chaqirildi"};
 const gateNames={open:"Ochiq",closed:"Yopiq",locked:"Bloklangan",fault:"Nosoz",maintenance:"Xizmatda"};
 const gateTitles={1:names.kpp2,2:names.ayritom};
-const code=v=>v.flow+"-"+String(v.number).padStart(4,"0");
+const code=v=>"№"+String(v.number).padStart(4,"0");
 const isTech=document.body.dataset.role==="techadmin";
 const readOnly=document.body.dataset.role==="observer";
 const counters=createCounters($("place-counts"), key => {
@@ -58,7 +58,7 @@ function show(data,reset=false){
  const average=waitCount?Math.round(waiting.reduce((sum,r)=>sum+Number(r.n)*Number(r.wait_minutes),0)/waitCount):0;
  const callCount=data.queue.filter(r=>r.queue_state==="called").reduce((sum,r)=>sum+Number(r.n),0);
  const queued=flow=>waiting.find(r=>r.flow===flow)?.n??0;
- $("kpis").replaceChildren(...[["Jami transport",data.counts.reduce((n,r)=>n+Number(r.n),0)],["FZ navbati",queued("FZ")],["CH navbati",queued("CH")],["Chaqirilgan",callCount],["O‘rtacha kutish",average+" daq"],["Bugungi tushum",$("revenue").textContent]].map(([label,value])=>row(label,value)));
+ $("kpis").replaceChildren(...[["Jami transport",data.counts.reduce((n,r)=>n+Number(r.n),0)],["Free Zone navbati",queued("FZ")],["Chegara navbati",queued("CH")],["Chaqirilgan",callCount],["O‘rtacha kutish",average+" daq"],["Bugungi tushum",$("revenue").textContent]].map(([label,value])=>row(label,value)));
  const alerts=[];
  for(const area of ["parking","inside"]){const occupied=Number(data.counts.find(c=>c.area===area)?.n||0),capacity=data.config[area+"_capacity"],unavailable=(data.spots||[]).filter(s=>s.area===area).length;
   const percent=(occupied+unavailable)/capacity*100;
@@ -70,7 +70,7 @@ function show(data,reset=false){
  if(late.length)alerts.push(late.length+" chaqiruv kutish muddatidan o‘tdi. Xodim tekshirsin");
  for(const g of data.gates||[])if(["locked","fault","maintenance"].includes(g.state))alerts.push(gateTitles[g.id]+" · "+gateNames[g.state]);
  $("alerts").replaceChildren(...(alerts.length?alerts:["Faol ogohlantirish yo‘q"]).map(a=>{const p=document.createElement("p");p.textContent=a;return p}));
- $("spots").replaceChildren(...(data.spots||[]).map(s=>row((s.area==="parking"?"P":"FZ")+"-"+String(s.slot).padStart(3,"0"),s.state==="reserved"?"Rezerv":"Xizmatdan tashqari")));
+ $("spots").replaceChildren(...(data.spots||[]).map(s=>row((s.area==="parking"?"Parkovka-":"FreeZone-")+String(s.slot).padStart(3,"0"),s.state==="reserved"?"Rezerv":"Xizmatdan tashqari")));
  $("gates").replaceChildren(...(data.gates||[]).map(g=>{
    const el=document.createElement("div");el.append(row(gateTitles[g.id],gateNames[g.state]));
    if(isTech){const select=document.createElement("select");select.setAttribute("aria-label",gateTitles[g.id]+" holati");
@@ -95,7 +95,7 @@ function fixture(){
  const events=vehicles.map(v=>({visit_id:v.id,plate:v.plate,point:v.area==="inside"?"ayritom":"parkovka_tashqi",
    action:"in",amount:30000,occurred:v.started}));
  events.unshift({visit_id:vehicles[14].id,plate:vehicles[14].plate,point:"scale",action:"weigh",amount:10000,occurred:new Date().toISOString()});
- return {vehicles,config:{parking_capacity:120,inside_capacity:60,reset_hour:0,no_show_minutes:5},totals:[],counts:[],events,calls:[],spots:[],gates:[{id:1,state:"closed"},{id:2,state:"closed"}]};
+ return {vehicles,config:{parking_capacity:1000,inside_capacity:300,reset_hour:0,no_show_minutes:5},totals:[],counts:[],events,calls:[],spots:[],gates:[{id:1,state:"closed"},{id:2,state:"closed"}]};
 }
 function demoStep(flow){
  const data=demoState,v=data.vehicles.filter(v=>v.flow===flow&&v.area==="parking"&&v.queue_state==="waiting").sort((a,b)=>b.priority-a.priority||a.number-b.number)[0];
@@ -210,7 +210,7 @@ function vehicleOptions(){
 }
 function selectedInfo(){
  const v=state?.vehicles.find(v=>v.id===selected);$("vehicle-actions").replaceChildren();$("vehicle-info").replaceChildren();if(!v)return;
- $("vehicle-info").append(row("Holat",statusNames[v.queue_state]),row("Joy",(v.area==="parking"?"P-":"FZ-")+(v.slot||"ajratilmagan")),row("Ustuvorlik",["Oddiy","Maxsus","Favqulodda"][v.priority]));
+ $("vehicle-info").append(row("Holat",statusNames[v.queue_state]),row("Joy",(v.area==="parking"?"Parkovka-":"FreeZone-")+(v.slot||"ajratilmagan")),row("Ustuvorlik",["Oddiy","Maxsus","Favqulodda"][v.priority]));
  if(readOnly && !demo)return;
  const actions=[];
  if(v.area==="parking"){
@@ -225,7 +225,7 @@ function selectedInfo(){
 function openCommand(data){
  command=data;commandAttempt=null;commandPayload=null;const form=$("command-form");form.reset();$("command-title").textContent=actionNames[data.action];
  $("command-error").textContent="";$("command-hint").textContent=data.action==="cancel"?"Navbatdan chiqariladi. Tashrif, to‘lov va band joy saqlanadi; haqiqiy chiqish postda qayd etiladi.":data.action==="gate"?"Faqat virtual darvoza o‘zgaradi. Haqiqiy shlagbaum boshqarilmaydi.":"O‘zgarish sababi va xodim nomi tarixda saqlanadi.";
- const numeric=["assign","priority"].includes(data.action);$("command-value-label").hidden=!numeric;form.elements.value.required=numeric;form.elements.value.min=data.action==="priority"?0:1;form.elements.value.max=data.action==="priority"?2:500;
+ const numeric=["assign","priority"].includes(data.action);$("command-value-label").hidden=!numeric;form.elements.value.required=numeric;form.elements.value.min=data.action==="priority"?0:1;form.elements.value.max=data.action==="priority"?2:2500;
  $("command-value-label").querySelector("span").textContent=data.action==="priority"?"0 — oddiy, 1 — maxsus, 2 — favqulodda":"Joy raqami";
  $("command-dialog").showModal();
 }

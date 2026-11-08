@@ -278,8 +278,8 @@ CREATE OR REPLACE VIEW operation_ledger AS
 
 CREATE TABLE IF NOT EXISTS dispatch_config (
  id boolean PRIMARY KEY DEFAULT true CHECK(id),
- parking_capacity integer NOT NULL DEFAULT 120 CHECK(parking_capacity BETWEEN 1 AND 500),
- inside_capacity integer NOT NULL DEFAULT 60 CHECK(inside_capacity BETWEEN 1 AND 500),
+ parking_capacity integer NOT NULL DEFAULT 1000 CHECK(parking_capacity BETWEEN 1 AND 2500),
+ inside_capacity integer NOT NULL DEFAULT 300 CHECK(inside_capacity BETWEEN 1 AND 2500),
  reset_hour integer NOT NULL DEFAULT 0 CHECK(reset_hour BETWEEN 0 AND 23)
 );
 INSERT INTO dispatch_config(id) VALUES(true) ON CONFLICT DO NOTHING;
@@ -287,7 +287,7 @@ ALTER TABLE dispatch_config ADD COLUMN IF NOT EXISTS no_show_minutes integer NOT
 ALTER TABLE dispatch_config ADD COLUMN IF NOT EXISTS warning_percent integer NOT NULL DEFAULT 80 CHECK(warning_percent BETWEEN 1 AND 98);
 ALTER TABLE dispatch_config ADD COLUMN IF NOT EXISTS critical_percent integer NOT NULL DEFAULT 90 CHECK(critical_percent BETWEEN 2 AND 99 AND critical_percent>warning_percent);
 CREATE TABLE IF NOT EXISTS dispatch_spots (
- area text NOT NULL CHECK(area IN ('parking','inside')), slot integer NOT NULL CHECK(slot BETWEEN 1 AND 500),
+ area text NOT NULL CHECK(area IN ('parking','inside')), slot integer NOT NULL CHECK(slot BETWEEN 1 AND 2500),
  state text NOT NULL CHECK(state IN ('reserved','disabled')), reason text NOT NULL,
  actor text NOT NULL, updated_at timestamptz NOT NULL DEFAULT now(), PRIMARY KEY(area,slot)
 );
@@ -297,6 +297,17 @@ CREATE TABLE IF NOT EXISTS dispatch_gates (
  updated_at timestamptz NOT NULL DEFAULT now(), actor text NOT NULL DEFAULT 'system', reason text NOT NULL DEFAULT ''
 );
 INSERT INTO dispatch_gates(id) VALUES(1),(2) ON CONFLICT DO NOTHING;
+ALTER TABLE dispatch_config DROP CONSTRAINT IF EXISTS dispatch_config_parking_capacity_check;
+ALTER TABLE dispatch_config DROP CONSTRAINT IF EXISTS dispatch_config_inside_capacity_check;
+ALTER TABLE dispatch_config ADD CONSTRAINT dispatch_config_parking_capacity_check CHECK(parking_capacity BETWEEN 1 AND 2500);
+ALTER TABLE dispatch_config ADD CONSTRAINT dispatch_config_inside_capacity_check CHECK(inside_capacity BETWEEN 1 AND 2500);
+ALTER TABLE dispatch_config ALTER COLUMN parking_capacity SET DEFAULT 1000;
+ALTER TABLE dispatch_config ALTER COLUMN inside_capacity SET DEFAULT 300;
+UPDATE dispatch_config SET parking_capacity=1000 WHERE parking_capacity=120;
+UPDATE dispatch_config SET inside_capacity=300 WHERE inside_capacity=60;
+ALTER TABLE dispatch_spots DROP CONSTRAINT IF EXISTS dispatch_spots_slot_check;
+ALTER TABLE dispatch_spots ADD CONSTRAINT dispatch_spots_slot_check CHECK(slot BETWEEN 1 AND 2500);
+
 CREATE TABLE IF NOT EXISTS dispatch_numbers (
  day date NOT NULL, flow text NOT NULL, number integer NOT NULL, PRIMARY KEY(day,flow)
 );
