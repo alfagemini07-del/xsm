@@ -167,7 +167,7 @@ CREATE TABLE IF NOT EXISTS print_attempts (
 CREATE INDEX IF NOT EXISTS idx_print_weighing ON print_attempts(weighing_id, created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_print_created ON print_attempts(created_at DESC);
 
--- 6. QURILMALAR VA DOIMIY IMEI / HWID / IP RUXSATLARI (DEVICES)
+-- 6. QURILMALAR VA DOIMIY IMEI / HWID RUXSATLARI (DEVICES)
 CREATE TABLE IF NOT EXISTS devices (
     id UUID PRIMARY KEY,
     name TEXT NOT NULL,
@@ -194,7 +194,6 @@ ALTER TABLE devices ADD COLUMN IF NOT EXISTS backlog JSONB;
 ALTER TABLE devices ADD COLUMN IF NOT EXISTS backlog_at TIMESTAMPTZ;
 CREATE INDEX IF NOT EXISTS idx_devices_hw_id ON devices(hw_id) WHERE hw_id IS NOT NULL;
 CREATE INDEX IF NOT EXISTS idx_devices_hw_role ON devices((UPPER(TRIM(hw_id))), role) WHERE hw_id IS NOT NULL;
-CREATE INDEX IF NOT EXISTS idx_devices_ip_role ON devices(ip, role) WHERE ip IS NOT NULL;
 
 CREATE TABLE IF NOT EXISTS device_sessions (
     token_hash TEXT PRIMARY KEY,
@@ -359,6 +358,13 @@ BEGIN
              WHERE station_id = dup.id AND EXISTS (SELECT 1 FROM zone_visits z2 WHERE z2.station_id = rec.keep_id AND z2.station_local_id = zone_visits.station_local_id);
             UPDATE zone_visits SET station_id = rec.keep_id WHERE station_id = dup.id;
             UPDATE device_sessions SET device_id = rec.keep_id WHERE device_id = dup.id;
+            UPDATE devices k
+               SET station_hash = COALESCE(k.station_hash, d.station_hash),
+                   tablet_hash  = COALESCE(k.tablet_hash,  d.tablet_hash),
+                   last_user    = COALESCE(k.last_user,    d.last_user)
+              FROM devices d
+             WHERE k.id = rec.keep_id AND d.id = dup.id;
+            UPDATE devices SET station_hash = NULL, tablet_hash = NULL WHERE id = dup.id;
             DELETE FROM devices WHERE id = dup.id;
         END LOOP;
     END LOOP;
@@ -384,16 +390,20 @@ BEGIN
              WHERE station_id = dup.id AND EXISTS (SELECT 1 FROM zone_visits z2 WHERE z2.station_id = rec.keep_id AND z2.station_local_id = zone_visits.station_local_id);
             UPDATE zone_visits SET station_id = rec.keep_id WHERE station_id = dup.id;
             UPDATE device_sessions SET device_id = rec.keep_id WHERE device_id = dup.id;
+            UPDATE devices k
+               SET station_hash = COALESCE(k.station_hash, d.station_hash),
+                   tablet_hash  = COALESCE(k.tablet_hash,  d.tablet_hash),
+                   last_user    = COALESCE(k.last_user,    d.last_user)
+              FROM devices d
+             WHERE k.id = rec.keep_id AND d.id = dup.id;
+            UPDATE devices SET station_hash = NULL, tablet_hash = NULL WHERE id = dup.id;
             DELETE FROM devices WHERE id = dup.id;
         END LOOP;
     END LOOP;
 
     -- C) hw_id bo‘sh bo‘lgan eski tasdiqlangan qurilmalarga doimiy HWID biriktirish
     UPDATE devices
-    SET hw_id = CASE
-        WHEN role IN ('operator', 'parkovka_tashqi') THEN 'PC-' || UPPER(SUBSTRING(REPLACE(id::text, '-', ''), 1, 12))
-        ELSE 'HW-' || UPPER(SUBSTRING(REPLACE(id::text, '-', ''), 1, 14))
-    END
+    SET hw_id = 'HW-' || UPPER(SUBSTRING(REPLACE(id::text, '-', ''), 1, 14))
     WHERE hw_id IS NULL OR TRIM(hw_id) = '';
 END $$;
 
@@ -593,7 +603,7 @@ SELECT dispatch_place(v.id,v.purpose,v.location,v.started) FROM zone_visits v
  WHERE v.location<>'closed' AND NOT EXISTS(SELECT 1 FROM dispatch_tickets t WHERE t.visit_id=v.id)
  ORDER BY v.started,v.id;
 
--- 11. FONDA EXCEL EKSPORT VAZIFALARI VA TUZATISHLAR
+-- 11. FONDA EXCEL EKSPORT VAZIFALARI, TUZATISHLAR VA SMENALAR
 CREATE TABLE IF NOT EXISTS export_jobs (
     id UUID PRIMARY KEY,
     user_id BIGINT NOT NULL REFERENCES users(id),
@@ -622,4 +632,18 @@ CREATE TABLE IF NOT EXISTS corrections (
 );
 CREATE INDEX IF NOT EXISTS idx_corrections_record ON corrections(table_name, record_id);
 
-DROP TABLE IF EXISTS shifts CASCADE;
+CREATE TABLE IF NOT EXISTS shifts (
+    id SERIAL PRIMARY KEY,
+    point TEXT NOT NULL,
+    opened_by BIGINT REFERENCES users(id),
+    opened_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    closed_by BIGINT REFERENCES users(id),
+    closed_at TIMESTAMPTZ,
+    system_cash BIGINT,
+    counted_cash BIGINT,
+    difference BIGINT,
+    note TEXT,
+    open_note TEXT,
+    status TEXT NOT NULL DEFAULT 'open' CHECK (status IN ('open','closed'))
+);
+CREATE INDEX IF NOT EXISTS idx_shifts_point_status ON shifts(point, status);

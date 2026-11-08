@@ -3,9 +3,9 @@
 <head>
   <meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Boshqaruv paneli | Airitom</title>
-  <link rel="icon" href="{{ url_for('static', filename='favicon.ico') }}"><link rel="stylesheet" href="{{ url_for('static', filename='style.css', v='20261108-3') }}">
+  <link rel="icon" href="{{ url_for('static', filename='favicon.ico') }}"><link rel="stylesheet" href="{{ url_for('static', filename='style.css', v='20261108-2') }}">
   <link rel="stylesheet" href="/static/interface.css?v=8">
-  {% if user.role == 'techadmin' %}<link rel="stylesheet" href="/static/devices.css?v=5">{% endif %}
+  <link rel="stylesheet" href="/static/devices.css?v=4">
 <link rel="stylesheet" href="/static/operations.css?v=2"></head>
 <body class="admin-page" data-csrf="{{ csrf_token() }}" data-role="{{ user.role }}" data-user-id="{{ user.id }}" data-default-tab="{{ default_tab }}" data-local-printer-agent="{{ '1' if local_printer_agent else '0' }}">
   <div class="industrial-grid"></div>
@@ -15,10 +15,24 @@
     <div class="admin-workspace">
       <header class="admin-topbar"><div class="topbar-brand">{{ 'TEXNIK BOSHQARUV' if user.role == 'techadmin' else 'ADMIN BOSHQARUV' }} <span>v2.8 Pro</span></div><div class="topbar-status"><span class="blue"><i></i>Printer <b id="admin-printer-status">Tekshirilmoqda</b></span><span id="sync-status"><i></i>Qurilmalar sinxron</span></div><time id="admin-clock">--:--:--</time><form method="post" action="{{ url_for('logout') }}" class="topbar-logout"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><button class="button secondary compact" type="submit">Hisobdan chiqish</button></form></header>
       <main class="admin-main">
-        {% if user.role == 'techadmin' %}{% include 'devices.html' %}{% endif %}
+        {% include 'devices.html' %}
         {% if user.role == 'admin' %}<section id="tab-dashboard" class="admin-tab active">
           <header class="page-title"><div><span class="eyebrow">REAL VAQT MA'LUMOTLARI</span><h1>Operatsion Dashboard</h1><p>Tarozi, parkovka va ikkala KPP faoliyati.</p></div><button class="button secondary compact" id="btn-refresh-dashboard" type="button">⟳ Yangilash</button></header>
           <div class="metric-grid four"><article class="metric-card green"><span>▣</span><small>Bugungi operatsiyalar</small><strong id="d-today-count">—</strong><em>ta operatsiya</em></article><article class="metric-card blue"><span>▤</span><small>Bugungi tushum</small><strong id="d-today-total">—</strong><em>so'm</em></article><article class="metric-card violet"><span>◫</span><small>7 kunlik operatsiyalar</small><strong id="d-week-count">—</strong><em>ta operatsiya</em></article><article class="metric-card orange"><span>◈</span><small>7 kunlik tushum</small><strong id="d-week-total">—</strong><em>so'm</em></article></div>
+          <div class="metric-grid three kpi-alerts" style="margin-top:0;margin-bottom:1rem">
+            <article class="metric-card red kpi-clickable" id="kpi-late-devices" style="cursor:pointer" title="Qurilmalar bo'limini ochish">
+              <span>⚡</span><small>Signal kechikayotgan terminal</small>
+              <strong id="d-kpi-late">—</strong><em>ta qurilma</em>
+            </article>
+            <article class="metric-card orange kpi-clickable" id="kpi-unsent" style="cursor:pointer" title="Qurilmalar bo'limini ochish">
+              <span>⟳</span><small>Serverga yetmagan yozuvlar</small>
+              <strong id="d-kpi-unsent-count">—</strong><em id="d-kpi-unsent-amount">ta yozuv</em>
+            </article>
+            <article class="metric-card violet kpi-clickable" id="kpi-conflicts" style="cursor:pointer" title="Qurilmalar bo'limini ochish">
+              <span>⚠</span><small>Ziddiyatli yozuvlar</small>
+              <strong id="d-kpi-conflicts">—</strong><em>ta ziddiyat</em>
+            </article>
+          </div>
           <div class="dashboard-grid"><article class="industrial-card chart-card"><div class="section-heading"><div><h2>Kunlik operatsiyalar va tushum</h2><p>Oxirgi 7 kun bo'yicha operatsiyalar va tushum</p></div><span class="mini-state" id="dashboard-time"></span></div><canvas id="weekly-chart" height="290"></canvas></article><article class="industrial-card quick-panel"><div class="section-heading"><h2>Bugungi xizmatlar</h2></div><div class="quick-state"><span><i></i>Vazn o'lchash</span><b id="d-service-weighing">—</b></div><div class="quick-state"><span><i></i>Hududga kirish</span><b id="d-service-entry">—</b></div><div class="quick-state"><span><i></i>Qayta yuklash</span><b id="d-service-reload">—</b></div><div class="quick-state"><span>Parkovka va KPP</span><b id="d-service-parking">—</b></div></article></div>
         </section>{% endif %}
 
@@ -272,7 +286,6 @@
             <div class="analytics-closing"><h2>Kunlik kassa yopilish dalolatnomasi</h2><p>Bitta kunni va kerakli operatorni tanlang. To'lov filtri “Barchasi” bo'lsin.</p><div class="analytics-tools"><label>Kassadagi haqiqiy naqd pul (so'm)<input id="closing-cash" type="text" inputmode="numeric" placeholder="Masalan: 500 000"></label><button id="closing-download" class="button success" type="button">Dalolatnoma PDF</button></div><p class="muted">Yaratilgan paytdagi hisob va haqiqiy pul farqi, topshiruvchi hamda qabul qiluvchi imzosi uchun joy.</p></div>
           </article>
         </section>
-
         <section id="tab-search" class="admin-tab hidden">
           <header class="page-title"><div><span class="eyebrow">TEZKOR QIDIRUV</span><h1>Avtomobil va chek qidiruvi</h1><p>Davlat raqami, chek identifikatori yoki sana oralig'i bo'yicha izlang.</p></div><div class="title-actions"><button id="btn-refresh-search" class="button secondary compact" type="button">⟳ Yangilash</button><button id="btn-export-search" class="button success compact" type="button">⇩ Excel eksport (.xlsx)</button></div></header>
           <article class="industrial-card search-filters"><label class="grow">Mashina raqami yoki Chek ID<div class="input-with-prefix"><span>UZ</span><select id="search-point" aria-label="Nuqta"><option value="">Barcha nuqtalar</option><option value="scale">Tarozi</option><option value="parkovka_tashqi">E-navbat parkovka</option><option value="ayritom">Afg‘oniston darvozasi</option><option value="kpp2">O‘zbekiston darvozasi</option></select><input id="search-plate" type="text" placeholder="01 A 777 BA yoki chek raqami"></div></label><label>Boshlanish sanasi<input id="search-start" type="date"></label><label>Tugash sanasi<input id="search-end" type="date"></label><label>To'lov holati<select id="search-status"><option value="">Barchasi</option><option value="paid">To'langan</option><option value="pending">Kutilmoqda</option><option value="cancelled">Bekor qilingan</option></select></label><button id="btn-search" class="button primary" type="button">⌕ Qidirish</button><button id="btn-reset-search" class="icon-button" type="button">⟳</button><div class="quick-search"><span>Tezkor namunalar:</span><button type="button" data-search-sample="01 A 777 BA">01 A 777 BA</button><button type="button" data-search-sample="10 882 AA">10 882 AA</button></div></article>
@@ -294,11 +307,76 @@
           <article class="industrial-card transfer-card backup"><span class="large-icon">⇩</span><h2>Tarozi SQLite zaxirasi</h2><p>{% if user.role == 'techadmin' %}Supabase'dagi tarozi foydalanuvchilari, sozlamalari va tarozi operatsiyalari bitta tekshiriladigan SQLite faylga yoziladi.{% else %}Supabase'dagi barcha tarozi, to'lov va xizmat sozlamalari import qilinadigan SQLite faylga yoziladi. Parol xeshlari kiritilmaydi.{% endif %}</p><div class="backup-note"><b>Fayl nomi:</b><span id="manual-backup-name">bugungi sana 00-00 holatiga backup.db</span></div><a id="btn-manual-backup" class="button success" href="{{ '/api/admin/backup/download' if user.role == 'techadmin' else '/api/backup/download' }}">Zaxira Nusxa (.db)</a>{% if user.role == 'techadmin' %}<small>Avtomatik lokal backup ixtiyoriy va Sozlamalar bo'limida yashirilgan.</small>{% endif %}</article></div>
         </section>
 
+        <section id="tab-shifts" class="admin-tab hidden">
+          <header class="page-title">
+            <div>
+              <span class="eyebrow">SMENA TOPSHIRISH VA KASSA SOLISHTIRISH</span>
+              <h1>Smenalar va Kassa</h1>
+              <p>Operatorlar smenasi, kassa naqd pulini topshirish va tafovutlarni qayd etish.</p>
+            </div>
+            <div class="title-actions">
+              <button id="btn-open-shift-modal" class="button primary compact" type="button">+ Yangi smena ochish</button>
+              <button id="btn-refresh-shifts" class="button secondary compact" type="button">⟳ Yangilash</button>
+            </div>
+          </header>
+
+          <article class="industrial-card">
+            <div class="section-heading">
+              <div>
+                <h2>Ochiq smenalar</h2>
+                <p>Ayni paytda faoliyat olib borayotgan postlar va operatorlar.</p>
+              </div>
+            </div>
+            <div class="table-scroll">
+              <table>
+                <thead>
+                  <tr>
+                    <th>Post / Nuqta</th>
+                    <th>Operator</th>
+                    <th>Ochilgan vaqti</th>
+                    <th>Izoh</th>
+                    <th>Amal</th>
+                  </tr>
+                </thead>
+                <tbody id="shifts-active-body"></tbody>
+              </table>
+            </div>
+          </article>
+
+          <article class="industrial-card table-card">
+            <div class="section-heading">
+              <div>
+                <h2>Smenalar arxivi</h2>
+                <p>Yopilgan smenalar, kassa hisob-kitobi va aniqlangan tafovutlar.</p>
+              </div>
+            </div>
+            <div class="table-scroll">
+              <table>
+                <thead>
+                  <tr>
+                    <th>ID</th>
+                    <th>Nuqta</th>
+                    <th>Ochdi</th>
+                    <th>Ochilgan vaqt</th>
+                    <th>Yopdi</th>
+                    <th>Yopilgan vaqt</th>
+                    <th>Tizimdagi naqd pul</th>
+                    <th>Sanalgan naqd pul</th>
+                    <th>Farq</th>
+                    <th>Holat</th>
+                  </tr>
+                </thead>
+                <tbody id="shifts-archive-body"></tbody>
+              </table>
+            </div>
+          </article>
+        </section>
+
         {% if user.role == 'techadmin' %}
         <section id="tab-monitor" class="admin-tab active">
           <header class="page-title"><div><span class="eyebrow">FAQAT TEXADMIN</span><h1>Tizim Monitoring Markazi</h1><p>Supabase xotirasi, Render serveri va dastur tezkorligi real vaqtda.</p></div><button id="btn-refresh-monitor" class="button primary compact" type="button">⟳ Hozir tekshirish</button></header>
           <div class="health-banner"><span class="health-pulse"><i></i></span><div><small>UMUMIY TIZIM HOLATI</small><strong id="monitor-overall">Tekshirilmoqda...</strong></div><em id="monitor-checked">—</em></div>
-          <div class="tech-quick-actions"><button type="button" data-go="devices"><span>▣</span><b>Qurilmalar</b><small>Kompyuter va APK ruxsati</small></button><button type="button" data-go="users"><span>♙</span><b>Foydalanuvchilar</b><small>Login, rol va parollar</small></button><button type="button" data-go="transfer"><span>⇅</span><b>Import va Backup</b><small>SQLite va ZIP zaxira</small></button><button type="button" data-go="tech"><span>⚙</span><b>Sozlamalar va Narxlar</b><small>Tariflar va xotira tozalash</small></button></div>
+          <div class="tech-quick-actions"><button type="button" data-go="users"><span>♙</span><b>Foydalanuvchilar</b><small>Login, rol va parollar</small></button><button type="button" data-go="transfer"><span>⇅</span><b>Import va Backup</b><small>SQLite ma'lumotlar</small></button><button type="button" data-go="tech"><span>⚙</span><b>Sozlamalar</b><small>Narx va lokal agent</small></button><button type="button" data-go="reports"><span>▥</span><b>Hisobotlar</b><small>Moliyaviy tahlil</small></button></div>
           <div class="monitor-grid">
             <article class="industrial-card storage-card"><div class="section-heading"><div><h2>Supabase xotirasi</h2><p>PostgreSQL database hajmi</p></div><span class="mini-state"><i></i>Sinxron</span></div><div class="storage-visual"><div id="storage-ring" class="storage-ring"><strong id="storage-percent">—</strong><small>ishlatilgan</small></div><div class="storage-details"><div><span>Ishlatilgan</span><b id="storage-used">—</b></div><div><span>Bo'sh joy</span><b id="storage-free">—</b></div><div><span>Limit</span><b id="storage-limit">—</b></div></div></div><div class="progress"><i id="storage-progress"></i></div><small>Limit qiymati Render'dagi SUPABASE_DB_LIMIT_BYTES sozlamasidan olinadi.</small></article>
             <article class="industrial-card"><div class="section-heading"><div><h2>Database holati</h2><p>Ulanish va javob tezligi</p></div></div><div class="monitor-metrics"><div><span>DB javob vaqti</span><strong id="db-latency">—</strong></div><div><span>Ulanishlar</span><strong id="db-connections">—</strong></div><div><span>Tarozi yozuvlari</span><strong id="db-rows">—</strong></div><div><span>Faol foydalanuvchi</span><strong id="active-users">—</strong></div></div></article>
@@ -315,10 +393,10 @@
         </section>
 
         <section id="tab-tech" class="admin-tab hidden">
-          <header class="page-title"><div><span class="eyebrow">FAQAT TECHADMIN · MARKAZIY BOSHQARUV</span><h1>Narxlar, Tariflar va Xotirani Tozalash</h1><p>Barcha nuqtalar (Tarozi, E-navbat parkovka, KPP1, KPP2) uchun to‘lov narxlarini boshqarish va tizim/qurilmalar xotirasini noldan boshlash.</p></div></header>
-          <article id="tariffs" class="industrial-card settings-block"><div class="section-heading"><div><h2>▣ Markaziy tariflar va to‘lov narxlari</h2><p>Narxlarni faqat techadmin o‘zgartira oladi. O‘zgarish saqlangan zahoti barcha kompyuter dasturlari (Tarozi, Parkovka) va KPP terminallari yangi narx asosida hisobni yuritadi.</p></div></div><div id="tariff-admin-list" class="tariff-admin-grid"></div></article>
+          <header class="page-title"><div><span class="eyebrow">TERMINAL KONFIGURATSIYASI</span><h1>Sozlamalar</h1><p>Narxlar, ma'lumotlar va ixtiyoriy avtomatik backupni boshqarish.</p></div></header>
+          <article id="tariffs" class="industrial-card settings-block"><div class="section-heading"><div><h2>▣ Markaziy tariflar</h2><p>Barcha summalarni techadmin belgilaydi. Tarifni o'chirish operator oynasidan xizmatni olib tashlaydi. Yangi summa odatda keyingi operatsiyalarga qo'llanadi.</p></div></div><div id="tariff-admin-list" class="tariff-admin-grid"></div></article>
           <article class="industrial-card settings-block"><div class="section-heading"><div><h2>Tarif o'zgarishlari tarixi</h2><p>Kim, qachon, qaysi tarifni o'zgartirgani va ochiq operatsiyalarga nechta yozuv bo'yicha qo'llangani.</p></div></div><div class="table-scroll"><table><thead><tr><th>Vaqt</th><th>Tarif</th><th>Summa</th><th>Holat</th><th>Ochiq yozuvlar</th><th>Techadmin</th></tr></thead><tbody id="tariff-history-body"></tbody></table></div><div class="pagination"><label>Sahifada <select id="tariff-history-size"><option value="10">10 ta</option><option value="15" selected>15 ta</option><option value="20">20 ta</option><option value="50">50 ta</option><option value="100">100 ta</option></select></label><span id="tariff-history-count">0 ta o'zgarish</span><button id="tariff-history-prev" type="button">Oldingi</button><b id="tariff-history-page">1 / 1</b><button id="tariff-history-next" type="button">Keyingi</button></div></article>
-          <article class="industrial-card settings-block danger-zone"><div class="section-heading"><div><h2>⚠ Ma'lumotlar va qurilmalar xotirasini tozalash (Noldan boshlash)</h2><p>Foydalanuvchilar va tarif sozlamalari saqlanadi. Barcha eski tarozi o‘lchovlari, E-navbat parkovka va Free Zone tashriflari, cheklar, to‘lovlar hamda qurilmalar xotirasi o‘chiriladi va hisob noldan boshlanadi.</p></div></div><div class="danger-actions"><a class="button secondary" href="/api/admin/transfer/export?format=zip">Umumiy zaxirani olish (.zip)</a><button id="btn-open-clear-data" class="button danger" type="button">Ma'lumotlar va xotirani noldan tozalash</button></div></article>
+          <article class="industrial-card settings-block danger-zone"><div class="section-heading"><div><h2>⚠ Ma'lumotlar bazasini tozalash</h2><p>Foydalanuvchilar, tariflar va tariflar tarixi saqlanadi. Barcha tarozi, Free Zone tashrifi, chek, pul va import yozuvlari qaytarib bo'lmaydigan tarzda o'chadi.</p></div></div><div class="danger-actions"><a class="button secondary" href="/api/admin/transfer/export">Umumiy zaxirani olish</a><button id="btn-open-clear-data" class="button danger" type="button">Bazani tozalash</button></div></article>
           <details class="advanced-settings"><summary>Avtomatik tungi backup agenti (ixtiyoriy)</summary><article class="industrial-card settings-block"><div class="section-heading"><div><h2>Lokal agent uchun maxfiy token</h2><p>Oddiy qo'lda backup uchun token kerak emas. Bu bo'lim faqat Windows agenti har kuni avtomatik backup qilishi uchun.</p></div></div><div class="inline-form"><input id="token-name" type="text" placeholder="Masalan: Bosh tarozi kompyuteri"><button id="btn-create-token" class="button primary" type="button">Token yaratish</button></div><div id="new-token-box" class="token-box hidden"><span>Hozir nusxalang:</span><code id="new-token-value"></code></div><div class="table-scroll"><table><thead><tr><th>Nomi</th><th>Yaratilgan</th><th>Oxirgi ishlatilgan</th><th>Holat</th><th>Amal</th></tr></thead><tbody id="tokens-body"></tbody></table></div><div class="pagination"><label>Sahifada <select id="tokens-size"><option value="10">10 ta</option><option value="15" selected>15 ta</option><option value="20">20 ta</option><option value="50">50 ta</option><option value="100">100 ta</option></select></label><span id="tokens-count">0 ta token</span><button id="tokens-prev" type="button">Oldingi</button><b id="tokens-page">1 / 1</b><button id="tokens-next" type="button">Keyingi</button></div></article></details>
         </section>
         {% endif %}
@@ -328,7 +406,54 @@
 
   <div id="detail-modal" class="modal hidden" role="dialog" aria-modal="true"><div class="modal-card detail-modal"><header><div><h2>Chek Tafsilotlari</h2><p id="detail-receipt">—</p></div><button class="modal-close" data-close="detail-modal" type="button">×</button></header><div id="detail-body" class="detail-grid"></div><footer><button class="button secondary" data-close="detail-modal" type="button">Yopish</button><button id="detail-print" class="button success" type="button">▤ Qayta chop etish</button></footer></div></div>
   <div id="password-modal" class="modal hidden" role="dialog" aria-modal="true"><div class="modal-card narrow"><header><div><h2>Parolni yangilash</h2><p id="password-user">—</p></div><button class="modal-close" data-close="password-modal" type="button">×</button></header><div class="modal-body"><label>Yangi parol<input id="reset-password" type="password" placeholder="Kamida 8 belgi"></label></div><footer><button class="button secondary" data-close="password-modal" type="button">Bekor qilish</button><button id="btn-reset-password" class="button primary" type="button">Parolni reset qilish</button></footer></div></div>
-  {% if user.role == 'techadmin' %}<div id="clear-data-modal" class="modal hidden" role="dialog" aria-modal="true"><div class="modal-card narrow destructive-modal"><header><div><h2>Xotirani tozalash va noldan boshlash</h2><p>Bu amalni ortga qaytarib bo'lmaydi.</p></div><button class="modal-close" data-close="clear-data-modal" type="button">×</button></header><div class="modal-body"><div class="destructive-warning">Barcha eski tarozi o'lchovlari, E-navbat parkovka va Free Zone tashriflari, cheklar, to'lovlar, import tarixi va qurilmalar navbat xotirasi butunlay o'chadi hamda yangi ma'lumotlar noldan yozila boshlaydi. Loginlar va tariflar saqlanadi.</div><label class="tariff-switch" style="margin:10px 0;display:flex;align-items:center;gap:8px;color:#e2e8f0"><input id="clear-data-reset-devices" type="checkbox" checked><span>Qurilmalar xotirasini, navbat keshini va sessiyalarini ham tozalash</span></label><label class="tariff-switch" style="margin:6px 0 12px;display:flex;align-items:center;gap:8px;color:#fca5a5"><input id="clear-data-delete-devices" type="checkbox"><span>Ro‘yxatdagi barcha qurilmalarni ham o‘chirib, qayta ro‘yxatdan o‘tkazish</span></label><label>Joriy techadmin paroli<input id="clear-data-password" type="password" autocomplete="current-password" placeholder="Parolingiz"></label><label>Tasdiqlash uchun <b>BARCHASINI OCHIRISH</b> deb yozing<input id="clear-data-confirmation" type="text" autocomplete="off" placeholder="BARCHASINI OCHIRISH"></label></div><footer><button class="button secondary" data-close="clear-data-modal" type="button">Bekor qilish</button><button id="btn-confirm-clear-data" class="button danger" type="button" disabled>Noldan tozalash</button></footer></div></div>{% endif %}
+  {% if user.role == 'techadmin' %}<div id="clear-data-modal" class="modal hidden" role="dialog" aria-modal="true"><div class="modal-card narrow destructive-modal"><header><div><h2>Barcha operatsiyalarni o'chirish</h2><p>Bu amalni ortga qaytarib bo'lmaydi.</p></div><button class="modal-close" data-close="clear-data-modal" type="button">×</button></header><div class="modal-body"><div class="destructive-warning">Tarozi o'lchovlari, Free Zone tashriflari, cheklar, to'lovlar va import tarixi butunlay o'chadi. Loginlar, tariflar va tariflar tarixi saqlanadi. Avval backup olish tavsiya qilinadi.</div><label>Joriy techadmin paroli<input id="clear-data-password" type="password" autocomplete="current-password" placeholder="Parolingiz"></label><label>Tasdiqlash uchun <b>BARCHASINI OCHIRISH</b> deb yozing<input id="clear-data-confirmation" type="text" autocomplete="off" placeholder="BARCHASINI OCHIRISH"></label></div><footer><button class="button secondary" data-close="clear-data-modal" type="button">Bekor qilish</button><button id="btn-confirm-clear-data" class="button danger" type="button" disabled>Hammasini o'chirish</button></footer></div></div>{% endif %}
+  <div id="shift-open-modal" class="modal hidden" role="dialog" aria-modal="true">
+    <div class="modal-card narrow">
+      <header>
+        <div><h2>Yangi smena ochish</h2><p>Postni tanlang va navbatchilikni boshlang</p></div>
+        <button class="modal-close" data-close="shift-open-modal" type="button">×</button>
+      </header>
+      <div class="modal-body">
+        <label>Nuqta / Post
+          <select id="shift-open-point">
+            <option value="tarozi">Tarozi</option>
+            <option value="parkovka_tashqi">E-navbat parkovka</option>
+            <option value="kpp2">O‘zbekiston darvozasi</option>
+            <option value="ayritom">Afg‘oniston darvozasi</option>
+          </select>
+        </label>
+        <label>Izoh (ixtiyoriy)
+          <input id="shift-open-note" type="text" placeholder="Masalan: 1-smena boshlandi">
+        </label>
+      </div>
+      <footer>
+        <button class="button secondary" data-close="shift-open-modal" type="button">Bekor qilish</button>
+        <button id="btn-confirm-open-shift" class="button primary" type="button">Smenani ochish</button>
+      </footer>
+    </div>
+  </div>
+
+  <div id="shift-close-modal" class="modal hidden" role="dialog" aria-modal="true">
+    <div class="modal-card narrow">
+      <header>
+        <div><h2>Smenani yopish va kassa topshirish</h2><p id="shift-close-title">—</p></div>
+        <button class="modal-close" data-close="shift-close-modal" type="button">×</button>
+      </header>
+      <div class="modal-body">
+        <input type="hidden" id="shift-close-id">
+        <label>Kassadagi sanalgan naqd pul (so‘m)
+          <input id="shift-close-counted" type="number" min="0" step="1000" placeholder="Masalan: 450000">
+        </label>
+        <label>Topshirish izohi / Sabab
+          <input id="shift-close-note" type="text" placeholder="Kassa to‘liq topshirildi">
+        </label>
+      </div>
+      <footer>
+        <button class="button secondary" data-close="shift-close-modal" type="button">Bekor qilish</button>
+        <button id="btn-confirm-close-shift" class="button danger" type="button">Smenani yopish</button>
+      </footer>
+    </div>
+  </div>
 
   <div id="vehicle-history-modal" class="modal hidden" role="dialog" aria-modal="true">
     <div class="modal-card detail-modal">
@@ -359,9 +484,9 @@
   </div>
 
   <div id="toast" class="toast hidden" role="status"><b id="toast-icon">✓</b><span id="toast-text"></span></div>
-{% if user.role == 'techadmin' %}<script src="{{ url_for('static', filename='devices.js', v='5') }}" defer></script>{% endif %}
+<script src="{{ url_for('static', filename='devices.js', v='4') }}" defer></script>
 <link rel="stylesheet" href="/static/export-jobs.css"><script src="/static/export-jobs.js" defer></script>
-<script src="{{ url_for('static', filename='admin.js', v='20261108-3') }}" defer></script>
-<script src="{{ url_for('static', filename='reports.js', v='20261108-3') }}" defer></script>
+<script src="{{ url_for('static', filename='admin.js', v='20261108-2') }}" defer></script>
+<script src="{{ url_for('static', filename='reports.js', v='20261108-2') }}" defer></script>
 <dialog id="operation-receipt"><div class="operation-receipt-card"><h2>Xizmat cheki</h2><img id="operation-receipt-image" alt="Chek"><p id="operation-print-state"></p><button id="operation-receipt-close" class="button secondary" type="button">Yopish</button></div></dialog><script src="/static/operations.js?v=1" defer></script></body>
 </html>

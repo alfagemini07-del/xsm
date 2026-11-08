@@ -19,25 +19,96 @@ def integer(data, key, limit=3_000_000_000):
     return value
 
 
-def _infer_station_role(data: dict, conn) -> str | None:
-    role = str(data.get("role") or "").strip()
-    if role in {"operator", "parkovka_tashqi"}:
-        return role
-    for event in data.get("events", []):
-        if isinstance(event, dict):
-            kind = str(event.get("kind") or "")
-            if kind == "scale.paid":
-                return "operator"
-            if kind in {"parking.in", "parking.out"}:
-                return "parkovka_tashqi"
-    accounts = [str(a).strip().lower() for a in data.get("accounts", []) if isinstance(a, str) and a.strip()]
-    if accounts:
-        row = conn.execute(
-            "SELECT role FROM users WHERE LOWER(username)=ANY(%s) AND role IN ('operator','parkovka_tashqi') LIMIT 1",
-            (accounts,),
+def _resolve_or_bind_station_device(conn, cred_hash, accounts, events, remote_ip):
+    """
+    Finds the device matching `station_hash = cred_hash`.
+    If `station_hash` was not yet saved on an already-approved desktop device
+    (for example, when the device was registered before approval or after a session reset),
+    automatically matches the approved desktop device by operator account / role and binds `station_hash`.
+    """
+    dev = conn.execute(
+        "SELECT * FROM devices WHERE station_hash=%s FOR UPDATE",
+        (cred_hash,),
+    ).fetchone()
+    if dev:
+        return dev
+
+    # Determine role and operator usernames from payload accounts or events
+    usernames = [str(a).strip().lower()[:40] for a in (accounts or []) if isinstance(a, str) and a.strip()]
+    for ev in (events or []):
+        if isinstance(ev, dict) and isinstance(ev.get("payload"), dict):
+            w = str(ev["payload"].get("worker") or "").strip().lower()[:40]
+            if w and w not in usernames:
+                usernames.append(w)
+
+    inferred_role = None
+    if usernames:
+        u_row = conn.execute(
+            "SELECT username, role FROM users WHERE username = ANY(%s) AND role IN ('parkovka_tashqi', 'operator') LIMIT 1",
+            (usernames,),
         ).fetchone()
-        if row:
-            return row["role"]
+        if u_row:
+            inferred_role = u_row["role"]
+
+    if not inferred_role:
+        for ev in (events or []):
+            if isinstance(ev, dict):
+                kind = str(ev.get("kind") or "")
+                if kind.startswith("parking."):
+                    inferred_role = "parkovka_tashqi"
+                    break
+                if kind == "scale.paid":
+                    inferred_role = "operator"
+                    break
+
+    if not inferred_role:
+        return None
+
+    # 1. Try to find an approved device for this role where last_user matches one of the station accounts
+    if usernames:
+        candidate = conn.execute(
+            """SELECT * FROM devices
+               WHERE role = %s AND NOT blocked
+                 AND LOWER(COALESCE(last_user, '')) = ANY(%s)
+               ORDER BY approved DESC, (station_hash IS NULL) DESC, last_seen DESC NULLS LAST
+               LIMIT 1 FOR UPDATE""",
+            (inferred_role, usernames),
+        ).fetchone()
+        if candidate:
+            conn.execute(
+                "UPDATE devices SET station_hash=%s, ip=COALESCE(%s, ip) WHERE id=%s",
+                (cred_hash, remote_ip, candidate["id"]),
+            )
+            return conn.execute("SELECT * FROM devices WHERE id=%s", (candidate["id"],)).fetchone()
+
+    # 2. Try to find an approved device for this role whose station_hash is currently NULL
+    candidate = conn.execute(
+        """SELECT * FROM devices
+           WHERE role = %s AND NOT blocked AND station_hash IS NULL
+           ORDER BY approved DESC, last_seen DESC NULLS LAST, created_at ASC
+           LIMIT 1 FOR UPDATE""",
+        (inferred_role,),
+    ).fetchone()
+    if candidate:
+        conn.execute(
+            "UPDATE devices SET station_hash=%s, ip=COALESCE(%s, ip) WHERE id=%s",
+            (cred_hash, remote_ip, candidate["id"]),
+        )
+        return conn.execute("SELECT * FROM devices WHERE id=%s", (candidate["id"],)).fetchone()
+
+    # 3. If there is only a single approved, non-blocked device for this desktop role, bind to it
+    all_for_role = conn.execute(
+        "SELECT * FROM devices WHERE role = %s AND approved = TRUE AND NOT blocked FOR UPDATE",
+        (inferred_role,),
+    ).fetchall()
+    if len(all_for_role) == 1:
+        only_dev = all_for_role[0]
+        conn.execute(
+            "UPDATE devices SET station_hash=%s, ip=COALESCE(%s, ip) WHERE id=%s",
+            (cred_hash, remote_ip, only_dev["id"]),
+        )
+        return conn.execute("SELECT * FROM devices WHERE id=%s", (only_dev["id"],)).fetchone()
+
     return None
 
 
@@ -45,10 +116,9 @@ def register_station(app, pool, prices, clean_plate):
     @app.post("/api/station/webhook")
     def station_webhook():
         data = request.get_json(silent=True) or {}
-        auth_header = request.headers.get("Authorization", "")
-        credential = auth_header.removeprefix("Station ").removeprefix("Device ").strip()
+        credential = request.headers.get("Authorization", "").removeprefix("Station ").strip()
         if (
-            not 16 <= len(credential) <= 200
+            not 40 <= len(credential) <= 200
             or (request.content_length and request.content_length > 256000)
         ):
             abort(401)
@@ -63,142 +133,15 @@ def register_station(app, pool, prices, clean_plate):
             or len(accounts) > 256
         ):
             abort(400)
-        from devices import record_timeouts, get_client_ip, derive_pc_hw_id, deduplicate_devices
+        from devices import record_timeouts
 
-        client_ip = get_client_ip()
+        forwarded = request.headers.get("X-Forwarded-For", "").split(",")[0].strip()
+        client_ip = forwarded or request.remote_addr or ""
         cred_hash = hashlib.sha256(credential.encode()).hexdigest()
 
         with pool().connection() as conn:
             record_timeouts(conn)
-            dev = conn.execute(
-                "SELECT * FROM devices WHERE station_hash=%s FOR UPDATE",
-                (cred_hash,),
-            ).fetchone()
-
-            if not dev:
-                # Try matching by active session token or explicit device_id / hw_id / IP
-                sess_dev = conn.execute(
-                    """SELECT d.* FROM device_sessions s
-                       JOIN devices d ON d.id=s.device_id
-                       WHERE s.token_hash=%s FOR UPDATE OF d""",
-                    (cred_hash,),
-                ).fetchone()
-                if sess_dev:
-                    dev = sess_dev
-                    if not dev["station_hash"]:
-                        conn.execute(
-                            "UPDATE devices SET station_hash=%s WHERE id=%s",
-                            (cred_hash, dev["id"]),
-                        )
-
-            if not dev:
-                inferred_role = _infer_station_role(data, conn)
-                raw_did = str(data.get("device_id") or "").strip()
-                raw_hw = str(
-                    data.get("hw_id")
-                    or data.get("machine_id")
-                    or request.headers.get("X-Device-HWID")
-                    or ""
-                ).strip()
-                pc_hw = derive_pc_hw_id(
-                    role=inferred_role or "operator",
-                    client_ip=client_ip,
-                    station_key=credential,
-                    device_id=raw_did,
-                    raw_hw_id=raw_hw,
-                )
-                # Look for an existing PC device row for this role/HWID/IP that does not yet have station_hash bound
-                candidates = []
-                if raw_did:
-                    try:
-                        uid_val = uuid.UUID(raw_did)
-                        found = conn.execute(
-                            "SELECT * FROM devices WHERE id=%s FOR UPDATE", (uid_val,)
-                        ).fetchone()
-                        if found:
-                            candidates.append(found)
-                    except ValueError:
-                        pass
-                if not candidates and inferred_role:
-                    found = conn.execute(
-                        """SELECT * FROM devices
-                           WHERE role=%s AND (
-                               UPPER(TRIM(hw_id))=UPPER(%s)
-                               OR (%s <> '' AND UPPER(TRIM(hw_id))=UPPER(%s))
-                               OR (%s <> '' AND UPPER(TRIM(hw_id))=UPPER(%s))
-                               OR (%s <> '' AND ip=%s)
-                               OR station_hash IS NULL
-                           )
-                           ORDER BY
-                               (UPPER(TRIM(hw_id))=UPPER(%s)) DESC,
-                               (%s <> '' AND (UPPER(TRIM(hw_id))=UPPER(%s) OR UPPER(TRIM(hw_id))=UPPER(%s) OR ip=%s)) DESC,
-                               approved DESC,
-                               last_seen DESC NULLS LAST
-                           LIMIT 1 FOR UPDATE""",
-                        (
-                            inferred_role,
-                            pc_hw,
-                            client_ip, client_ip,
-                            client_ip, f"IP-{client_ip}",
-                            client_ip, client_ip,
-                            pc_hw,
-                            client_ip, client_ip, f"IP-{client_ip}", client_ip,
-                        ),
-                    ).fetchone()
-                    if found:
-                        candidates.append(found)
-                elif not candidates:
-                    # Even without inferred_role, check if there is a single approved PC device with station_hash IS NULL
-                    found = conn.execute(
-                        """SELECT * FROM devices
-                           WHERE role IN ('operator', 'parkovka_tashqi')
-                             AND station_hash IS NULL
-                             AND (
-                                 UPPER(TRIM(hw_id))=UPPER(%s)
-                                 OR (%s <> '' AND (ip=%s OR UPPER(TRIM(hw_id))=UPPER(%s) OR UPPER(TRIM(hw_id))=UPPER(%s)))
-                                 OR approved=TRUE
-                             )
-                           ORDER BY approved DESC, last_seen DESC NULLS LAST
-                           LIMIT 1 FOR UPDATE""",
-                        (pc_hw, client_ip, client_ip, client_ip, f"IP-{client_ip}"),
-                    ).fetchone()
-                    if found:
-                        candidates.append(found)
-
-                if candidates:
-                    dev = candidates[0]
-                    conn.execute(
-                        "UPDATE devices SET station_hash=NULL WHERE station_hash=%s AND id<>%s",
-                        (cred_hash, dev["id"]),
-                    )
-                    conn.execute(
-                        """UPDATE devices
-                           SET station_hash=%s,
-                               ip=COALESCE(NULLIF(%s, ''), ip),
-                               hw_id=COALESCE(NULLIF(TRIM(hw_id), ''), %s)
-                           WHERE id=%s""",
-                        (cred_hash, client_ip, pc_hw or None, dev["id"]),
-                    )
-                elif inferred_role:
-                    # Auto-register pending PC device so techadmin can see and approve it in Devices tab
-                    new_id = uuid.uuid5(uuid.NAMESPACE_DNS, f"airitom:station:{inferred_role}:{pc_hw}")
-                    default_name = (
-                        f"Tarozi Kompyuteri · {client_ip or pc_hw}"
-                        if inferred_role == "operator"
-                        else f"E-navbat Parkovka Kompyuteri · {client_ip or pc_hw}"
-                    )
-                    conn.execute(
-                        """INSERT INTO devices(id, name, role, ip, hw_id, station_hash, approved, blocked)
-                           VALUES(%s, %s, %s, %s, %s, %s, FALSE, FALSE)
-                           ON CONFLICT(id) DO UPDATE SET
-                               ip = COALESCE(EXCLUDED.ip, devices.ip),
-                               hw_id = COALESCE(NULLIF(TRIM(devices.hw_id), ''), EXCLUDED.hw_id),
-                               station_hash = COALESCE(devices.station_hash, EXCLUDED.station_hash)""",
-                        (new_id, default_name[:100], inferred_role, client_ip or None, pc_hw or None, cred_hash),
-                    )
-                    deduplicate_devices(conn)
-                    dev = conn.execute("SELECT * FROM devices WHERE id=%s FOR UPDATE", (new_id,)).fetchone()
-
+            dev = _resolve_or_bind_station_device(conn, cred_hash, accounts, events, client_ip)
             if not dev or not dev["approved"] or dev["blocked"]:
                 abort(403)
             if (
@@ -210,9 +153,10 @@ def register_station(app, pool, prices, clean_plate):
                     "INSERT INTO device_events(device_id,event,previous_seen) VALUES(%s,'reconnected',%s)",
                     (dev["id"], dev["last_seen"]),
                 )
+            last_u = str(accounts[0]).strip()[:40] if accounts else dev["last_user"]
             conn.execute(
-                "UPDATE devices SET connected=TRUE,last_seen=NOW(),ip=%s WHERE id=%s",
-                (client_ip or request.remote_addr, dev["id"]),
+                "UPDATE devices SET connected=TRUE,last_seen=NOW(),ip=%s,last_user=COALESCE(%s,last_user) WHERE id=%s",
+                (client_ip, last_u, dev["id"]),
             )
             acknowledged, rejected = [], {}
             backlog = data.get("backlog")
@@ -337,6 +281,11 @@ def apply_event(conn, dev, eid, event, clean_plate):
             "SELECT * FROM zone_visits WHERE station_id=%s AND station_local_id=%s FOR UPDATE",
             (dev["id"], local_id),
         ).fetchone()
+        if not visit:
+            visit = conn.execute(
+                "SELECT * FROM zone_visits WHERE plate_key=%s AND purpose=%s AND location='parking' ORDER BY id DESC LIMIT 1 FOR UPDATE",
+                (key, purpose),
+            ).fetchone()
         if not visit or visit["plate_key"] != key or visit["purpose"] != purpose:
             raise ValueError("Mahalliy kirish topilmadi")
         loc = visit["location"] if purpose == "zone" else "closed"
