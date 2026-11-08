@@ -1,4 +1,4 @@
-import {createCounters} from "./control-counts.js";
+import {createCounters} from "./control-counts.js?v=20261108-5";
 const $=id=>document.getElementById(id);
 const money=new Intl.NumberFormat("uz-UZ");
 const time=new Intl.DateTimeFormat("uz-UZ",{timeZone:"Asia/Tashkent",hour:"2-digit",minute:"2-digit"});
@@ -33,6 +33,7 @@ async function api(path,body,signal){
  const r=await fetch(path,{method:body?"POST":"GET",cache:"no-store",signal,
    headers:{Accept:"application/json","Content-Type":"application/json","X-CSRF-Token":document.body.dataset.csrf},
    body:body?JSON.stringify(body):undefined});
+ if(r.status===401){window.location.href="/login?next="+encodeURIComponent(window.location.pathname);throw Error("Kirish talab qilinadi")}
  if(r.redirected||!r.headers.get("Content-Type")?.includes("application/json"))throw Error("Sessiya yoki server aloqasini tekshiring");
  const data=await r.json();if(!r.ok)throw Error(data.message||"So‘rov bajarilmadi");return data;
 }
@@ -193,6 +194,10 @@ async function refresh(reset=false){
    const response=await fetch("/api/admin/control-room",{cache:"no-store",signal:current.signal,
      headers:!reset&&snapshotTag?{"If-None-Match":snapshotTag}:{}});
    if(request!==current||demo)return;
+   if(response.status===401){
+     window.location.href="/login?next="+encodeURIComponent(window.location.pathname);
+     return;
+   }
    if(response.status===304 && state){
      state.at=response.headers.get("X-Snapshot-Time")||state.at;
      $("status").textContent="Jonli · "+time.format(new Date(state.at));
@@ -251,7 +256,7 @@ async function toggle3DFullscreen(){
    }catch{}
  }
 }
-$("full").onclick = toggle3DFullscreen;
+if($("full"))$("full").onclick = toggle3DFullscreen;
 if($("exit-full"))$("exit-full").onclick = toggle3DFullscreen;
 document.addEventListener("fullscreenchange", ()=>{
  if(!document.fullscreenElement) document.body.classList.remove("fullscreen-3d");
@@ -264,13 +269,17 @@ document.addEventListener("keydown", e=>{
  }
 });
 
-$("mode").onclick=()=>{
- demo=!demo;$("mode").textContent=demo?"Jonli rejimga qaytish":"Demo rejim";
+const demoBtn = $("demo") || $("mode");
+if(demoBtn)demoBtn.onclick=()=>{
+ if(!demo && !lastLive){$("message").textContent="Jonli ma’lumot yuklanishini kuting";return}
+ demo=!demo;snapshotTag=null;request?.abort();clearTimeout(timer);selected=null;$("timeline").replaceChildren();$("message").textContent="";
+ $("audit").replaceChildren();scene?.select(null);
+ demoBtn.textContent=demo?"Jonli rejim":"Demo";
  $("demo-controls").hidden=!demo;
  $("call-controls").hidden=readOnly && !demo;
  if($("settings"))$("settings").closest("details").hidden=demo;
- if(demo){clearTimeout(timer);request?.abort();demoState=fixture();renderDemo(true)}
- else if(lastLive){show(lastLive,true);refresh(false)}
+ if(demo){demoState=fixture();renderDemo(true)}
+ else if(lastLive){show(lastLive,true);$("status").textContent="Yangilanmoqda · "+time.format(new Date(lastLive.at));refresh(true)}
  else refresh(true);
 };
 for(const b of document.querySelectorAll("[data-call]"))b.onclick=async()=>{
@@ -279,7 +288,7 @@ for(const b of document.querySelectorAll("[data-call]"))b.onclick=async()=>{
  try{
    const flow=b.dataset.call;attempts[flow]=attempts[flow]||crypto.randomUUID();
    const res=await api("/api/admin/control-room/call",{flow,request_id:attempts[flow]});
-   delete attempts[flow];$("message").textContent="Chaqirildi";await refresh();inspect(res.visit_id);
+   delete attempts[flow];$("message").textContent="Navbat chaqirildi";await refresh();if(res?.visit_id)inspect(res.visit_id);
  }catch(e){if(!e.message.includes("tarmoq"))delete attempts[b.dataset.call];$("message").textContent=e.message}
  finally{b.disabled=false}
 };
@@ -287,14 +296,14 @@ const settingsForm=$("settings");
 if(settingsForm)settingsForm.onsubmit=async e=>{
  e.preventDefault();if(demo){$("message").textContent="Demo rejimda saqlanmaydi";return}
  const body=Object.fromEntries(new FormData(e.target));
- try{await api("/api/admin/control-room/config",body);$("message").textContent="Sozlamalar saqlandi";refresh()}
+ try{await api("/api/admin/control-room/config",body);$("message").textContent="Sozlamalar saqlandi";await refresh(true)}
  catch(err){$("message").textContent=err.message}
 };
 function vehicleOptions(){
  if(!state)return;const q=$("filter").value.trim().toUpperCase(),select=$("vehicle");
  const areaNames={parking:"E-navbat parkovka",inside:"Free Zone ichida",border:"Chegara"};
- select.replaceChildren(new Option("Avtomobilni tanlang",""),...state.vehicles
-   .filter(v=>!q||v.plate.includes(q)||code(v).includes(q)).slice(0,300)
+ select.replaceChildren(new Option("Tashrifni tanlang",""),...state.vehicles
+   .filter(v=>v.id===selected||!q||v.plate.includes(q)||code(v).includes(q)||(v.plate+" "+code(v)).toUpperCase().includes(q)).slice(0,300)
    .map(v=>new Option(`${v.plate} · ${code(v)} · ${areaNames[v.area]||v.area} · ${statusNames[v.queue_state]||v.queue_state}`,v.id)));
  if(selected)select.value=String(selected);
 }
@@ -305,30 +314,33 @@ function openCommand(data){
  const numeric=["assign","priority"].includes(data.action);$("command-value-label").hidden=!numeric;
  const form=$("command-form");form.reset();form.elements.value.required=numeric;
  form.elements.value.min=data.action==="priority"?0:1;form.elements.value.max=data.action==="priority"?2:2500;
+ $("command-value-label").querySelector("span").textContent=data.action==="priority"?"0 — oddiy, 1 — maxsus, 2 — favqulodda":"Joy raqami";
  $("command-title").textContent=actionNames[data.action]||"Amalni tasdiqlash";
- $("command-hint").textContent=data.plate||"";
+ $("command-hint").textContent=data.action==="cancel"?"Navbatdan chiqariladi. Tashrif, to‘lov va band joy saqlanadi; haqiqiy chiqish postda qayd etiladi.":data.action==="gate"?"Faqat virtual darvoza o‘zgaradi. Haqiqiy shlagbaum boshqarilmaydi.":(data.plate||"O‘zgarish sababi va xodim nomi tarixda saqlanadi.");
  $("command-dialog").showModal();
 }
 function selectedInfo(){
  const v=state?.vehicles.find(item=>item.id===selected);
- $("selected-info").replaceChildren();$("vehicle-actions").replaceChildren();
+ const infoEl=$("vehicle-info")||$("selected-info");
+ if(infoEl)infoEl.replaceChildren();
+ $("vehicle-actions").replaceChildren();
  if(!v)return;
  const FlowLabel = v.flow === "CH" ? "Chegara (Afg‘oniston darvozasi)" : "Free Zone (Bojxona va Tarozi)";
- $("selected-info").append(
+ if(infoEl)infoEl.append(
    row("Davlat raqami",v.plate),
    row("Navbat raqami",code(v)),
    row("Yo‘nalishi",FlowLabel),
    row("Hozirgi joyi",v.area==="parking"?"E-navbat parkovka · joy "+(v.slot||"—"):"Free Zone ichida · joy "+(v.slot||"—")),
    row("Holati",statusNames[v.queue_state]||v.queue_state),
-   row("Ustuvorlik",v.priority||0)
+   row("Ustuvorlik",["Oddiy","Maxsus","Favqulodda"][v.priority]??(v.priority||0))
  );
- if(readOnly||demo)return;
+ if(readOnly && !demo)return;
  const actions=[];
  if(v.area==="parking"){
    if(["waiting","called"].includes(v.queue_state))actions.push(["Kutishga qo‘yish",{action:"hold"}]);
    if(["hold","no_show","cancelled"].includes(v.queue_state))actions.push(["Navbatga qaytarish",{action:"resume"}]);
    if(v.queue_state==="called")actions.push(["Qayta chaqirish",{action:"recall"}],["Kelmadi",{action:"no_show"}]);
-   if(["waiting","called","hold","no_show"].includes(v.queue_state))actions.push(["Bekor qilish",{action:"cancel"}]);
+   if(["waiting","called","hold","no_show"].includes(v.queue_state))actions.push(["Navbatni bekor qilish",{action:"cancel"}]);
    if(isTech)actions.push(["Ustuvorlik",{action:"priority"}]);
  }
  actions.push(["Joy ajratish",{action:"assign"}]);
@@ -341,23 +353,36 @@ function selectedInfo(){
 $("command-cancel").onclick=()=>$("command-dialog").close();
 $("command-form").onsubmit=async e=>{
  e.preventDefault();if(!command)return;
- const fd=new FormData(e.target),payload={...command,reason:fd.get("reason"),request_id:commandAttempt};
- if(command.action==="priority")payload.priority=Number(fd.get("value"));
- if(command.action==="assign")payload.slot=Number(fd.get("value"));
- try{await api("/api/admin/control-room/command",payload);commandAttempt=null;commandPayload=null;$("command-dialog").close();await refresh();if(selected)inspect(selected)}
- catch(err){$("command-error").textContent=err.message}
+ const form=e.target,fd=new FormData(form),data={...command,reason:String(fd.get("reason")||"").trim()};
+ if(command.action==="priority")data.priority=Number(fd.get("value"));
+ if(command.action==="assign")data.slot=Number(fd.get("value"));
+ const button=form.querySelector('[type=submit]');if(button)button.disabled=true;
+ try{
+   if(demo){
+     const v=demoState.vehicles.find(v=>v.id===data.visit_id);
+     if(data.action==="gate")demoState.gates.find(g=>g.id===data.gate).state=data.state;
+     else if(data.action==="spot"){demoState.spots=demoState.spots.filter(s=>s.area!==data.area||Number(s.slot)!==Number(data.slot));if(data.state!=="free")demoState.spots.push({...data,slot:Number(data.slot)})}
+     else if(v){if(data.action==="assign")v.slot=data.slot;else if(data.action==="priority")v.priority=data.priority;else v.queue_state={hold:"hold",resume:"waiting",no_show:"no_show",cancel:"cancelled",recall:"called"}[data.action];v.version++}
+     renderDemo();
+   }else{
+     const serialized=JSON.stringify(data);if(serialized!==commandPayload){commandPayload=serialized;commandAttempt=crypto.randomUUID()}
+     await api("/api/admin/control-room/command",{...data,request_id:commandAttempt});commandAttempt=null;commandPayload=null;await refresh();
+   }
+   $("command-dialog").close();if(selected)await inspect(selected);
+ }catch(err){$("command-error").textContent=err.message}finally{if(button)button.disabled=false}
 };
+if($("spot-form"))$("spot-form").onsubmit=e=>{e.preventDefault();openCommand({action:"spot",...Object.fromEntries(new FormData(e.target))})};
 savedView=loadDisplaySetting("camera");
 if(savedView)$("camera").querySelector('[value=saved]').disabled=false;
 const savedQuality=loadDisplaySetting("quality");
 if([1,1.5,2].includes(savedQuality))$("quality").value=String(savedQuality);
-import("./control-scene.js").then(m=>{
+import("./control-scene.js?v=20261108-5").then(m=>{
  scene=m.createScene($("scene"),inspect,counters.connect);
  if([1,1.5,2].includes(savedQuality))scene.quality(savedQuality);
- if(savedView){$("camera").value="saved";scene.restore(savedView)}
+ if(savedView&&scene.restore(savedView)){$("camera").querySelector('[value=saved]').disabled=false;$("camera").value="saved"}
  if(state)scene.update(state.vehicles,state.config,true,state.spots||[],state.gates||[],state.recent_exits||[]);
 }).catch(()=>{
- $("map-error").textContent="Ushbu qurilmada 3D ko‘rinish qo‘llab-quvvatlanmadi. Ro‘yxat rejimi yoqildi.";
+ $("map-error").textContent="3D uchun WebGL kerak. Hudud hisoblari va avtomobillar ro‘yxati ko‘rinadi.";
  $("map-error").hidden=false;$("save-camera").disabled=true;
  if(state)show(state,true);
 });

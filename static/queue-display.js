@@ -6,7 +6,11 @@ $('audio').onclick=()=>{if(!('speechSynthesis' in window)){$('status').textConte
 $('full').onclick=async()=>{try{if(document.fullscreenElement)await document.exitFullscreen();else await document.documentElement.requestFullscreen()}catch{$('status').textContent='Brauzer menyusidan to‘liq ekran rejimini tanlang'}};
 async function refresh(){
  clearTimeout(timer);request?.abort();if(document.hidden)return;const current=new AbortController();request=current;const timeout=setTimeout(()=>current.abort(),12000);
- try{const r=await fetch('/api/admin/queue-display',{cache:'no-store',signal:current.signal});if(!r.ok||r.redirected)throw Error();const data=await r.json();if(current!==request)return;
+ try{
+  const r=await fetch('/api/admin/queue-display',{cache:'no-store',signal:current.signal});
+  if(r.status===401){window.location.href='/login?next='+encodeURIComponent(window.location.pathname);return}
+  if(!r.ok||r.redirected)throw Error();
+  const data=await r.json();if(current!==request)return;
   const announced=[];
   for(const panel of document.querySelectorAll('[data-flow]')){
    const rows=data.tickets.filter(t=>t.flow===panel.dataset.flow),called=rows.filter(t=>t.queue_state==='called').sort((a,b)=>new Date(b.called_at)-new Date(a.called_at));

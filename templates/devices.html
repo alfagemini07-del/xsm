@@ -1,13 +1,14 @@
-<section id="tab-devices" class="admin-tab {{ 'active' if default_tab == 'devices' else 'hidden' }}">
+<section id="tab-devices" class="admin-tab hidden">
   <header class="page-title devices-header">
     <div>
-      <span class="eyebrow">TERMINAL VA MOBIL APK BOSHQARUVI</span>
-      <h1>Qurilmalar va IMEI Ruxsatlari</h1>
-      <p id="devices-status" role="status">IMEI / Qurilma ID asosida doimiy ruxsat, tahrirlash va ulanish monitoringi</p>
+      <span class="eyebrow">KOMPYUTER (TAROZI · PARKOVKA) VA MOBIL APK BOSHQARUVI · FAQAT TECHADMIN</span>
+      <h1>Qurilmalar, Kompyuterlar va IMEI / IP Ruxsatlari</h1>
+      <p id="devices-status" role="status">Kompyuter dasturlari (Tarozi, E-navbat parkovka) va KPP APK terminallari uchun IP manzil, Kompyuter ID yoki IMEI asosida doimiy ruxsat va xotira boshqaruvi</p>
     </div>
     <div class="devices-header-actions">
-      <button id="devices-dedup" class="button secondary compact" type="button" title="Bir xil IMEI yoki nomli takroriy yozuvlarni birlashtirish">✦ Takroriylarni tozalash</button>
-      <button id="devices-enroll-open" class="button success compact" type="button">+ IMEI / Qurilma qo‘shish</button>
+      <button id="devices-dedup" class="button secondary compact" type="button" title="Bir xil IMEI, ID yoki nomli takroriy yozuvlarni birlashtirish">✦ Takroriylarni birlashtirish</button>
+      <button id="devices-clear-all" class="button danger-soft compact" type="button" title="Barcha qurilmalar xotirasini tozalash va noldan boshlash">⟲ Xotirani tozalash (0 dan)</button>
+      <button id="devices-enroll-open" class="button success compact" type="button">+ Kompyuter / Qurilma qo‘shish</button>
       <button id="devices-refresh" class="button primary compact" type="button">⟳ Yangilash</button>
     </div>
   </header>
@@ -16,7 +17,7 @@
     <div class="dev-kpi-card" data-kpi-filter="">
       <div class="dev-kpi-top"><span class="dev-kpi-label">Jami qurilmalar</span><i class="dev-kpi-icon">▣</i></div>
       <strong id="dev-kpi-total">0</strong>
-      <small>Yagona ro‘yxat (barchasini ko‘rish)</small>
+      <small>Kompyuter va APK terminallar</small>
     </div>
     <div class="dev-kpi-card dev-kpi-online" data-kpi-filter="online">
       <div class="dev-kpi-top"><span class="dev-kpi-label">Hozir Online</span><i class="dev-kpi-icon">●</i></div>
@@ -24,9 +25,9 @@
       <small>Faol aloqada turganlar</small>
     </div>
     <div class="dev-kpi-card dev-kpi-approved" data-kpi-filter="approved">
-      <div class="dev-kpi-top"><span class="dev-kpi-label">Tasdiqlangan (IMEI)</span><i class="dev-kpi-icon">✓</i></div>
+      <div class="dev-kpi-top"><span class="dev-kpi-label">Tasdiqlangan</span><i class="dev-kpi-icon">✓</i></div>
       <strong id="dev-kpi-approved">0</strong>
-      <small>Qayta ruxsat talab qilmaydi</small>
+      <small>Doimiy ruxsatga ega</small>
     </div>
     <div class="dev-kpi-card dev-kpi-pending" data-kpi-filter="pending">
       <div class="dev-kpi-top"><span class="dev-kpi-label">Tasdiq kutmoqda</span><i class="dev-kpi-icon">⏳</i></div>
@@ -45,17 +46,17 @@
       <div class="devices-search-row">
         <div class="dev-search-box">
           <span class="dev-search-icon" aria-hidden="true">⌕</span>
-          <input id="devices-search" type="search" placeholder="Qurilma nomi, IMEI / ID, IP manzil yoki xodim bo‘yicha tez qidirish…" aria-label="Qurilmani qidirish">
+          <input id="devices-search" type="search" placeholder="Kompyuter/qurilma nomi, Kompyuter ID / IMEI, IP manzil yoki xodim bo‘yicha qidirish…" aria-label="Qurilmani qidirish">
           <button type="button" id="devices-search-clear" class="dev-search-clear" title="Qidiruvni tozalash" hidden>×</button>
         </div>
         <div class="dev-select-wrap">
-          <small>Nuqta / Post</small>
+          <small>Nuqta / Dastur</small>
           <select id="devices-role-filter" aria-label="Nuqta bo‘yicha filtrlash">
-            <option value="">Barcha nuqtalar</option>
-            <option value="ayritom">Afg‘oniston darvozasi (KPP1)</option>
-            <option value="kpp2">O‘zbekiston darvozasi (KPP2)</option>
-            <option value="parkovka_tashqi">E-navbat parkovka</option>
-            <option value="operator">Tarozi (Free Zone)</option>
+            <option value="">Barcha dasturlar va postlar</option>
+            <option value="operator">🖥 Tarozi dasturi (Kompyuter)</option>
+            <option value="parkovka_tashqi">🖥 E-navbat parkovka (Kompyuter)</option>
+            <option value="ayritom">📱 Afg‘oniston darvozasi (KPP1 APK)</option>
+            <option value="kpp2">📱 O‘zbekiston darvozasi (KPP2 APK)</option>
           </select>
         </div>
         <div class="dev-select-wrap">
@@ -71,11 +72,11 @@
       </div>
 
       <div class="devices-pill-row" role="group" aria-label="Nuqtalar bo‘yicha tezkor filtr">
-        <button type="button" class="dev-filter-pill active" data-role-pill="">Barcha postlar</button>
-        <button type="button" class="dev-filter-pill" data-role-pill="parkovka_tashqi">🅿 E-navbat parkovka</button>
+        <button type="button" class="dev-filter-pill active" data-role-pill="">Barcha qurilmalar</button>
+        <button type="button" class="dev-filter-pill" data-role-pill="operator">⚖ Tarozi (Kompyuter)</button>
+        <button type="button" class="dev-filter-pill" data-role-pill="parkovka_tashqi">🅿 E-navbat parkovka (Kompyuter)</button>
         <button type="button" class="dev-filter-pill" data-role-pill="kpp2">🛂 O‘zbekiston darvozasi (KPP2)</button>
         <button type="button" class="dev-filter-pill" data-role-pill="ayritom">🛂 Afg‘oniston darvozasi (KPP1)</button>
-        <button type="button" class="dev-filter-pill" data-role-pill="operator">⚖ Tarozi (Free Zone)</button>
       </div>
     </div>
 
@@ -83,9 +84,9 @@
       <table class="devices-table">
         <thead>
           <tr>
-            <th>Qurilma nomi</th>
-            <th>Nuqta / Xodim</th>
-            <th>IMEI / Qurilma ID (Doimiy)</th>
+            <th>Qurilma / Kompyuter</th>
+            <th>Dastur / Xodim</th>
+            <th>Kompyuter ID / IMEI / Maxsus belgi</th>
             <th>IP manzil</th>
             <th>Holati</th>
             <th>Oxirgi signal</th>
@@ -101,9 +102,9 @@
     <div class="devices-subhead">
       <div>
         <h2>Ulanish va ruxsatlar tarixi</h2>
-        <p class="muted dev-history-sub">Terminallar kirishi, chiqishi, uzilishi va admin ruxsatlari jurnali</p>
+        <p class="muted" style="margin:2px 0 0;font-size:12px">Kompyuter dasturlari va APK terminallar kirishi, chiqishi, uzilishi va techadmin ruxsatlari jurnali</p>
       </div>
-      <div class="pagination dev-pagination-top">
+      <div class="pagination" style="padding-top:0">
         <label>Sahifada
           <select id="event-size">
             <option>10</option>
@@ -122,7 +123,7 @@
         <thead>
           <tr>
             <th>Vaqt</th>
-            <th>Qurilma va IMEI</th>
+            <th>Qurilma va ID / IP</th>
             <th>Hodisa</th>
             <th>Oldingi signal</th>
           </tr>
@@ -136,28 +137,33 @@
     <form method="dialog" id="device-editor-form">
       <div class="device-modal-head">
         <div>
-          <span class="eyebrow">QURILMANI BOSHQARISH</span>
-          <h3>Qurilma va IMEI sozlamalari</h3>
+          <span class="eyebrow">QURILMA YOKI KOMPYUTERNI BOSHQARISH</span>
+          <h3>Qurilma, Kompyuter ID va IP sozlamalari</h3>
         </div>
         <button type="button" class="device-modal-x" id="device-editor-x" aria-label="Yopish">×</button>
       </div>
-      <p class="device-modal-hint">Qurilma nomini, IMEI / Qurilma ID kodini, biriktirilgan postini yoki ruxsat holatini o‘zgartiring. IMEI biriktirilgan qurilma APK yangilanganda ham qayta ruxsat so‘ramaydi.</p>
-      <label>Qurilma nomi
-        <input id="device-name" maxlength="100" placeholder="Masalan: Afg‘oniston darvozasi · Sunmi V2" required>
-      </label>
-      <label>IMEI / Qurilma ID (hw_id)
-        <div class="dev-input-action-row">
-          <input id="device-hwid" maxlength="80" placeholder="Masalan: 864291053819204 yoki HW-...">
-          <button type="button" id="device-gen-hwid" class="button secondary compact" title="Doimiy ID yaratish">Avto-ID</button>
-        </div>
+      <p class="device-modal-hint">Kompyuter (Tarozi / E-navbat parkovka) yoki APK terminal nomini, Kompyuter ID / IMEI belgisini, IP manzilini yoki ruxsat holatini o‘zgartiring. Tasdiqlangan kompyuter va APK qayta ruxsat so‘ramaydi.</p>
+      <label>Qurilma / Kompyuter nomi
+        <input id="device-name" maxlength="100" placeholder="Masalan: Tarozi Kompyuteri 1 yoki KPP1 · Sunmi V2" required>
       </label>
       <div class="dev-modal-two-col">
-        <label>Biriktirilgan nuqta (Rol)
+        <label>Kompyuter ID / IMEI / Belgisi (hw_id)
+          <div class="dev-input-action-row">
+            <input id="device-hwid" maxlength="80" placeholder="Masalan: PC-A1B2C3D4 yoki IMEI">
+            <button type="button" id="device-gen-hwid" class="button secondary compact" title="Doimiy ID yaratish">Avto-ID</button>
+          </div>
+        </label>
+        <label>IP manzil (ixtiyoriy, kompyuter uchun)
+          <input id="device-ip" maxlength="64" placeholder="Masalan: 192.168.1.50">
+        </label>
+      </div>
+      <div class="dev-modal-two-col">
+        <label>Biriktirilgan dastur / post (Rol)
           <select id="device-role">
-            <option value="ayritom">Afg‘oniston darvozasi (ayritom)</option>
-            <option value="kpp2">O‘zbekiston darvozasi (kpp2)</option>
-            <option value="parkovka_tashqi">E-navbat parkovka (parkovka_tashqi)</option>
-            <option value="operator">Tarozi (operator)</option>
+            <option value="operator">🖥 Tarozi dasturi (operator)</option>
+            <option value="parkovka_tashqi">🖥 E-navbat parkovka (parkovka_tashqi)</option>
+            <option value="ayritom">📱 Afg‘oniston darvozasi (ayritom)</option>
+            <option value="kpp2">📱 O‘zbekiston darvozasi (kpp2)</option>
           </select>
         </label>
         <label>Ruxsat holati
@@ -179,27 +185,32 @@
     <form method="dialog" id="device-enroll-form">
       <div class="device-modal-head">
         <div>
-          <span class="eyebrow">YANGI TERMINAL QO‘SHISH</span>
-          <h3>IMEI / ID orqali qurilma qo‘shish</h3>
+          <span class="eyebrow">YANGI KOMPYUTER YOKI TERMINAL QO‘SHISH</span>
+          <h3>Kompyuter (IP / ID) yoki APK (IMEI) qo‘shish</h3>
         </div>
         <button type="button" class="device-modal-x" id="device-enroll-x" aria-label="Yopish">×</button>
       </div>
-      <p class="device-modal-hint">Telefon yoki terminalning IMEI (*#06#) yoki Kirish ekranidagi Qurilma ID kodini kiriting. Qurilma darhol tasdiqlangan holatda ro‘yxatga olinadi.</p>
-      <label>Qurilma nomi
-        <input id="enroll-name" maxlength="100" placeholder="Masalan: O‘zbekiston darvozasi · Planshet 1" required>
+      <p class="device-modal-hint">Tarozi va E-navbat parkovka kompyuterlari uchun kompyuterning IP manzilini yoki maxsus ID belgisini (yoki KPP telefonlari uchun IMEI kodini) kiriting. Qurilma darhol tasdiqlangan holatda ro‘yxatga olinadi.</p>
+      <label>Qurilma / Kompyuter nomi
+        <input id="enroll-name" maxlength="100" placeholder="Masalan: Tarozi Asosiy Kompyuter yoki Parkovka Kassa PC" required>
       </label>
-      <label>IMEI / Qurilma ID
-        <div class="dev-input-action-row">
-          <input id="enroll-hwid" maxlength="80" placeholder="Masalan: 358240051111110" required>
-          <button type="button" id="enroll-gen-hwid" class="button secondary compact">Avto-ID</button>
-        </div>
-      </label>
-      <label>Nuqta / Post roli
+      <div class="dev-modal-two-col">
+        <label>Kompyuter ID / IMEI / Maxsus belgi
+          <div class="dev-input-action-row">
+            <input id="enroll-hwid" maxlength="80" placeholder="PC-..., IP-... yoki IMEI">
+            <button type="button" id="enroll-gen-hwid" class="button secondary compact">Avto-ID</button>
+          </div>
+        </label>
+        <label>Kompyuter IP manzili (ixtiyoriy)
+          <input id="enroll-ip" maxlength="64" placeholder="Masalan: 192.168.1.100">
+        </label>
+      </div>
+      <label>Dastur / Post roli
         <select id="enroll-role" required>
-          <option value="ayritom">Afg‘oniston darvozasi (ayritom)</option>
-          <option value="kpp2">O‘zbekiston darvozasi (kpp2)</option>
-          <option value="parkovka_tashqi">E-navbat parkovka (parkovka_tashqi)</option>
-          <option value="operator">Tarozi (operator)</option>
+          <option value="operator">🖥 Tarozi dasturi — Kompyuter (operator)</option>
+          <option value="parkovka_tashqi">🖥 E-navbat parkovka — Kompyuter (parkovka_tashqi)</option>
+          <option value="ayritom">📱 Afg‘oniston darvozasi — KPP1 (ayritom)</option>
+          <option value="kpp2">📱 O‘zbekiston darvozasi — KPP2 (kpp2)</option>
         </select>
       </label>
       <div class="device-modal-actions">

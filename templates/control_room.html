@@ -1,6 +1,6 @@
 <!doctype html>
 <html lang="uz"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Hudud nazorati · AIRITOM</title>
-<link rel="stylesheet" href="/static/control-room.css"></head>
+<link rel="stylesheet" href="/static/control-room.css?v=20261108-5"></head>
 <body data-csrf="{{ csrf_token_value }}" data-role="{{ user.role }}">
 <header>
 {% if user.role=='observer' %}<span class="brand">AIRITOM</span>{% else %}<a href="/admin" aria-label="Admin panelga qaytish" class="brand">AIRITOM</a>{% endif %}
@@ -38,4 +38,4 @@
 <button>Saqlash</button></form></details>{% endif %}
 </aside></main>
 <dialog id="command-dialog"><form id="command-form"><h2 id="command-title">Amalni tasdiqlash</h2><p id="command-hint"></p><label>Sabab<textarea name="reason" minlength="3" maxlength="400" required></textarea></label><label id="command-value-label" hidden><span>Qiymat</span><input name="value" type="number" min="1" max="2500"></label><p id="command-error" role="alert"></p><div class="buttons"><button id="command-cancel" type="button">Bekor qilish</button><button type="submit">Tasdiqlash</button></div></form></dialog>
-<script type="module" src="/static/control-room.js"></script></body></html>
+<script type="module" src="/static/control-room.js?v=20261108-5"></script></body></html>
