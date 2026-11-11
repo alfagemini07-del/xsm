@@ -83,6 +83,72 @@ def register_control_room(app, pool, roles):
                 cache["until"] = monotonic()+8
             return cache["data"], cache["payload"], cache["etag"]
 
+    def public_board_snapshot():
+        """Small public read model: only active parking queue plates and numbers."""
+        with lock:
+            if monotonic() >= cache.get("board_until", 0):
+                now = datetime.now(TZ)
+                with pool().connection() as conn:
+                    rows = conn.execute("""
+                        WITH ranked AS (
+                            SELECT v.id,v.plate,
+                                   COALESCE(v.queue_no,
+                                       t.flow||'-'||LPAD(t.number::text,4,'0')) AS queue_no,
+                                   v.purpose,v.started,
+                                   ROW_NUMBER() OVER (
+                                       PARTITION BY v.purpose ORDER BY v.started,v.id
+                                   ) AS position,
+                                   COUNT(*) OVER (PARTITION BY v.purpose) AS total
+                            FROM zone_visits v
+                            LEFT JOIN dispatch_tickets t ON t.visit_id=v.id
+                            WHERE v.location='parking'
+                              AND v.parking_departed_at IS NULL
+                              AND v.purpose IN ('border','zone')
+                              AND COALESCE(t.queue_state,'waiting') IN ('waiting','called','held')
+                        )
+                        SELECT id,plate,queue_no,purpose,started,position,total
+                        FROM ranked WHERE position<=10
+                        ORDER BY purpose,position
+                    """).fetchall()
+                data = dict(
+                    at=now.isoformat(),
+                    queues=[
+                        {
+                            "id": row["id"],
+                            "plate": row["plate"],
+                            "queue_no": row["queue_no"],
+                            "purpose": row["purpose"],
+                            "position": int(row["position"]),
+                            "total": int(row["total"]),
+                        }
+                        for row in rows
+                    ],
+                )
+                stable = data["queues"]
+                cache["board_data"] = data
+                cache["board_payload"] = app.json.dumps(data)
+                cache["board_etag"] = sha256(app.json.dumps(stable).encode()).hexdigest()
+                cache["board_until"] = monotonic() + 2
+            return cache["board_data"], cache["board_payload"], cache["board_etag"]
+
+    @app.get("/tablo")
+    def public_queue_board():
+        response = app.make_response(render_template("public_queue_board.html"))
+        response.headers["X-Robots-Tag"] = "noindex, nofollow"
+        return response
+
+    @app.get("/api/tablo")
+    def public_queue_board_data():
+        data, payload, tag = public_board_snapshot()
+        if request.if_none_match.contains_weak(tag):
+            response = app.response_class(status=304)
+        else:
+            response = app.response_class(payload, mimetype="application/json")
+        response.set_etag(tag, weak=True)
+        response.headers["X-Snapshot-Time"] = data["at"]
+        response.headers["X-Robots-Tag"] = "noindex, nofollow"
+        return response
+
     @app.get("/admin/control-room")
     @roles("admin","techadmin","observer")
     def control_room():

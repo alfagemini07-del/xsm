@@ -231,6 +231,8 @@ def load_request_context():
     if request.endpoint == "login" and request.method in {"GET", "HEAD"} and not session.get("user_id"):
         return None
     ensure_schema()
+    if request.endpoint in {"public_queue_board", "public_queue_board_data"}:
+        return None
     from devices import authenticate_device, PUBLIC_DEVICE_ENDPOINTS
     if request.endpoint in PUBLIC_DEVICE_ENDPOINTS:
         return None

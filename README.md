@@ -2,6 +2,8 @@
 
 ## Hudud nazorati va katta ekran
 
+Ochiq E-navbat tablosi: `https://xsm.onrender.com/tablo`. Login talab qilinmaydi. Unda tashqi parkovkada hali chiqishi qayd etilmagan Ayritom va Free Zone yo‘nalishlaridagi dastlabki 10 ta avtomobil ko‘rsatiladi; birinchi 5 tasi katta urg‘u bilan ajratiladi. Parkovka operatori chiqishni tasdiqlaganda avtomobil tablodan tushadi va qolgan navbatlar avtomatik yuqoriga siljiydi. Ochiq API faqat davlat raqami, navbat raqami, yo‘nalish va tartibni beradi; to‘lov hamda xodim ma’lumotlarini bermaydi.
+
 Admin menyusida **Hudud nazorati**ni oching. Manzili `/admin/control-room`. **To‘liq ekran** tugmasi xarita va bugungi tushumni katta monitorda ko‘rsatadi. Faqat kuzatish uchun techadmin foydalanuvchiga **3D kuzatuvchi** rolini beradi. Bu login bilan kirilganda to‘g‘ridan-to‘g‘ri xarita ochiladi. Navbat chaqirish, joy almashtirish va sozlamalarni tahrirlash vakolati adminlarda bo‘ladi. **Navbat tablo ekrani** roli esa haydovchilarga mo‘ljallangan `/admin/queue-display` sahifasini ochadi.
 
 | Xarita ko‘rsatkichi | Raqam nimani bildiradi |
