@@ -474,7 +474,7 @@ export function createScene(canvas,select,connectLabels){
       positionsChanged ||= updatePose;
       let angle=v.angle||0;
       if(animating){
-        const phase=Math.max(0,1-(m.finish-now)/3400),smooth=phase*phase*(3-2*phase);
+        const phase=Math.max(0,Math.min(1,(now-m.started)/m.duration)),smooth=phase*phase*(3-2*phase);
         p=m.path.getPoint(smooth);const tangent=m.path.getTangent(smooth);angle=Math.atan2(tangent.x,tangent.z);moving=true;
         gates.forEach((g,k)=>{
           const st=gateStates[k<2?0:1]?.state;
@@ -534,10 +534,11 @@ export function createScene(canvas,select,connectLabels){
   function update(rows,cfg,reset=false,spots=[],gateData=[],exits=[]){
     const gatesChanged=gateStates.some((g,i)=>g.state!==gateData[i]?.state) || gateStates.length!==gateData.length;
     rebuildLines(cfg,spots);gateStates=gateData;
+    const initial=reset||!signature;
     const key=JSON.stringify(rows.map(v=>[v.id,v.area,v.slot,v.flow,v.queue_state,v.version,v.parking_departed_at]))+capKey;
     if(key===signature&&!reset){if(gatesChanged)invalidate();return}signature=key;
     posesDirty=true;colorsDirty=true;
-    const previous=new Map((reset?[]:trucks).filter(v=>!v.removed).map(v=>[v.id,v]));
+    const previous=new Map((initial?[]:trucks).filter(v=>!v.removed).map(v=>[v.id,v]));
     const previousMoves=new Map(trucks.map((v,i)=>[v.id,moves[i]]));
     const exitPoints=new Map(exits.filter(e=>['ayritom','kpp2','parkovka_tashqi'].includes(e.point)).map(e=>[e.visit_id,e.point]));
     const ids=new Set(rows.map(v=>v.id));
@@ -555,7 +556,7 @@ export function createScene(canvas,select,connectLabels){
         end.set(-24.5+(v.slot||1)%2*5.0,.22,-4+Math.floor(((v.slot||1)-1)/2)%8*3.2);
       }
       let path=null;
-      if(old?.position&&(old.area!==v.area||old.slot!==v.slot||old.parking_departed_at!==v.parking_departed_at||v.removed)&&!reduced){
+      if(old?.position&&(old.area!==v.area||old.slot!==v.slot||old.parking_departed_at!==v.parking_departed_at||v.removed)){
         const via=[old.position,vec(old.position.x,.22,-6)];
         if(v.removed && v.flow==="CH"){
           // Exiting E-navbat Parkovka via Parkovka Gate (-30,-6) -> turns RIGHT onto Inter-Zone Road (-22,-6 -> -22,43)
@@ -578,8 +579,17 @@ export function createScene(canvas,select,connectLabels){
         const waypoints=via.filter((p,i)=>!i||p.distanceToSquared(via[i-1])>.0001);
         if(waypoints.length>=2)path=new T.CatmullRomCurve3(waypoints,false,'centripetal');
       }
+      else if(!old&&!initial&&!v.removed){
+        const start=v.area==="inside"?vec(-22,.22,-42):vec(-30,.22,-52);
+        const via=v.area==="inside"
+          ?[start,vec(-22,.22,-6),vec(-14,.22,-6),vec(end.x,.22,-6),end]
+          :[start,vec(-30,.22,-6),vec(end.x,.22,-6),end];
+        path=new T.CatmullRomCurve3(via,false,'centripetal');
+      }
       else if(old && previousMoves.get(v.id)?.finish>performance.now())return previousMoves.get(v.id);
-      return {end,path,finish:performance.now()+3400};
+      const started=performance.now();
+      const duration=path?Math.max(3600,Math.min(12000,path.getLength()*58)):0;
+      return {end,path,started,duration,finish:started+duration};
     });
     makeParts(trucks.length);if(mode==="follow")view(mode);invalidate();
   }

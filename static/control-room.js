@@ -209,7 +209,7 @@ async function refresh(reset=false){
      lastLive=data;show(data,reset);snapshotTag=response.headers.get("ETag");
    }
  }catch{if(request===current&&!demo)$("status").textContent="Aloqa yo‘q · oxirgi ko‘rinish"}
- finally{clearTimeout(timeout);if(request===current&&!demo&&!document.hidden)timer=setTimeout(refresh,6500)}
+ finally{clearTimeout(timeout);if(request===current&&!demo&&!document.hidden)timer=setTimeout(refresh,4500)}
 }
 let savedView;
 function loadDisplaySetting(key){
@@ -377,7 +377,7 @@ savedView=loadDisplaySetting("camera");
 if(savedView)$("camera").querySelector('[value=saved]').disabled=false;
 const savedQuality=loadDisplaySetting("quality");
 if([1,1.5,2].includes(savedQuality))$("quality").value=String(savedQuality);
-import("./control-scene.js?v=20261108-6").then(m=>{
+import("./control-scene.js?v=20261111-7").then(m=>{
  scene=m.createScene($("scene"),inspect,counters.connect);
  if([1,1.5,2].includes(savedQuality))scene.quality(savedQuality);
  if(savedView&&scene.restore(savedView)){$("camera").querySelector('[value=saved]').disabled=false;$("camera").value="saved"}

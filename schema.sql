@@ -354,6 +354,8 @@ CREATE INDEX IF NOT EXISTS zone_event_point_recent ON zone_events(point,id DESC)
 CREATE INDEX IF NOT EXISTS idx_zone_events_point_occurred ON zone_events(point, occurred DESC);
 CREATE INDEX IF NOT EXISTS idx_zone_events_occurred_method ON zone_events(occurred DESC, point, method);
 CREATE INDEX IF NOT EXISTS zone_active_dashboard ON zone_visits(location,purpose,entry_gate) WHERE location <> 'closed';
+CREATE INDEX IF NOT EXISTS zone_parking_current ON zone_visits(purpose,id)
+    WHERE location='parking' AND parking_departed_at IS NULL;
 CREATE INDEX IF NOT EXISTS zone_inside_gate ON zone_visits(entry_gate,id) WHERE location='inside';
 CREATE INDEX IF NOT EXISTS zone_active_plate_prefix ON zone_visits(plate_key text_pattern_ops) WHERE location <> 'closed';
 CREATE INDEX IF NOT EXISTS zone_received_time ON zone_events(received_at DESC);

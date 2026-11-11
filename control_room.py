@@ -80,7 +80,7 @@ def register_control_room(app, pool, roles):
                 cache["etag"] = sha256(app.json.dumps(stable).encode()).hexdigest()
                 cache["payload"] = app.json.dumps(data)
                 cache["data"] = data
-                cache["until"] = monotonic()+8
+                cache["until"] = monotonic()+4
             return cache["data"], cache["payload"], cache["etag"]
 
     def public_board_snapshot():

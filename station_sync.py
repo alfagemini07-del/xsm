@@ -209,6 +209,7 @@ def register_station(app, pool, prices, clean_plate):
                 for u in users
             }
             zone_access = None
+            parking_state = None
             if dev["role"] == "operator":
                 snapshot_at = datetime.now(timezone.utc)
                 access_rows = conn.execute(
@@ -226,12 +227,28 @@ def register_station(app, pool, prices, clean_plate):
                         entered_at=row["entered_at"].isoformat(), access_version=int(row["access_version"]),
                     ) for row in access_rows],
                 )
+            if dev["role"] == "parkovka_tashqi":
+                snapshot_at = datetime.now(timezone.utc)
+                parking_counts = conn.execute(
+                    """SELECT COUNT(*) AS active,
+                              COUNT(*) FILTER(WHERE purpose='border') AS border,
+                              COUNT(*) FILTER(WHERE purpose='zone') AS zone
+                       FROM zone_visits
+                       WHERE location='parking' AND parking_departed_at IS NULL"""
+                ).fetchone()
+                parking_state = dict(
+                    snapshot_at=snapshot_at.isoformat(),
+                    active=int(parking_counts["active"]),
+                    border=int(parking_counts["border"]),
+                    zone=int(parking_counts["zone"]),
+                )
             return jsonify(
                 ack=acknowledged,
                 rejected=rejected,
                 accounts=versions,
                 prices=prices(conn),
                 zone_access=zone_access,
+                parking_state=parking_state,
             )
 
 
