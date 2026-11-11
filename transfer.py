@@ -19,8 +19,9 @@ TABLES = {
     "settings": ("key", "value"),
     "devices": ("id", "name", "role", "created_at"),
     "import_batches": None,
-    "weighings": None,
     "zone_visits": None,
+    # Weighings can reference a Free Zone visit, so visits must be restored first.
+    "weighings": None,
     "zone_events": None,
     "device_events": None,
     "print_attempts": None,

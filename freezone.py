@@ -62,7 +62,11 @@ def transition(point, action, visit, purpose):
     if action == "in":
         if point == "kpp2":
             if visit and place == "parking" and visit["purpose"] == "zone":
-                return "inside", "kpp2", True, True
+                if not visit.get("parking_departed_at"):
+                    raise ValueError(
+                        "Avtomobilning E-navbat parkovkadan chiqishi qayd etilmagan. Avval parkovka chiqishini rasmiylashtiring."
+                    )
+                return "inside", "kpp2", False, True
             raise ValueError(
                 "O‘zbekiston darvozasidan kirish uchun E-navbat parkovkadan Free Zone navbati kerak."
             )

@@ -47,7 +47,10 @@ from receipt_render import receipt_view, receipt_pdf
 BASE_DIR = Path(__file__).resolve().parent
 COMPANY_NAME = "AIRITOM LOGISTICS CENTER MCHJ"
 DATABASE_URL = os.getenv("DATABASE_URL", "").strip()
-SESSION_SECRET = os.getenv("SECRET_KEY", "").strip() or hashlib.sha256(f"xsm-session-secret:{DATABASE_URL or 'airitom'}".encode()).hexdigest()
+SESSION_SECRET = os.getenv("SECRET_KEY", "").strip()
+if not SESSION_SECRET and os.getenv("RENDER"):
+    raise RuntimeError("Ishchi serverda SECRET_KEY majburiy")
+SESSION_SECRET = SESSION_SECRET or hashlib.sha256(f"xsm-dev-session-secret:{DATABASE_URL or 'airitom'}".encode()).hexdigest()
 APP_TIMEZONE = ZoneInfo(os.getenv("APP_TIMEZONE", "Asia/Tashkent"))
 DB_POOL_SIZE = max(1, min(int(os.getenv("DB_POOL_SIZE", "5")), 20))
 LOCAL_PRINTER_AGENT_ENABLED = os.getenv(
@@ -74,7 +77,7 @@ app = Flask(__name__)
 app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1, x_proto=1, x_host=1)
 app.secret_key = SESSION_SECRET
 app.config.update(
-    MAX_CONTENT_LENGTH=256 * 1024 * 1024,
+    MAX_CONTENT_LENGTH=64 * 1024 * 1024,
     MAX_FORM_MEMORY_SIZE=1024 * 1024,
     MAX_FORM_PARTS=50,
     SESSION_COOKIE_NAME="tarozi_session",
@@ -451,6 +454,8 @@ def serialize_weighing(row: dict) -> dict:
         "source": row.get("source") or "web",
         "payment_method": row.get("payment_method") or "cash",
         "print_state": row.get("print_state") or "not_requested",
+        "zone_visit_id": row.get("zone_visit_id"),
+        "eligibility_state": row.get("eligibility_state") or "legacy",
         "public_url": url_for("public_receipt", token=public_token, _external=True) if public_token else None,
     }
 
@@ -893,6 +898,15 @@ def create_weighing():
                 if existing["created_by"] != g.user["id"] or existing["plate_search"] != plate_search:
                     return jsonify(message="Bu amal avval boshqa ma’lumot bilan yuborilgan. Dastlabki raqamni tekshiring."), 409
                 return jsonify(success=True, weighing=serialize_weighing(existing), service_prices=get_service_prices(conn))
+        access = conn.execute(
+            """SELECT id AS visit_id,
+                      COALESCE((SELECT MAX(e.id) FROM zone_events e WHERE e.visit_id=v.id),0) AS access_version
+               FROM zone_visits v
+               WHERE plate_key=%s AND location='inside' AND entered_at IS NOT NULL""",
+            (plate_search,),
+        ).fetchone()
+        if not access:
+            return jsonify(success=False, message="Bu avtomobil Free Zone ichida emas. Tortishga ruxsat berilmadi."), 409
         service_prices = get_service_prices(conn)
         price = service_prices["weighing"] if service_prices["weighing_enabled"] else 0
         public_token = secrets.token_urlsafe(24)
@@ -912,13 +926,16 @@ def create_weighing():
             INSERT INTO weighings (
                 receipt_no, plate_number, plate_search, price, status,
                 weighing_fee, created_at, business_date, created_by, source,
-                public_token, client_request_id
-            ) VALUES (%s, %s, %s, %s, 'pending', %s, %s, %s, %s, 'desktop', %s, %s)
+                public_token, client_request_id, zone_visit_id, eligibility_state,
+                eligibility_checked_at, eligibility_version
+            ) VALUES (%s, %s, %s, %s, 'pending', %s, %s, %s, %s, 'desktop', %s, %s,
+                      %s, 'verified', NOW(), %s)
             RETURNING *
             """,
             (
                 receipt_no, plate, plate_search, price, price, created,
                 business_date, g.user["id"], public_token, request_id or None,
+                access["visit_id"], access["access_version"],
             ),
         ).fetchone()
         row["operator"] = g.user["username"]
@@ -981,6 +998,13 @@ def pay_weighing(weighing_id: int):
         if row["status"] == "cancelled":
             return jsonify(success=False, message="Bekor qilingan yozuvni to'lab bo'lmaydi"), 409
         if row["status"] == "pending":
+            access = conn.execute(
+                """SELECT id FROM zone_visits
+                   WHERE id=%s AND plate_key=%s AND location='inside' AND entered_at IS NOT NULL""",
+                (row.get("zone_visit_id"), row["plate_search"]),
+            ).fetchone()
+            if not access:
+                return jsonify(success=False, message="Avtomobil Free Zone ichida emas yoki tashrifi o‘zgargan."), 409
             service_prices = get_service_prices(conn)
             if entry_service and not service_prices["entry_enabled"]:
                 return jsonify(success=False, message="Hududga kirish tarifi techadmin tomonidan o'chirilgan"), 409
@@ -1009,7 +1033,7 @@ def pay_weighing(weighing_id: int):
                     weight_kg = %s, weighing_fee = %s,
                     entry_service = %s, entry_fee = %s,
                     reload_service = %s, reload_fee = %s,
-                    price = %s, updated_at = NOW()
+                    price = %s, eligibility_checked_at=NOW(), updated_at = NOW()
                 WHERE id = %s
                 RETURNING *
                 """,

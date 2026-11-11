@@ -21,93 +21,18 @@ def integer(data, key, limit=3_000_000_000):
 
 
 def _resolve_or_bind_station_device(conn, cred_hash, data, accounts, events, remote_ip, credential):
-    """
-    Finds the device matching `station_hash = cred_hash`.
-    If `station_hash` is not yet bound on the desktop device, automatically matches
-    by session token, explicit device_id, hw_id (`PC-...`), operator account (`last_user`),
-    IP address, or desktop role (`operator` / `parkovka_tashqi`) and binds `station_hash`.
-    """
-    from devices import derive_pc_hw_id, deduplicate_devices
+    """Resolve only an exact desktop identity; never inherit another PC's approval."""
+    from devices import derive_pc_hw_id
 
     dev = conn.execute(
         "SELECT * FROM devices WHERE station_hash=%s FOR UPDATE",
         (cred_hash,),
     ).fetchone()
     if dev:
-        if not dev["approved"] and not dev["blocked"]:
-            peer = conn.execute(
-                "SELECT id FROM devices WHERE role=%s AND approved=TRUE AND NOT blocked LIMIT 1",
-                (dev["role"],),
-            ).fetchone()
-            if peer:
-                conn.execute("UPDATE devices SET approved=TRUE WHERE id=%s", (dev["id"],))
-                dev["approved"] = True
         return dev
-
-    # Check active device_sessions token match
-    sess_dev = conn.execute(
-        """SELECT d.* FROM device_sessions s
-           JOIN devices d ON d.id=s.device_id
-           WHERE s.token_hash=%s FOR UPDATE OF d""",
-        (cred_hash,),
-    ).fetchone()
-    if sess_dev:
-        conn.execute(
-            "UPDATE devices SET station_hash=%s WHERE id=%s",
-            (cred_hash, sess_dev["id"]),
-        )
-        sess_dev["station_hash"] = cred_hash
-        return sess_dev
-
-    usernames = [str(a).strip().lower()[:40] for a in (accounts or []) if isinstance(a, str) and a.strip()]
-    for ev in (events or []):
-        if isinstance(ev, dict) and isinstance(ev.get("payload"), dict):
-            w = str(ev["payload"].get("worker") or "").strip().lower()[:40]
-            if w and w not in usernames:
-                usernames.append(w)
 
     inferred_role = str(data.get("role") or "").strip()
     if inferred_role not in {"operator", "parkovka_tashqi"}:
-        inferred_role = None
-
-    if not inferred_role and usernames:
-        u_row = conn.execute(
-            "SELECT username, role FROM users WHERE LOWER(username) = ANY(%s) AND role IN ('parkovka_tashqi', 'operator') LIMIT 1",
-            (usernames,),
-        ).fetchone()
-        if u_row:
-            inferred_role = u_row["role"]
-
-    if not inferred_role:
-        for ev in (events or []):
-            if isinstance(ev, dict):
-                kind = str(ev.get("kind") or "")
-                if kind.startswith("parking."):
-                    inferred_role = "parkovka_tashqi"
-                    break
-                if kind == "scale.paid":
-                    inferred_role = "operator"
-                    break
-
-    if not inferred_role and remote_ip:
-        ip_dev = conn.execute(
-            """SELECT role FROM devices
-               WHERE ip = %s AND role IN ('parkovka_tashqi', 'operator') AND NOT blocked
-               ORDER BY approved DESC, last_seen DESC NULLS LAST
-               LIMIT 1""",
-            (remote_ip,),
-        ).fetchone()
-        if ip_dev:
-            inferred_role = ip_dev["role"]
-
-    if not inferred_role:
-        pk_dev = conn.execute(
-            "SELECT role FROM devices WHERE role IN ('parkovka_tashqi', 'operator') AND NOT blocked ORDER BY approved DESC LIMIT 1"
-        ).fetchone()
-        if pk_dev:
-            inferred_role = pk_dev["role"]
-
-    if not inferred_role:
         return None
 
     raw_did = str(data.get("device_id") or "").strip()
@@ -125,59 +50,41 @@ def _resolve_or_bind_station_device(conn, cred_hash, data, accounts, events, rem
         raw_hw_id=raw_hw,
     )
 
-    def _bind_to(target_id):
-        conn.execute(
-            "UPDATE devices SET station_hash=NULL WHERE station_hash=%s AND id<>%s",
-            (cred_hash, target_id),
-        )
+    def _bind_to(device):
+        if device["role"] != inferred_role or device["blocked"]:
+            return None
+        if device["station_hash"] and not secrets.compare_digest(device["station_hash"], cred_hash):
+            return None
         conn.execute(
             """UPDATE devices
                SET station_hash=%s,
                    ip=COALESCE(NULLIF(%s, ''), ip),
                    hw_id=COALESCE(NULLIF(TRIM(hw_id), ''), %s)
                WHERE id=%s""",
-            (cred_hash, remote_ip or "", pc_hw or None, target_id),
+            (cred_hash, remote_ip or "", pc_hw or None, device["id"]),
         )
-        return conn.execute("SELECT * FROM devices WHERE id=%s", (target_id,)).fetchone()
+        return conn.execute("SELECT * FROM devices WHERE id=%s", (device["id"],)).fetchone()
 
     if raw_did:
         try:
             uid_val = uuid.UUID(raw_did)
             found = conn.execute("SELECT * FROM devices WHERE id=%s FOR UPDATE", (uid_val,)).fetchone()
-            if found and not found["blocked"]:
-                return _bind_to(found["id"])
+            if found:
+                return _bind_to(found)
         except ValueError:
-            pass
+            return None
 
-    if usernames:
-        candidate = conn.execute(
+    if pc_hw:
+        exact = conn.execute(
             """SELECT * FROM devices
-               WHERE role = %s AND NOT blocked
-                 AND LOWER(COALESCE(last_user, '')) = ANY(%s)
-               ORDER BY approved DESC, (station_hash IS NULL) DESC, last_seen DESC NULLS LAST
-               LIMIT 1 FOR UPDATE""",
-            (inferred_role, usernames),
-        ).fetchone()
-        if candidate:
-            return _bind_to(candidate["id"])
+               WHERE role=%s AND UPPER(TRIM(hw_id))=UPPER(%s)
+               ORDER BY created_at LIMIT 2 FOR UPDATE""",
+            (inferred_role, pc_hw),
+        ).fetchall()
+        if len(exact) == 1:
+            return _bind_to(exact[0])
 
-    candidate = conn.execute(
-        """SELECT * FROM devices
-           WHERE role = %s AND NOT blocked
-           ORDER BY
-               approved DESC,
-               (UPPER(TRIM(COALESCE(hw_id, ''))) = UPPER(%s)) DESC,
-               (ip = %s) DESC,
-               (station_hash IS NULL) DESC,
-               last_seen DESC NULLS LAST,
-               created_at ASC
-           LIMIT 1 FOR UPDATE""",
-        (inferred_role, pc_hw or "", remote_ip or ""),
-    ).fetchone()
-    if candidate:
-        return _bind_to(candidate["id"])
-
-    # Auto-register pending desktop PC device so techadmin can approve it in one click
+    # Unknown identities stay pending until an explicit techadmin approval.
     new_id = uuid.uuid5(uuid.NAMESPACE_DNS, f"airitom:station:{inferred_role}:{pc_hw}")
     default_name = (
         f"Tarozi Kompyuteri · {remote_ip or pc_hw}"
@@ -193,7 +100,6 @@ def _resolve_or_bind_station_device(conn, cred_hash, data, accounts, events, rem
                station_hash = COALESCE(devices.station_hash, EXCLUDED.station_hash)""",
         (new_id, default_name[:100], inferred_role, remote_ip or None, pc_hw or None, cred_hash),
     )
-    deduplicate_devices(conn)
     return conn.execute("SELECT * FROM devices WHERE id=%s FOR UPDATE", (new_id,)).fetchone()
 
 
@@ -302,11 +208,30 @@ def register_station(app, pool, prices, clean_plate):
                 u["username"]: hashlib.sha256(u["password_hash"].encode()).hexdigest()
                 for u in users
             }
+            zone_access = None
+            if dev["role"] == "operator":
+                snapshot_at = datetime.now(timezone.utc)
+                access_rows = conn.execute(
+                    """SELECT v.id AS visit_id,v.plate,v.plate_key,v.entered_at,
+                              COALESCE((SELECT MAX(e.id) FROM zone_events e WHERE e.visit_id=v.id),0) AS access_version
+                       FROM zone_visits v
+                       WHERE v.location='inside' AND v.entered_at IS NOT NULL
+                       ORDER BY v.id"""
+                ).fetchall()
+                zone_access = dict(
+                    snapshot_at=snapshot_at.isoformat(),
+                    max_age_seconds=600,
+                    vehicles=[dict(
+                        visit_id=row["visit_id"], plate=row["plate"], plate_key=row["plate_key"],
+                        entered_at=row["entered_at"].isoformat(), access_version=int(row["access_version"]),
+                    ) for row in access_rows],
+                )
             return jsonify(
                 ack=acknowledged,
                 rejected=rejected,
                 accounts=versions,
                 prices=prices(conn),
+                zone_access=zone_access,
             )
 
 
@@ -320,6 +245,29 @@ def apply_event(conn, dev, eid, event, clean_plate):
     at = datetime.fromisoformat(p["occurred"])
     if not at.tzinfo:
         raise ValueError("Vaqt mintaqasi")
+    if kind == "print.attempt":
+        attempt_id = uuid.UUID(str(p["attempt_id"]))
+        entity_kind = str(p["entity_kind"])
+        expected_kind = "scale" if dev["role"] == "operator" else "parking"
+        state = str(p["state"])
+        action = str(p.get("action") or "weigh")
+        if entity_kind != expected_kind or state not in {"requested","dialog_closed","spooled","confirmed","failed"}:
+            raise ValueError("Chop etish turi yoki holati")
+        plate, _key = clean_plate(p["plate"])
+        conn.execute(
+            """INSERT INTO terminal_print_attempts
+               (device_id,attempt_id,entity_kind,local_id,receipt_no,plate,action,state,detail,operator_name,occurred)
+               VALUES(%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+               ON CONFLICT(device_id,attempt_id) DO UPDATE SET
+                 state=EXCLUDED.state,detail=EXCLUDED.detail,occurred=EXCLUDED.occurred,
+                 received_at=NOW()
+               WHERE terminal_print_attempts.entity_kind=EXCLUDED.entity_kind
+                 AND terminal_print_attempts.local_id=EXCLUDED.local_id""",
+            (dev["id"], attempt_id, entity_kind, integer(p,"local_id",2**63-1),
+             str(p["receipt_no"])[:100], plate, action[:20], state,
+             str(p.get("detail") or "")[:300], worker, at),
+        )
+        return
     plate, key = clean_plate(p["plate"])
     amount = integer(p, "amount")
     method = p["method"]
@@ -333,12 +281,29 @@ def apply_event(conn, dev, eid, event, clean_plate):
         weight = integer(p, "weight_kg", 1_000_000)
         if not weight or sum(fees) != amount or method == "none":
             raise ValueError("Chek jami yoki vazn")
+        visit_id = integer(p, "zone_visit_id", 2**63 - 1)
+        access_version = integer(p, "eligibility_version", 2**63 - 1)
+        visit = conn.execute(
+            """SELECT v.id FROM zone_visits v
+               WHERE v.id=%s AND v.plate_key=%s AND v.entered_at IS NOT NULL
+                 AND v.entered_at<=%s
+                 AND NOT EXISTS (
+                     SELECT 1 FROM zone_events e
+                     WHERE e.visit_id=v.id AND e.action='out'
+                       AND e.point IN ('kpp2','ayritom') AND e.occurred<=%s
+                 )""",
+            (visit_id, key, at, at),
+        ).fetchone()
+        if not visit:
+            raise ValueError("Avtomobil tortilgan vaqtda Free Zone ichida bo‘lmagan")
         ref = f"{dev['id']}/{p['receipt_no']}"
         conn.execute(
             """INSERT INTO weighings(receipt_no,plate_number,plate_search,price,weight_kg,
             weighing_fee,entry_fee,reload_fee,entry_service,reload_service,status,created_at,business_date,
-            paid_at,created_by,payment_method,source,public_token,client_request_id)
-            VALUES(%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,'paid',%s,%s,%s,%s,%s,'desktop',%s,%s)""",
+            paid_at,created_by,payment_method,source,public_token,client_request_id,zone_visit_id,
+            eligibility_state,eligibility_checked_at,eligibility_version)
+            VALUES(%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,'paid',%s,%s,%s,%s,%s,'desktop',%s,%s,%s,
+                   'verified',%s,%s)""",
             (
                 ref,
                 plate,
@@ -355,6 +320,9 @@ def apply_event(conn, dev, eid, event, clean_plate):
                 method,
                 secrets.token_urlsafe(24),
                 str(eid),
+                visit_id,
+                at,
+                access_version,
             ),
         )
         return

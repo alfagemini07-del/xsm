@@ -101,6 +101,11 @@ CREATE TABLE IF NOT EXISTS weighings (
     created_by BIGINT REFERENCES users(id) ON DELETE SET NULL,
     source TEXT NOT NULL DEFAULT 'web',
     client_request_id TEXT,
+    zone_visit_id BIGINT,
+    eligibility_state TEXT NOT NULL DEFAULT 'legacy',
+    eligibility_checked_at TIMESTAMPTZ,
+    eligibility_version BIGINT,
+    override_reason TEXT,
     legacy_id BIGINT,
     legacy_receipt_no TEXT,
     legacy_fingerprint TEXT UNIQUE,
@@ -119,6 +124,17 @@ ALTER TABLE weighings ADD COLUMN IF NOT EXISTS public_token TEXT;
 ALTER TABLE weighings ADD COLUMN IF NOT EXISTS client_request_id TEXT;
 ALTER TABLE weighings ADD COLUMN IF NOT EXISTS received_at TIMESTAMPTZ;
 ALTER TABLE weighings ALTER COLUMN received_at SET DEFAULT NOW();
+ALTER TABLE weighings ADD COLUMN IF NOT EXISTS zone_visit_id BIGINT;
+ALTER TABLE weighings ADD COLUMN IF NOT EXISTS eligibility_state TEXT NOT NULL DEFAULT 'legacy';
+ALTER TABLE weighings ADD COLUMN IF NOT EXISTS eligibility_checked_at TIMESTAMPTZ;
+ALTER TABLE weighings ADD COLUMN IF NOT EXISTS eligibility_version BIGINT;
+ALTER TABLE weighings ADD COLUMN IF NOT EXISTS override_reason TEXT;
+
+DO $$ BEGIN
+    ALTER TABLE weighings ADD CONSTRAINT weighings_eligibility_state_check
+        CHECK (eligibility_state IN ('verified','override','legacy'));
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
 
 UPDATE weighings
 SET weighing_fee = price
@@ -186,6 +202,9 @@ CREATE TABLE IF NOT EXISTS devices (
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
+CREATE INDEX IF NOT EXISTS devices_connected_seen ON devices(last_seen)
+    WHERE connected;
+
 ALTER TABLE devices ADD COLUMN IF NOT EXISTS connected BOOLEAN NOT NULL DEFAULT FALSE;
 ALTER TABLE devices ADD COLUMN IF NOT EXISTS station_hash TEXT UNIQUE;
 ALTER TABLE devices ADD COLUMN IF NOT EXISTS tablet_hash TEXT UNIQUE;
@@ -243,6 +262,12 @@ ALTER TABLE zone_visits ADD COLUMN IF NOT EXISTS station_id UUID REFERENCES devi
 ALTER TABLE zone_visits ADD COLUMN IF NOT EXISTS station_local_id BIGINT;
 ALTER TABLE zone_visits ADD COLUMN IF NOT EXISTS queue_no TEXT;
 
+DO $$ BEGIN
+    ALTER TABLE weighings ADD CONSTRAINT weighings_zone_visit_fk
+        FOREIGN KEY (zone_visit_id) REFERENCES zone_visits(id) ON DELETE SET NULL;
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
+
 CREATE TABLE IF NOT EXISTS zone_events (
     id BIGSERIAL PRIMARY KEY,
     request_key UUID UNIQUE NOT NULL,
@@ -260,6 +285,32 @@ CREATE TABLE IF NOT EXISTS zone_events (
 );
 ALTER TABLE zone_events ADD COLUMN IF NOT EXISTS received_at TIMESTAMPTZ;
 ALTER TABLE zone_events ALTER COLUMN received_at SET DEFAULT NOW();
+
+DO $$ BEGIN
+    ALTER TABLE zone_events ADD CONSTRAINT zone_events_point_check
+        CHECK (point IN ('parkovka_tashqi','kpp2','ayritom')) NOT VALID;
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
+DO $$ BEGIN
+    ALTER TABLE zone_events ADD CONSTRAINT zone_events_action_check
+        CHECK (action IN ('in','out')) NOT VALID;
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
+DO $$ BEGIN
+    ALTER TABLE zone_events ADD CONSTRAINT zone_events_location_check
+        CHECK (location IN ('parking','inside','closed')) NOT VALID;
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
+DO $$ BEGIN
+    ALTER TABLE zone_events ADD CONSTRAINT zone_events_days_check
+        CHECK (days BETWEEN 0 AND 50000) NOT VALID;
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
+DO $$ BEGIN
+    ALTER TABLE zone_events ADD CONSTRAINT zone_events_previous_paid_check
+        CHECK (previous_paid >= 0) NOT VALID;
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
 
 UPDATE zone_visits v
 SET parking_departed_at = COALESCE(
@@ -306,6 +357,8 @@ CREATE INDEX IF NOT EXISTS zone_active_dashboard ON zone_visits(location,purpose
 CREATE INDEX IF NOT EXISTS zone_inside_gate ON zone_visits(entry_gate,id) WHERE location='inside';
 CREATE INDEX IF NOT EXISTS zone_active_plate_prefix ON zone_visits(plate_key text_pattern_ops) WHERE location <> 'closed';
 CREATE INDEX IF NOT EXISTS zone_received_time ON zone_events(received_at DESC);
+CREATE INDEX IF NOT EXISTS weighings_zone_visit_time ON weighings(zone_visit_id,paid_at DESC)
+    WHERE zone_visit_id IS NOT NULL;
 
 CREATE TABLE IF NOT EXISTS station_events (
     device_id UUID REFERENCES devices(id) ON DELETE CASCADE,
@@ -313,6 +366,24 @@ CREATE TABLE IF NOT EXISTS station_events (
     received_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     PRIMARY KEY(device_id, event_id)
 );
+
+CREATE TABLE IF NOT EXISTS terminal_print_attempts (
+    device_id UUID NOT NULL REFERENCES devices(id) ON DELETE CASCADE,
+    attempt_id UUID NOT NULL,
+    entity_kind TEXT NOT NULL CHECK(entity_kind IN ('scale','parking')),
+    local_id BIGINT NOT NULL,
+    receipt_no TEXT NOT NULL,
+    plate TEXT NOT NULL,
+    action TEXT NOT NULL,
+    state TEXT NOT NULL CHECK(state IN ('requested','dialog_closed','spooled','confirmed','failed')),
+    detail TEXT NOT NULL DEFAULT '',
+    operator_name TEXT NOT NULL,
+    occurred TIMESTAMPTZ NOT NULL,
+    received_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    PRIMARY KEY(device_id,attempt_id)
+);
+CREATE INDEX IF NOT EXISTS terminal_print_recent ON terminal_print_attempts(received_at DESC);
+CREATE INDEX IF NOT EXISTS terminal_print_receipt ON terminal_print_attempts(entity_kind,receipt_no);
 
 CREATE TABLE IF NOT EXISTS receipt_jobs (
     id UUID PRIMARY KEY,
@@ -543,6 +614,10 @@ UPDATE dispatch_tickets SET queue_state=CASE WHEN area='closed' THEN 'completed'
  WHERE area IN ('inside','closed') AND queue_state IN ('waiting','called');
 UPDATE dispatch_tickets SET queue_state='called' WHERE area='parking' AND called_at IS NOT NULL AND queue_state='waiting';
 CREATE INDEX IF NOT EXISTS dispatch_waiting ON dispatch_tickets(flow,priority DESC,day,number) WHERE area='parking' AND queue_state='waiting';
+CREATE INDEX IF NOT EXISTS dispatch_active_area_state ON dispatch_tickets(area,queue_state,flow,priority DESC,day,number)
+    WHERE area<>'closed';
+CREATE INDEX IF NOT EXISTS dispatch_active_slot ON dispatch_tickets(area,slot)
+    WHERE area<>'closed' AND slot IS NOT NULL;
 
 CREATE TABLE IF NOT EXISTS dispatch_log (
     id BIGSERIAL PRIMARY KEY,
@@ -561,10 +636,12 @@ RETURNS void LANGUAGE plpgsql AS $$
 DECLARE cfg dispatch_config%ROWTYPE; business_day date; prefix text; n integer; space integer; old_area text;
 BEGIN
  IF current_setting('xsm.restoring',true)='on' THEN RETURN; END IF;
- SELECT * INTO cfg FROM dispatch_config WHERE id FOR UPDATE;
+ SELECT * INTO cfg FROM dispatch_config WHERE id;
  SELECT area INTO old_area FROM dispatch_tickets WHERE visit_id=vid;
  IF old_area=place OR (old_area IS NULL AND place='closed') THEN RETURN; END IF;
  IF place IN ('parking','inside') THEN
+   -- Serialize only the destination area; parking and inside can move concurrently.
+   PERFORM pg_advisory_xact_lock(hashtextextended('xsm-dispatch-slot:'||place,0));
    SELECT i INTO space FROM generate_series(1,CASE WHEN place='parking' THEN cfg.parking_capacity ELSE cfg.inside_capacity END) i
      WHERE NOT EXISTS(SELECT 1 FROM dispatch_tickets t WHERE t.area=place AND t.slot=i)
        AND NOT EXISTS(SELECT 1 FROM dispatch_spots s WHERE s.area=place AND s.slot=i) ORDER BY i LIMIT 1;

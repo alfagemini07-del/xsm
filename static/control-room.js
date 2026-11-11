@@ -9,7 +9,7 @@ const statusNames={waiting:"Kutilmoqda (E-navbat parkovkada)",called:"Chaqirilga
 const actionNames={hold:"Kutishga qo‘yish",resume:"Navbatga qaytarish",no_show:"Kelmadi",cancel:"Navbatni bekor qilish",recall:"Qayta chaqirish",priority:"Ustuvorlik",assign:"Joy ajratish",spot:"Joy holati",gate:"Virtual darvoza holati","call.FZ":"Free Zone navbati chaqirildi","call.CH":"Chegara navbati chaqirildi"};
 const gateNames={open:"Ochiq",closed:"Yopiq",locked:"Bloklangan",fault:"Nosoz",maintenance:"Xizmatda"};
 const gateTitles={1:names.kpp2,2:names.ayritom};
-const code=v=>"№"+String(v.number).padStart(4,"0");
+const code=v=>v.queue_no||("№"+String(v.number).padStart(4,"0"));
 const isTech=document.body.dataset.role==="techadmin";
 const readOnly=document.body.dataset.role==="observer";
 const counters=createCounters($("place-counts"), key => {
@@ -58,7 +58,8 @@ function show(data,reset=false){
  $("breakdown").replaceChildren(...Object.entries(names).map(([k,v])=>row(v,money.format(data.totals.find(t=>t.point===k)?.amount||0))));
  const parkingCountObj=data.counts.find(t=>t.area==="parking");
  const insideCountObj=data.counts.find(t=>t.area==="inside");
- const parkingTotal=Number(parkingCountObj?.n||0);
+ const parkingTotal=Number(parkingCountObj?.parked||0);
+ const transitTotal=Number(parkingCountObj?.in_transit||0);
  const insideTotal=Number(insideCountObj?.n||0);
  const pFlow=data.parking_flow||{};
  const borderDeparted=Number(pFlow.border_departures||0);
@@ -66,7 +67,7 @@ function show(data,reset=false){
  const parkingArrivals=Number(pFlow.arrivals||0);
  const parkingDepartures=Number(pFlow.departures||0);
  $("occupancy").replaceChildren(...[["parking","E-navbat parkovka"],["inside","Free Zone hududi"]].map(([area,title])=>
-   row(title,(data.counts.find(t=>t.area===area)?.n||0)+" / "+data.config[area+"_capacity"])));
+   row(title,(area==="parking"?(parkingCountObj?.parked||0):(data.counts.find(t=>t.area===area)?.n||0))+" / "+data.config[area+"_capacity"])));
  const missing=data.vehicles.filter(v=>!v.slot).length;
  if(missing)$("occupancy").append(row("Joy ajratish kutilmoqda",missing));
  $("occupancy").append(row("O‘zbekiston darvozasiga yo‘lda (oraliq yo‘l)",parkingCountObj?.in_transit??0));
@@ -82,7 +83,7 @@ function show(data,reset=false){
  const calledFZ=data.queue.find(r=>r.flow==="FZ"&&r.queue_state==="called")?.n??0;
  const calledCH=data.queue.find(r=>r.flow==="CH"&&r.queue_state==="called")?.n??0;
  $("kpis").replaceChildren(
-   kpiCard("Jami transport", parkingTotal + insideTotal, `Parkovka: ${parkingTotal} ta · Free Zone: ${insideTotal} ta`),
+   kpiCard("Jami transport", parkingTotal + transitTotal + insideTotal, `Parkovka: ${parkingTotal} ta · Yo‘lda: ${transitTotal} ta · Free Zone: ${insideTotal} ta`),
    kpiCard("E-navbat parkovka", `${parkingTotal} / ${data.config.parking_capacity}`, `Bugun kirdi: ${parkingArrivals} ta · Chiqdi: ${parkingDepartures} ta`),
    kpiCard("Free Zone ichida", `${insideTotal} / ${data.config.inside_capacity}`, `Bojxona va tarozi hududida (tortildi: ${data.weighed_today??0})`),
    kpiCard("Free Zone navbati", queued("FZ"), `Parkovkada kutmoqda · Chiqdi: ${zoneDeparted} ta`),
@@ -90,7 +91,7 @@ function show(data,reset=false){
    kpiCard("Chaqirilgan · Kutish", `${callCount} ta · ${average} daq`, `E-navbat parkovkada (FZ: ${calledFZ}, Chegara: ${calledCH})`)
  );
  const alerts=[];
- for(const area of ["parking","inside"]){const occupied=Number(data.counts.find(c=>c.area===area)?.n||0),capacity=data.config[area+"_capacity"],unavailable=(data.spots||[]).filter(s=>s.area===area).length;
+ for(const area of ["parking","inside"]){const count=data.counts.find(c=>c.area===area),occupied=Number(area==="parking"?(count?.parked||0):(count?.n||0)),capacity=data.config[area+"_capacity"],unavailable=(data.spots||[]).filter(s=>s.area===area).length;
   const percent=(occupied+unavailable)/capacity*100;
   const level=percent>=100?"Bo‘sh joy qolmadi":percent>=(data.config.critical_percent??90)?"Joylar tugab bormoqda":
      percent>=(data.config.warning_percent??80)?"Bandlik yuqori":null;
@@ -330,7 +331,7 @@ function selectedInfo(){
    row("Davlat raqami",v.plate),
    row("Navbat raqami",code(v)),
    row("Yo‘nalishi",FlowLabel),
-   row("Hozirgi joyi",v.area==="parking"?"E-navbat parkovka · joy "+(v.slot||"—"):"Free Zone ichida · joy "+(v.slot||"—")),
+   row("Hozirgi joyi",v.area==="parking"?(v.parking_departed_at?"Free Zone tomon yo‘lda":"E-navbat parkovka · joy "+(v.slot||"—")):"Free Zone ichida · joy "+(v.slot||"—")),
    row("Holati",statusNames[v.queue_state]||v.queue_state),
    row("Ustuvorlik",["Oddiy","Maxsus","Favqulodda"][v.priority]??(v.priority||0))
  );

@@ -64,7 +64,20 @@ class SystemFlow(unittest.TestCase):
         c = app.test_client()
         h = tokens["operator"]
         self.assertEqual(c.get("/api/admin/users", headers=h).status_code, 403)
-        req = dict(plate_number="01A123AA", request_id=uuid.uuid4().hex)
+        scale_plate = "01" + suffix.upper()
+        denied = c.post(
+            "/api/weighings",
+            json=dict(plate_number=scale_plate, request_id=uuid.uuid4().hex),
+            headers=h,
+        )
+        self.assertEqual(denied.status_code, 409, denied.data)
+        with get_pool().connection() as db:
+            db.execute(
+                """INSERT INTO zone_visits(plate,plate_key,purpose,location,entry_gate,entered_at,started,daily_rate)
+                   VALUES(%s,%s,'zone','inside','ayritom',NOW(),NOW(),0)""",
+                (scale_plate, scale_plate),
+            )
+        req = dict(plate_number=scale_plate, request_id=uuid.uuid4().hex)
         r = c.post("/api/weighings", json=req, headers=h)
         self.assertEqual(r.status_code, 200, r.data)
         wid = r.json["weighing"]["id"]
@@ -106,6 +119,20 @@ class SystemFlow(unittest.TestCase):
         self.assertEqual(
             c.get(
                 f"/api/device/parking/receipt/{first.json['id']}", headers=ph
+            ).status_code,
+            200,
+        )
+        departure = c.post(
+            "/api/device/parking/quote",
+            json=dict(action="out", plate="90" + suffix.upper(), purpose="zone"),
+            headers=ph,
+        )
+        self.assertEqual(departure.status_code, 200, departure.data)
+        self.assertEqual(
+            c.post(
+                "/api/device/parking/commit",
+                json=dict(ticket=departure.json["ticket"], method="cash", received=True),
+                headers=ph,
             ).status_code,
             200,
         )
@@ -258,6 +285,19 @@ class SystemFlow(unittest.TestCase):
                                     method="cash",
                                     received=True,
                                 ),
+                                headers=ph,
+                            ).status_code,
+                            200,
+                        )
+                        departed = c.post(
+                            "/api/device/parking/quote",
+                            json=dict(action="out", plate=plate, purpose="zone"),
+                            headers=ph,
+                        ).json
+                        self.assertEqual(
+                            c.post(
+                                "/api/device/parking/commit",
+                                json=dict(ticket=departed["ticket"], method="cash", received=True),
                                 headers=ph,
                             ).status_code,
                             200,

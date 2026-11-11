@@ -24,10 +24,10 @@ def register_control_room(app, pool, roles):
                 conn.execute("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY")
                 config = conn.execute("SELECT * FROM dispatch_config WHERE id")
                 vehicles = conn.execute("""
-                    SELECT v.id,v.plate,v.started,v.parking_departed_at,t.area,t.slot,t.flow,t.number,t.day,t.called_at,
+                    SELECT v.id,v.plate,v.queue_no,v.started,v.parking_departed_at,t.area,t.slot,t.flow,t.number,t.day,t.called_at,
                            t.queue_state,t.priority,t.version
                     FROM dispatch_tickets t JOIN zone_visits v ON v.id=t.visit_id
-                    WHERE t.area<>'closed' ORDER BY v.started,v.id LIMIT 2501""")
+                    WHERE t.area<>'closed' ORDER BY v.started,v.id LIMIT 5001""")
                 totals = conn.execute("""
                     SELECT point,COUNT(*) n,SUM(amount)::bigint amount FROM operation_ledger
                     WHERE status='paid' AND occurred>=%s AND occurred<%s GROUP BY point""",
@@ -110,7 +110,7 @@ def register_control_room(app, pool, roles):
     def queue_display_data():
         data, _, _ = cached_snapshot()
         # The wall display contains no payments, names, plate numbers or device details.
-        return jsonify(at=data["at"],tickets=[{k:v[k] for k in ("id","flow","number","day","queue_state","called_at","priority")}
+        return jsonify(at=data["at"],tickets=[{k:v[k] for k in ("id","queue_no","flow","number","day","queue_state","called_at","priority")}
             for v in data["vehicles"] if v["area"]=="parking" and v["queue_state"] in ("waiting","called")])
 
     @app.post("/api/admin/control-room/call")

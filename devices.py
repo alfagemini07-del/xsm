@@ -274,9 +274,6 @@ def web_device_login(conn, user, app):
             device_model = "Linux Kompyuter"
 
     is_pc = user["role"] in {"operator", "parkovka_tashqi"} or "Kompyuter" in device_model
-    if not hw_id and client_ip:
-        hw_id = f"IP-{client_ip}"
-
     signer = URLSafeTimedSerializer(app.secret_key, salt="kpp-device")
     stored = request.cookies.get("kpp_device_" + user["role"]) or request.cookies.get(
         "kpp_device", ""
@@ -304,43 +301,6 @@ def web_device_login(conn, user, app):
             (digest(stored), user["role"]),
         ).fetchone()
 
-    if not known and client_ip:
-        # Match by IP or pre-enrolled IP in hw_id for this role
-        known = conn.execute(
-            """SELECT id, approved, blocked, name, hw_id FROM devices
-               WHERE role = %s AND (
-                   ip = %s
-                   OR UPPER(TRIM(hw_id)) = UPPER(%s)
-                   OR UPPER(TRIM(hw_id)) = UPPER(%s)
-               )
-               ORDER BY approved DESC, last_seen DESC NULLS LAST LIMIT 1""",
-            (user["role"], client_ip, client_ip, f"IP-{client_ip}"),
-        ).fetchone()
-
-    if not known and hw_id:
-        known = conn.execute(
-            """SELECT id, approved, blocked, name, hw_id FROM devices
-               WHERE (hw_id IS NULL OR TRIM(hw_id) = '')
-                 AND role = %s AND (last_user = %s OR LOWER(name) = LOWER(%s))
-               ORDER BY approved DESC, last_seen DESC NULLS LAST LIMIT 1""",
-            (user["role"], user["username"], device_name),
-        ).fetchone()
-
-    hw_already_approved = False
-    if hw_id or client_ip:
-        approved_peer = conn.execute(
-            """SELECT approved, blocked, name FROM devices
-               WHERE approved = TRUE AND blocked = FALSE
-                 AND (
-                     (%s <> '' AND UPPER(TRIM(hw_id)) = UPPER(%s))
-                     OR (%s <> '' AND role = %s AND (ip = %s OR UPPER(TRIM(hw_id)) = UPPER(%s) OR UPPER(TRIM(hw_id)) = UPPER(%s)))
-                 )
-               LIMIT 1""",
-            (hw_id, hw_id, client_ip, user["role"], client_ip, client_ip, f"IP-{client_ip}"),
-        ).fetchone()
-        if approved_peer:
-            hw_already_approved = True
-
     if known:
         did = known["id"]
     else:
@@ -363,7 +323,7 @@ def web_device_login(conn, user, app):
                hw_id = COALESCE(NULLIF(TRIM(devices.hw_id), ''), EXCLUDED.hw_id),
                approved = devices.approved OR EXCLUDED.approved,
                name = CASE WHEN (devices.name LIKE 'Planshet%%' OR devices.name LIKE 'Kompyuter%%' OR devices.name LIKE 'Qurilma%%') AND %s != '' THEN %s ELSE devices.name END""",
-        (did, device_name, user["role"], client_ip, hw_id or None, hw_already_approved, device_model, device_name),
+        (did, device_name, user["role"], client_ip, hw_id or None, False, device_model, device_name),
     )
 
     deduplicate_devices(conn)
@@ -595,45 +555,14 @@ def register_devices(
                        ORDER BY approved DESC, last_seen DESC NULLS LAST LIMIT 1""",
                     (role, hw_id, str(device_id)),
                 ).fetchone()
-            if not existing_dev and client_ip:
-                existing_dev = conn.execute(
-                    """SELECT * FROM devices
-                       WHERE role=%s AND (
-                           UPPER(TRIM(hw_id))=UPPER(%s)
-                           OR UPPER(TRIM(hw_id))=UPPER(%s)
-                           OR (ip=%s AND approved=TRUE AND NOT blocked)
-                       )
-                       ORDER BY approved DESC, last_seen DESC NULLS LAST LIMIT 1""",
-                    (role, client_ip, f"IP-{client_ip}", client_ip),
-                ).fetchone()
-
             if existing_dev:
                 device_id = existing_dev["id"]
 
-            # Check if any peer row with same hw_id or IP is already approved
-            peer_approved = False
-            if hw_id or client_ip:
-                peer = conn.execute(
-                    """SELECT 1 FROM devices
-                       WHERE approved=TRUE AND blocked=FALSE AND (
-                           (%s <> '' AND UPPER(TRIM(hw_id))=UPPER(%s))
-                           OR (%s <> '' AND role=%s AND (
-                               UPPER(TRIM(hw_id))=UPPER(%s)
-                               OR UPPER(TRIM(hw_id))=UPPER(%s)
-                               OR ip=%s
-                           ))
-                       ) LIMIT 1""",
-                    (hw_id, hw_id, client_ip, role, client_ip, f"IP-{client_ip}", client_ip),
-                ).fetchone()
-                if peer:
-                    peer_approved = True
-
             conn.execute(
-                """INSERT INTO devices(id,name,role,ip,hw_id,approved) VALUES(%s,%s,%s,%s,%s,%s)
+                """INSERT INTO devices(id,name,role,ip,hw_id,approved) VALUES(%s,%s,%s,%s,%s,FALSE)
                 ON CONFLICT(id) DO UPDATE SET
                     ip = EXCLUDED.ip,
                     hw_id = COALESCE(NULLIF(TRIM(devices.hw_id), ''), EXCLUDED.hw_id),
-                    approved = devices.approved OR EXCLUDED.approved,
                     name = CASE WHEN devices.name IN ('Kompyuter', 'Qurilma') THEN EXCLUDED.name ELSE devices.name END""",
                 (
                     device_id,
@@ -641,7 +570,6 @@ def register_devices(
                     role,
                     client_ip,
                     hw_id or None,
-                    peer_approved,
                 ),
             )
             deduplicate_devices(conn)
