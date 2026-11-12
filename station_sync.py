@@ -241,6 +241,7 @@ def register_station(app, pool, prices, clean_plate):
                     active=int(parking_counts["active"]),
                     border=int(parking_counts["border"]),
                     zone=int(parking_counts["zone"]),
+                    reconciliation_version=1,
                 )
             return jsonify(
                 ack=acknowledged,
@@ -360,6 +361,14 @@ def apply_event(conn, dev, eid, event, clean_plate):
         ).fetchone()
         queue_no = str(p.get("queue_no") or "").strip()[:80]
         if (
+            visit
+            and visit["plate_key"] == key
+            and visit["purpose"] == "border"
+            and visit["queue_no"] == queue_no
+            and visit["queue_ready"]
+        ):
+            return
+        if (
             not visit
             or visit["plate_key"] != key
             or visit["purpose"] != "border"
@@ -389,6 +398,18 @@ def apply_event(conn, dev, eid, event, clean_plate):
             raise ValueError("Free Zone navbati majburiy")
         if queued != bool(queue_no):
             raise ValueError("Navbat holati va raqami mos emas")
+        existing = conn.execute(
+            "SELECT * FROM zone_visits WHERE station_id=%s AND station_local_id=%s FOR UPDATE",
+            (dev["id"], local_id),
+        ).fetchone()
+        if existing:
+            if (
+                existing["plate_key"] != key
+                or existing["purpose"] != purpose
+                or (queued and existing["queue_no"] != queue_no)
+            ):
+                raise ValueError("Mahalliy kirish avval boshqa ma’lumot bilan yuborilgan")
+            return
         vid = conn.execute(
             """INSERT INTO zone_visits(plate,plate_key,purpose,location,started,daily_rate,
                        station_id,station_local_id,queue_no,queue_ready,queued_at)
@@ -404,6 +425,8 @@ def apply_event(conn, dev, eid, event, clean_plate):
         ).fetchone()
         if not visit or visit["plate_key"] != key or visit["purpose"] != purpose:
             raise ValueError("Mahalliy kirish topilmadi")
+        if visit["parking_departed_at"] is not None:
+            return
         loc = visit["location"] if purpose == "zone" else "closed"
         vid = visit["id"]
         previous = visit["daily_rate"]
