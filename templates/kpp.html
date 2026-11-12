@@ -6,7 +6,7 @@
   <title>{{ points.get(user.role,'Airitom') }}</title>
   <link rel="stylesheet" href="/static/kpp-parking.css?v=6">
   <link rel="stylesheet" href="/static/kpp-station.css?v=8">
-  <script src="/static/kpp.js?v=7" defer></script>
+  <script src="/static/kpp.js?v=8" defer></script>
 </head>
 <body class="kpp" data-csrf="{{ csrf_token() }}" data-role="{{ user.role }}" data-user="{{ user.id }}" data-mode="{{ mode }}" data-receipt-id="{{ receipt_id|default(0) }}" data-print-attempts="{{ receipt.print_attempts if receipt is defined else 0 }}">
 {% macro csrf() %}<input type="hidden" name="csrf_token" value="{{ csrf_token() }}">{% endmacro %}
@@ -120,7 +120,7 @@
     <div class="modal-actions-row"><button id="journal-previous" class="btn-secondary compact" type="button" hidden>Oldingi yozuvlar</button><button id="journal-more" class="btn-secondary compact" type="button" hidden>Keyingi yozuvlar</button></div>
   </div>
 </dialog>
-<script src="/static/kpp-printer.js?v=4" defer></script>
+<script src="/static/kpp-printer.js?v=5" defer></script>
 {% if user.role=='kpp2' %}<dialog id="scan-window" class="kiosk-dialog"><div class="modal-card"><video id="scanner-video" playsinline muted style="width:100%;max-height:45vh;border-radius:12px"></video><p id="scan-status" role="status"></p><button type="button" id="scan-close" class="btn-secondary">Yopish</button></div></dialog><script src="/static/scan-ticket.js" defer></script>{% endif %}
 {% if mode=='confirm' %}<script type="application/json" id="initial-quote">{{ {'quote':q,'ticket':token}|tojson }}</script>{% endif %}
 {% if mode=='error' %}<dialog id="server-error" class="kiosk-dialog" open><div class="modal-card"><h2>Amal bajarilmadi</h2><p class="message" role="alert">{{ message }}</p><a href="/zone" class="btn-primary">Qayta tekshirish</a></div></dialog>{% endif %}

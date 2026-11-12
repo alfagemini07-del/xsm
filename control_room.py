@@ -24,8 +24,12 @@ def register_control_room(app, pool, roles):
                 conn.execute("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY")
                 config = conn.execute("SELECT * FROM dispatch_config WHERE id")
                 vehicles = conn.execute("""
-                    SELECT v.id,v.plate,v.queue_no,v.started,v.parking_departed_at,t.area,t.slot,t.flow,t.number,t.day,t.called_at,
-                           t.queue_state,t.priority,t.version
+                    SELECT v.id,v.plate,v.queue_no,v.started,v.parking_departed_at,v.entry_gate,v.queue_ready,
+                           EXISTS(SELECT 1 FROM weighings w WHERE w.zone_visit_id=v.id AND (
+                                  (w.status='pending' AND w.created_at>=now()-interval '2 hours') OR
+                                  (w.status='paid' AND w.paid_at>=now()-interval '45 seconds')
+                           )) AS scale_active,
+                           t.area,t.slot,t.flow,t.number,t.day,t.called_at,t.queue_state,t.priority,t.version
                     FROM dispatch_tickets t JOIN zone_visits v ON v.id=t.visit_id
                     WHERE t.area<>'closed' ORDER BY v.started,v.id LIMIT 5001""")
                 totals = conn.execute("""
@@ -103,7 +107,7 @@ def register_control_room(app, pool, roles):
                             LEFT JOIN dispatch_tickets t ON t.visit_id=v.id
                             WHERE v.location='parking'
                               AND v.parking_departed_at IS NULL
-                              AND v.purpose IN ('border','zone')
+                              AND v.purpose IN ('border','zone') AND v.queue_ready
                               AND COALESCE(t.queue_state,'waiting') IN ('waiting','called','held')
                         )
                         SELECT id,plate,queue_no,purpose,started,position,total
@@ -196,8 +200,9 @@ def register_control_room(app, pool, roles):
             if old:
                 if old["actor"]!=g.user["username"] or old["action"]!="call."+flow: abort(409)
                 return jsonify(visit_id=old["visit_id"])
-            row=conn.execute("""SELECT visit_id FROM dispatch_tickets WHERE flow=%s AND area='parking'
-                              AND queue_state='waiting' ORDER BY priority DESC,day,number LIMIT 1 FOR UPDATE""",(flow,)).fetchone()
+            row=conn.execute("""SELECT t.visit_id FROM dispatch_tickets t JOIN zone_visits v ON v.id=t.visit_id
+                              WHERE t.flow=%s AND t.area='parking' AND v.queue_ready
+                              AND t.queue_state='waiting' ORDER BY t.priority DESC,t.day,t.number LIMIT 1 FOR UPDATE OF t""",(flow,)).fetchone()
             if not row:
                 return jsonify(message="Kutayotgan navbat yo‘q"),409
             vid=row["visit_id"]

@@ -179,6 +179,30 @@ class SystemFlow(unittest.TestCase):
             kpp.post("/api/kpp/heartbeat", headers={"X-CSRF-Token": csrf}).status_code,
             200,
         )
+        headers = {"X-CSRF-Token": csrf}
+        direct_plate = "D" + suffix.upper()
+        direct_quote = kpp.post(
+            "/zone/quote",
+            json=dict(plate=direct_plate, action="in"),
+            headers=headers,
+        )
+        self.assertEqual(direct_quote.status_code, 200, direct_quote.data)
+        self.assertFalse(direct_quote.json["quote"]["from_parking"])
+        self.assertTrue(direct_quote.json["quote"]["receipt_required"])
+        self.assertEqual(direct_quote.json["quote"]["amount"], 0)
+        direct_entry = kpp.post(
+            "/zone/confirm",
+            json=dict(ticket=direct_quote.json["ticket"], amount="0"),
+            headers=headers,
+        )
+        self.assertEqual(direct_entry.status_code, 200, direct_entry.data)
+        self.assertIn("fields", direct_entry.json)
+        with get_pool().connection() as db:
+            direct_visit = db.execute(
+                "SELECT entry_gate,location FROM zone_visits WHERE plate_key=%s",
+                (direct_plate,),
+            ).fetchone()
+        self.assertEqual((direct_visit["entry_gate"], direct_visit["location"]), ("kpp2", "inside"))
         q = kpp.post(
             "/zone/quote",
             data=dict(csrf_token=csrf, plate="90" + suffix.upper(), action="in"),
@@ -196,9 +220,9 @@ class SystemFlow(unittest.TestCase):
         from unittest.mock import patch
         from itsdangerous import URLSafeTimedSerializer
 
-        headers = {"X-CSRF-Token": csrf}
         retry = kpp.post("/zone/confirm", json=dict(ticket=ticket), headers=headers)
         self.assertEqual(retry.status_code, 200)
+        self.assertFalse(retry.json["receipt_required"])
         uncommitted = kpp.post(
             "/zone/quote",
             json=dict(plate="90" + suffix.upper(), action="out"),

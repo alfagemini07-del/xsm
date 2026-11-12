@@ -101,14 +101,17 @@ function showPayment(data) {
   const q=data.quote;
   el("ticket").value=data.ticket;
   el("pay-plate").textContent=q.plate;
-  el("payment-title").textContent=q.action==="in"?"Hududga kirish":"Hududdan chiqish";
+  el("payment-title").textContent=q.action==="in"?(q.from_parking?"Parkovkadan Free Zonega kirishni tasdiqlash":"Hududga kirish"):"Hududdan chiqish";
   el("pay-days").textContent=q.days+" kun";el("pay-rate").textContent=money(q.rate);
   el("pay-paid").textContent=money(q.paid);el("pay-amount").textContent=money(q.amount);
   el("paid-fields").hidden=!q.amount;el("received").required=!!q.amount;
   el("received").checked=!!data.attempted;
   syncMethodPills(data.method||"cash");
   el("payment-error").textContent=data.attempted?"Avvalgi amal javobini qayta tekshiring.":"";
-  el("confirm").textContent=data.attempted?"Natijani qayta tekshirish":"Tasdiqlash va chek";
+  el("confirm").textContent=data.attempted?"Natijani qayta tekshirish":q.amount
+    ? "To‘lovni tasdiqlash va chek"
+    : q.receipt_required ? "Amalni tasdiqlash va chek" : "Kirishni tasdiqlash";
+  if(!q.amount)el("payment-error").textContent=data.attempted?"Avvalgi amal javobini qayta tekshiring.":"To‘lovlar yo‘q — faqat amal tasdiqlanadi.";
   el("payment-back").disabled=!!data.attempted;
   screen(true);
 }
@@ -151,7 +154,11 @@ el("payment-form").addEventListener("submit",async event=>{
   el("payment-error").textContent="Saqlanmoqda...";
   try {
     const data=await api("/zone/confirm",{ticket:current.ticket,method:current.method,received:el("received").checked?"yes":"",amount:String(current.quote.amount)});
-    current=null;remember();showReceipt(data);refreshStats();
+    current=null;remember();
+    if(data.receipt_required===false){
+      screen(false);el("connection").textContent="✓ "+(data.message||"Kirish tasdiqlandi");history.replaceState(null,"","/zone");
+    }else showReceipt(data);
+    refreshStats();
   } catch(error) {
     el("payment-error").textContent=error.message;
     if([400,403,409].includes(error.status)){current.attempted=false;remember();el("payment-back").disabled=false;}

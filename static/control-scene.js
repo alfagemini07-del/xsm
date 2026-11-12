@@ -535,7 +535,7 @@ export function createScene(canvas,select,connectLabels){
     const gatesChanged=gateStates.some((g,i)=>g.state!==gateData[i]?.state) || gateStates.length!==gateData.length;
     rebuildLines(cfg,spots);gateStates=gateData;
     const initial=reset||!signature;
-    const key=JSON.stringify(rows.map(v=>[v.id,v.area,v.slot,v.flow,v.queue_state,v.version,v.parking_departed_at]))+capKey;
+    const key=JSON.stringify(rows.map(v=>[v.id,v.area,v.slot,v.flow,v.queue_state,v.version,v.parking_departed_at,v.entry_gate,v.scale_active]))+capKey;
     if(key===signature&&!reset){if(gatesChanged)invalidate();return}signature=key;
     posesDirty=true;colorsDirty=true;
     const previous=new Map((initial?[]:trucks).filter(v=>!v.removed).map(v=>[v.id,v]));
@@ -551,12 +551,13 @@ export function createScene(canvas,select,connectLabels){
       const old=previous.get(v.id);
       const exitX={ayritom:136,kpp2:-22,parkovka_tashqi:136}[exitPoints.get(v.id)];
       const end=v.removed?vec(exitX,.22,exitPoints.get(v.id)==="kpp2"?43:(v.flow==="CH"?43:-6)):location(v.area,v.slot,cfg[v.area+"_capacity"]);
+      if(!v.removed&&v.area==="inside"&&v.scale_active)end.set(14,.22,18);
       if(!v.removed&&v.area==="parking"&&v.parking_departed_at){
         // In-transit trucks waiting along the Inter-Zone Road (x = -22) right between Parking Gate (-30) and Free Zone Gate (-14)
         end.set(-24.5+(v.slot||1)%2*5.0,.22,-4+Math.floor(((v.slot||1)-1)/2)%8*3.2);
       }
       let path=null;
-      if(old?.position&&(old.area!==v.area||old.slot!==v.slot||old.parking_departed_at!==v.parking_departed_at||v.removed)){
+      if(old?.position&&(old.area!==v.area||old.slot!==v.slot||old.parking_departed_at!==v.parking_departed_at||old.scale_active!==v.scale_active||v.removed)){
         const via=[old.position,vec(old.position.x,.22,-6)];
         if(v.removed && v.flow==="CH"){
           // Exiting E-navbat Parkovka via Parkovka Gate (-30,-6) -> turns RIGHT onto Inter-Zone Road (-22,-6 -> -22,43)
@@ -564,8 +565,9 @@ export function createScene(canvas,select,connectLabels){
           via.push(vec(-30,.22,-6),vec(-22,.22,-6),vec(-22,.22,43),vec(90,.22,43),end);
         }else if(v.removed && v.flow!=="CH"){
           if(exitPoints.get(v.id)==="ayritom"){
-            // Exiting Free Zone via Tarozi (14,18) -> Afg'oniston darvozasi (90,-6) -> Chegara (136,-6)
-            via.push(vec(14,.22,18),vec(28,.22,-6),vec(90,.22,-6),end);
+            // Afg‘oniston darvozasidan chiqish. Tarozi faqat haqiqiy tortish
+            // hodisasi bo‘lgandagina alohida animatsiya qilinadi.
+            via.push(vec(28,.22,-6),vec(90,.22,-6),end);
           }else{
             // Exiting via Free Zone Gate (-14,-6) -> Inter-Zone Road (-22) -> Main Highway
             via.push(vec(-14,.22,-6),vec(-22,.22,-6),end);
@@ -573,6 +575,9 @@ export function createScene(canvas,select,connectLabels){
         }else if(!v.removed && old.area==="parking"&&v.area==="inside"){
           // Crossing from Parkovka through Parkovka Gate (-30,-6), across Inter-Zone Road (-22,-6), through Free Zone Gate (-14,-6) into Free Zone
           via.push(vec(-30,.22,-6),vec(-22,.22,-6),vec(-14,.22,-6),vec(end.x,.22,-6),end);
+        }else if(!v.removed&&v.area==="inside"&&old.scale_active!==v.scale_active){
+          if(v.scale_active)via.push(vec(0,.22,6),vec(14,.22,18));
+          else via.push(vec(28,.22,6),vec(end.x,.22,-6),end);
         }else{
           via.push(vec(end.x,.22,-6),end);
         }
@@ -580,8 +585,11 @@ export function createScene(canvas,select,connectLabels){
         if(waypoints.length>=2)path=new T.CatmullRomCurve3(waypoints,false,'centripetal');
       }
       else if(!old&&!initial&&!v.removed){
-        const start=v.area==="inside"?vec(-22,.22,-42):vec(-30,.22,-52);
-        const via=v.area==="inside"
+        const fromAfghanistan=v.area==="inside"&&v.entry_gate==="ayritom";
+        const start=fromAfghanistan?vec(136,.22,-6):v.area==="inside"?vec(-22,.22,-42):vec(-30,.22,-52);
+        const via=fromAfghanistan
+          ?[start,vec(90,.22,-6),vec(end.x,.22,-6),end]
+          :v.area==="inside"
           ?[start,vec(-22,.22,-6),vec(-14,.22,-6),vec(end.x,.22,-6),end]
           :[start,vec(-30,.22,-6),vec(end.x,.22,-6),end];
         path=new T.CatmullRomCurve3(via,false,'centripetal');

@@ -3,13 +3,27 @@ package uz.airitom.kpp;
 import android.Manifest;
 import android.app.Activity;
 import android.app.AlertDialog;
+import android.app.PendingIntent;
 import android.bluetooth.BluetoothAdapter;
 import android.bluetooth.BluetoothDevice;
 import android.bluetooth.BluetoothSocket;
 import android.content.SharedPreferences;
+import android.content.BroadcastReceiver;
+import android.content.Context;
+import android.content.Intent;
+import android.content.IntentFilter;
 import android.content.pm.PackageManager;
 import android.graphics.Bitmap;
 import android.graphics.BitmapFactory;
+import android.graphics.Canvas;
+import android.graphics.Paint;
+import android.graphics.Typeface;
+import android.hardware.usb.UsbConstants;
+import android.hardware.usb.UsbDevice;
+import android.hardware.usb.UsbDeviceConnection;
+import android.hardware.usb.UsbEndpoint;
+import android.hardware.usb.UsbInterface;
+import android.hardware.usb.UsbManager;
 import android.net.Uri;
 import android.os.Build;
 import android.os.Bundle;
@@ -24,6 +38,10 @@ import android.widget.FrameLayout;
 import android.view.WindowInsets;
 import android.graphics.Color;
 import android.widget.LinearLayout;
+import android.widget.ArrayAdapter;
+import android.widget.Button;
+import android.widget.Spinner;
+import android.widget.TextView;
 import android.widget.Toast;
 import com.sunmi.peripheral.printer.*;
 import org.json.*;
@@ -42,11 +60,21 @@ public final class StationActivity extends Activity {
     private final ScheduledExecutorService deadlines=Executors.newSingleThreadScheduledExecutor();
     private SharedPreferences preferences;
     private volatile SunmiPrinterService sunmi;
+    private static final String USB_PERMISSION="uz.airitom.kpp.USB_PERMISSION";
     private boolean printing=false;
     private String active="";
     private final InnerPrinterCallback connection=new InnerPrinterCallback(){
         @Override protected void onConnected(SunmiPrinterService service){sunmi=service;}
-        @Override protected void onDisconnected(){sunmi=null;}
+        @Override protected void onDisconnected(){sunmi=null;ui.postDelayed(()->{if(!isFinishing())bindPrinter();},1200);}
+    };
+    private final BroadcastReceiver usbPermissionReceiver=new BroadcastReceiver(){
+        @Override public void onReceive(Context context,Intent intent){
+            if(!USB_PERMISSION.equals(intent.getAction()))return;
+            UsbDevice device=Build.VERSION.SDK_INT>=33?intent.getParcelableExtra(UsbManager.EXTRA_DEVICE,UsbDevice.class):intent.getParcelableExtra(UsbManager.EXTRA_DEVICE);
+            boolean granted=intent.getBooleanExtra(UsbManager.EXTRA_PERMISSION_GRANTED,false);
+            Toast.makeText(StationActivity.this,granted?"USB printerga ruxsat berildi":"USB printer ruxsati berilmadi",Toast.LENGTH_SHORT).show();
+            if(granted&&device!=null)preferences.edit().putString("usb",usbKey(device)).apply();
+        }
     };
     private boolean trusted(Uri uri){return uri!=null&&"https".equals(uri.getScheme())&&origin.getEncodedAuthority().equalsIgnoreCase(uri.getEncodedAuthority());}
     private boolean trustedPage(){return page!=null&&trusted(Uri.parse(page.getUrl()==null?"":page.getUrl()));}
@@ -135,6 +163,9 @@ public final class StationActivity extends Activity {
     @Override public void onCreate(Bundle state){
         super.onCreate(state);
         preferences=getSharedPreferences("printer",MODE_PRIVATE);
+        IntentFilter usbFilter=new IntentFilter(USB_PERMISSION);
+        if(Build.VERSION.SDK_INT>=33)registerReceiver(usbPermissionReceiver,usbFilter,Context.RECEIVER_NOT_EXPORTED);
+        else registerReceiver(usbPermissionReceiver,usbFilter);
         String interrupted=preferences.getString("active",null);
         if(interrupted!=null)try{JSONObject job=new JSONObject(interrupted);job.put("state","unknown");job.put("detail","Dastur yopildi; qog‘ozni tekshiring. Avtomatik qayta chop qilinmadi.");save(job);}catch(Exception ignored){}
         preferences.edit().remove("active").commit();
@@ -225,6 +256,47 @@ public final class StationActivity extends Activity {
         openStation();
     }
     private void bindPrinter(){try{InnerPrinterManager.getInstance().bindService(this,connection);}catch(Exception ignored){}}
+    private String usbKey(UsbDevice device){return device.getVendorId()+":"+device.getProductId();}
+    private UsbDevice selectedUsb(){
+        UsbManager manager=(UsbManager)getSystemService(USB_SERVICE);if(manager==null)return null;
+        String wanted=preferences.getString("usb","");
+        for(UsbDevice device:manager.getDeviceList().values())if(wanted.equals(usbKey(device)))return device;
+        return null;
+    }
+    private String automaticMethod(){
+        if(sunmi!=null)return "internal";
+        UsbManager usb=(UsbManager)getSystemService(USB_SERVICE);UsbDevice device=selectedUsb();
+        if(device!=null&&usb!=null&&usb.hasPermission(device))return "usb";
+        if(!preferences.getString("bt","").isEmpty())return "bluetooth";
+        if(!preferences.getString("host","").isEmpty())return "wifi";
+        return "android";
+    }
+    private void usbWrite(byte[] data)throws IOException{
+        UsbManager manager=(UsbManager)getSystemService(USB_SERVICE);UsbDevice device=selectedUsb();
+        if(manager==null||device==null)throw new IOException("USB printer tanlanmagan");
+        if(!manager.hasPermission(device))throw new IOException("USB printer ruxsatini Printer sozlamasidan bering");
+        UsbInterface chosen=null;UsbEndpoint output=null;
+        for(int i=0;i<device.getInterfaceCount()&&output==null;i++){
+            UsbInterface candidate=device.getInterface(i);
+            for(int j=0;j<candidate.getEndpointCount();j++){
+                UsbEndpoint endpoint=candidate.getEndpoint(j);
+                if(endpoint.getDirection()==UsbConstants.USB_DIR_OUT&&endpoint.getType()==UsbConstants.USB_ENDPOINT_XFER_BULK){chosen=candidate;output=endpoint;break;}
+            }
+        }
+        if(chosen==null||output==null)throw new IOException("USB printer OUT kanali topilmadi");
+        UsbDeviceConnection connection=manager.openDevice(device);
+        try{
+            if(connection==null||!connection.claimInterface(chosen,true))throw new IOException("USB printer ochilmadi");
+            if(chosen.getInterfaceClass()==UsbConstants.USB_CLASS_COMM){
+                byte[] line={0x00,(byte)0xc2,0x01,0x00,0x00,0x00,0x08};
+                connection.controlTransfer(0x21,0x20,0,chosen.getId(),line,line.length,1500);
+            }
+            for(int offset=0;offset<data.length;){int length=Math.min(4096,data.length-offset);int sent=connection.bulkTransfer(output,data,offset,length,5000);if(sent<=0)throw new IOException("USB printer javob bermadi");offset+=sent;}
+            connection.releaseInterface(chosen);
+        }finally{
+            if(connection!=null)connection.close();
+        }
+    }
     private void openStation(){
         syncDeviceIdentityToWeb();
         Map<String, String> headers = new HashMap<>();
@@ -244,6 +316,10 @@ public final class StationActivity extends Activity {
     private void replay(){if(!trustedPage())return;for(Map.Entry<String,?> item:preferences.getAll().entrySet())if(item.getKey().startsWith("result-"))try{deliver(new JSONObject(String.valueOf(item.getValue())));}catch(Exception ignored){}}
     private void deliver(JSONObject job){if(!trustedPage())return;page.evaluateJavascript("window.dispatchEvent(new CustomEvent('xsm-print-result',{detail:"+job.toString()+"}));",null);}
     private JSONObject job(String id,String eid,String method,String state,String detail){JSONObject j=new JSONObject();try{j.put("attempt_id",id);j.put("eid",Long.parseLong(eid));j.put("method",method);j.put("state",state);j.put("detail",detail);}catch(Exception ignored){}return j;}
+    private static final class ReceiptContent{
+        final Bitmap bitmap;final byte[] direct;
+        ReceiptContent(Bitmap bitmap,byte[] direct){this.bitmap=bitmap;this.direct=direct;}
+    }
     private void finish(String id,String eid,String method,String state,String detail){ui.post(()->{
         if (!active.equals(id) && !"confirmed".equals(state) && !"failed".equals(state)) return;
         if (id.equals(preferences.getString("last-confirmed", "")) && !"confirmed".equals(state)) return;
@@ -254,27 +330,71 @@ public final class StationActivity extends Activity {
     private void begin(String id,String eid){
         try{UUID.fromString(id);Long.parseLong(eid);}catch(Exception e){return;}
         if(!("/zone/receipt/"+eid).equals(Uri.parse(page.getUrl()).getPath()))return;
-        String method=preferences.getString("method","internal");
+        String method=preferences.getString("method","auto");
         if(printing){finish(id,eid,method,"failed","Boshqa chek chop etilmoqda. Uning tugashini kuting.");return;}
         printing=true;active=id;preferences.edit().putString("active",job(id,eid,method,"requested","").toString()).commit();
         if(method.equals("android")){androidPrint(id,eid);return;}
-        page.evaluateJavascript("document.getElementById('receipt-image').src",value->{
+        String script="JSON.stringify({image:(document.getElementById('receipt-image')?.src||''),qr:(document.getElementById('receipt-qr')?.src||''),fields:Array.from(document.querySelectorAll('#receipt-fields dt')).map((n,i)=>[n.textContent,document.querySelectorAll('#receipt-fields dd')[i]?.textContent||''])})";
+        page.evaluateJavascript(script,value->{
             try{
-                String data=(String)new JSONTokener(value).nextValue();
-                if(!data.startsWith("data:image/png;base64,")||data.length()>1500000)throw new IOException("Chek rasmi olinmadi");
-                byte[] png=Base64.decode(data.substring(data.indexOf(',')+1),Base64.DEFAULT);
-                Bitmap bitmap=BitmapFactory.decodeByteArray(png,0,png.length);
-                if(bitmap==null||bitmap.getWidth()>1000||bitmap.getHeight()>5000)throw new IOException("Chek o‘lchami noto‘g‘ri");
-                worker.execute(()->print(bitmap,id,eid,method));
-            }catch(Exception e){finish(id,eid,method,"failed","Chek rasmi olinmadi. Qayta oching.");}
+                String json=(String)new JSONTokener(value).nextValue();
+                JSONObject payload=new JSONObject(json);JSONArray fields=payload.optJSONArray("fields");
+                if(fields==null||fields.length()==0)throw new IOException("Chek maydonlari olinmadi");
+                int width=preferences.getInt("width",384);
+                Bitmap bitmap=decodeDataBitmap(payload.optString("image"));
+                boolean hasServerArtwork=bitmap!=null;
+                if(bitmap==null)bitmap=fallbackBitmap(fields,payload.optString("qr"),width);
+                byte[] direct=hasServerArtwork?null:directReceipt(fields);
+                Bitmap finalBitmap=bitmap;
+                worker.execute(()->print(new ReceiptContent(finalBitmap,direct),id,eid,method));
+            }catch(Exception e){finish(id,eid,method,"failed","Chek ma’lumoti olinmadi: "+e.getMessage());}
         });
     }
-    private void print(Bitmap original,String id,String eid,String method){
-        int width=method.equals("internal")?384:preferences.getInt("width",384);
+    private Bitmap decodeDataBitmap(String data){
+        try{
+            if(data==null||!data.startsWith("data:image/png;base64,")||data.length()>1800000)return null;
+            byte[] png=Base64.decode(data.substring(data.indexOf(',')+1),Base64.DEFAULT);
+            Bitmap bitmap=BitmapFactory.decodeByteArray(png,0,png.length);
+            return bitmap==null||bitmap.getWidth()>1200||bitmap.getHeight()>6000?null:bitmap;
+        }catch(Exception ignored){return null;}
+    }
+    private Bitmap fallbackBitmap(JSONArray fields,String qrData,int width) throws JSONException{
+        int height=Math.max(700,180+fields.length()*52+360);
+        Bitmap result=Bitmap.createBitmap(width,height,Bitmap.Config.ARGB_8888);Canvas canvas=new Canvas(result);canvas.drawColor(Color.WHITE);
+        Paint paint=new Paint(Paint.ANTI_ALIAS_FLAG);paint.setColor(Color.BLACK);paint.setTypeface(Typeface.create(Typeface.MONOSPACE,Typeface.NORMAL));
+        int y=38;paint.setTextAlign(Paint.Align.CENTER);paint.setTextSize(width>=576?30:22);paint.setTypeface(Typeface.DEFAULT_BOLD);canvas.drawText("AIRITOM LOGISTICS CENTER",width/2f,y,paint);y+=42;
+        paint.setTypeface(Typeface.MONOSPACE);paint.setTextAlign(Paint.Align.LEFT);paint.setTextSize(width>=576?24:18);
+        for(int i=0;i<fields.length();i++){
+            JSONArray pair=fields.getJSONArray(i);String line=pair.optString(0)+": "+pair.optString(1);
+            if(line.length()>46){canvas.drawText(line.substring(0,Math.min(46,line.length())),12,y,paint);y+=30;line=line.substring(Math.min(46,line.length()));}
+            canvas.drawText(line,12,y,paint);y+=38;
+        }
+        Bitmap qr=decodeDataBitmap(qrData);
+        if(qr!=null){int size=Math.min(width-70,280);Bitmap scaled=Bitmap.createScaledBitmap(qr,size,size,false);canvas.drawBitmap(scaled,(width-size)/2f,y+10,paint);y+=size+30;}
+        paint.setTextAlign(Paint.Align.CENTER);paint.setTypeface(Typeface.DEFAULT_BOLD);canvas.drawText("Xizmatingiz uchun rahmat!",width/2f,y,paint);y+=35;
+        return Bitmap.createBitmap(result,0,0,width,Math.min(result.getHeight(),y+20));
+    }
+    private byte[] directReceipt(JSONArray fields) throws IOException,JSONException{
+        ByteArrayOutputStream out=new ByteArrayOutputStream();out.write(new byte[]{0x1b,0x40,0x1b,0x61,0x01,0x1b,0x45,0x01});
+        out.write("AIRITOM LOGISTICS CENTER\n".getBytes(StandardCharsets.US_ASCII));out.write(new byte[]{0x1b,0x45,0x00,0x1b,0x61,0x00});
+        StringBuilder qrText=new StringBuilder("AIRITOM LOGISTICS CENTER\n");
+        for(int i=0;i<fields.length();i++){
+            JSONArray pair=fields.getJSONArray(i);String line=ascii(pair.optString(0))+": "+ascii(pair.optString(1));
+            out.write((line+"\n").getBytes(StandardCharsets.US_ASCII));qrText.append(pair.optString(0)).append(": ").append(pair.optString(1)).append('\n');
+        }
+        out.write(new byte[]{0x1b,0x61,0x01});out.write(escposQr(qrText.toString().getBytes(StandardCharsets.UTF_8)));out.write("\n\n\n".getBytes(StandardCharsets.US_ASCII));out.write(new byte[]{0x1d,0x56,0x42,0x00});return out.toByteArray();
+    }
+    private String ascii(String value){return value.replace('‘','\'').replace('’','\'').replace('–','-').replace('—','-').replace("o‘","o'").replace("g‘","g'").replaceAll("[^\\x20-\\x7E]","?");}
+    private byte[] escposQr(byte[] value)throws IOException{ByteArrayOutputStream out=new ByteArrayOutputStream();out.write(new byte[]{0x1d,0x28,0x6b,0x04,0x00,0x31,0x41,0x32,0x00,0x1d,0x28,0x6b,0x03,0x00,0x31,0x43,0x05,0x1d,0x28,0x6b,0x03,0x00,0x31,0x45,0x31});int n=value.length+3;out.write(new byte[]{0x1d,0x28,0x6b,(byte)(n&255),(byte)((n>>8)&255),0x31,0x50,0x30});out.write(value);out.write(new byte[]{0x1d,0x28,0x6b,0x03,0x00,0x31,0x51,0x30});return out.toByteArray();}
+    private void print(ReceiptContent content,String id,String eid,String method){
+        int width=preferences.getInt("width",384);
+        Bitmap original=content.bitmap;
         Bitmap bitmap=Bitmap.createScaledBitmap(original,width,Math.round(original.getHeight()*(float)width/original.getWidth()),false);
+        if(method.equals("auto"))method=automaticMethod();
+        final String selectedMethod=method;
         if(method.equals("internal")){sunmiPrint(bitmap,id,eid);return;}
         try{
-            byte[] data=raster(bitmap);
+            byte[] data=content.direct!=null?content.direct:raster(bitmap);
             if(method.equals("wifi")){
                 String host=preferences.getString("host","").trim();
                 int port=preferences.getInt("port",9100);
@@ -292,13 +412,21 @@ public final class StationActivity extends Activity {
                 if(adapter==null)throw new IOException("Bluetooth mavjud emas");
                 BluetoothDevice dev=adapter.getRemoteDevice(address);
                 try(BluetoothSocket socket=dev.createRfcommSocketToServiceRecord(UUID.fromString("00001101-0000-1000-8000-00805F9B34FB"))){
-                    socket.connect();
+                    ScheduledFuture<?> timeout=deadlines.schedule(()->{try{socket.close();}catch(Exception ignored){}},5,TimeUnit.SECONDS);
+                    socket.connect();timeout.cancel(false);
                     OutputStream out=socket.getOutputStream();
                     out.write(data);out.flush();
                 }
+            }else if(method.equals("usb")){
+                usbWrite(data);
+            }else if(method.equals("android")){
+                ui.post(()->androidPrint(id,eid));
+                return;
+            }else{
+                throw new IOException("Printer turi tanlanmagan");
             }
-            finish(id,eid,method,"confirmed","");
-        }catch(Exception e){finish(id,eid,method,"failed","Printer xatosi: "+e.getMessage());}
+            finish(id,eid,selectedMethod,"confirmed","");
+        }catch(Exception e){finish(id,eid,selectedMethod,"failed","Printer xatosi: "+e.getMessage());}
     }
     private void sunmiPrint(Bitmap bitmap,String id,String eid){
         SunmiPrinterService service=sunmi;
@@ -356,20 +484,42 @@ public final class StationActivity extends Activity {
     }
     private void settings(){
         LinearLayout box=new LinearLayout(this);box.setOrientation(LinearLayout.VERTICAL);box.setPadding(48,32,48,16);
-        final String[] methods={"internal","wifi","bluetooth","android"};
-        final String[] labels={"Ichki Sunmi printer","Wi-Fi / LAN ESC-POS (9100)","Bluetooth ESC-POS","Android tizim printeri"};
-        String current=preferences.getString("method","internal");
-        int checked=Math.max(0,Arrays.asList(methods).indexOf(current));
+        final String[] methods={"auto","internal","usb","bluetooth","wifi","android"};
+        final String[] labels={"Avtomatik aniqlash (tavsiya)","Ichki SUNMI printer","USB / OTG / Serial ESC-POS","Bluetooth ESC-POS","Wi-Fi / LAN ESC-POS (9100)","Android tizim printeri"};
+        final Spinner method=new Spinner(this);method.setAdapter(new ArrayAdapter<>(this,android.R.layout.simple_spinner_dropdown_item,labels));
+        int checked=Math.max(0,Arrays.asList(methods).indexOf(preferences.getString("method","auto")));method.setSelection(checked);box.addView(method);
+        final String[] widths={"58 mm — 384 px","80 mm — 576 px"};
+        final Spinner paper=new Spinner(this);paper.setAdapter(new ArrayAdapter<>(this,android.R.layout.simple_spinner_dropdown_item,widths));paper.setSelection(preferences.getInt("width",384)==576?1:0);box.addView(paper);
         final EditText host=new EditText(this);host.setHint("Wi-Fi printer IP (masalan 192.168.1.200)");host.setText(preferences.getString("host",""));
-        final EditText bt=new EditText(this);bt.setHint("Bluetooth MAC (masalan AA:BB:CC:DD:EE:FF)");bt.setText(preferences.getString("bt",""));
-        box.addView(host);box.addView(bt);
+        final TextView btState=new TextView(this);btState.setText("Bluetooth: "+(preferences.getString("bt","").isEmpty()?"tanlanmagan":preferences.getString("bt","")));
+        final Button chooseBt=new Button(this);chooseBt.setText("Bluetooth printerni tanlash");chooseBt.setOnClickListener(v->chooseBluetooth(btState));
+        final TextView usbState=new TextView(this);UsbDevice currentUsb=selectedUsb();usbState.setText("USB: "+(currentUsb==null?"tanlanmagan":currentUsb.getProductName()+" ("+usbKey(currentUsb)+")"));
+        final Button chooseUsb=new Button(this);chooseUsb.setText("USB / OTG printerni tanlash");chooseUsb.setOnClickListener(v->chooseUsb(usbState));
+        box.addView(host);box.addView(btState);box.addView(chooseBt);box.addView(usbState);box.addView(chooseUsb);
         new AlertDialog.Builder(this).setTitle("Printer sozlamalari (ID: " + getHardwareId() + ")")
-            .setSingleChoiceItems(labels,checked,(d,which)->preferences.edit().putString("method",methods[which]).apply())
             .setView(box)
             .setPositiveButton("Saqlash",(d,w)->{
-                preferences.edit().putString("host",host.getText().toString().trim()).putString("bt",bt.getText().toString().trim()).apply();
+                preferences.edit().putString("method",methods[method.getSelectedItemPosition()]).putInt("width",paper.getSelectedItemPosition()==1?576:384).putString("host",host.getText().toString().trim()).apply();
                 Toast.makeText(this,"Printer sozlamasi saqlandi",Toast.LENGTH_SHORT).show();
             }).setNegativeButton("Yopish",null).show();
+    }
+    private void chooseBluetooth(TextView state){
+        if(Build.VERSION.SDK_INT>=31&&checkSelfPermission(Manifest.permission.BLUETOOTH_CONNECT)!=PackageManager.PERMISSION_GRANTED){requestPermissions(new String[]{Manifest.permission.BLUETOOTH_CONNECT},44);return;}
+        BluetoothAdapter adapter=BluetoothAdapter.getDefaultAdapter();if(adapter==null){Toast.makeText(this,"Bluetooth mavjud emas",Toast.LENGTH_SHORT).show();return;}
+        List<BluetoothDevice> devices=new ArrayList<>(adapter.getBondedDevices());devices.sort(Comparator.comparing(d->String.valueOf(d.getName())));
+        if(devices.isEmpty()){Toast.makeText(this,"Avval Android Bluetooth sozlamasida printerni juftlang",Toast.LENGTH_LONG).show();return;}
+        String[] names=new String[devices.size()];for(int i=0;i<devices.size();i++)names[i]=(devices.get(i).getName()==null?"Printer":devices.get(i).getName())+" · "+devices.get(i).getAddress();
+        new AlertDialog.Builder(this).setTitle("Bluetooth printer").setItems(names,(d,which)->{String address=devices.get(which).getAddress();preferences.edit().putString("bt",address).apply();state.setText("Bluetooth: "+names[which]);}).show();
+    }
+    private void chooseUsb(TextView state){
+        UsbManager manager=(UsbManager)getSystemService(USB_SERVICE);if(manager==null)return;
+        List<UsbDevice> devices=new ArrayList<>(manager.getDeviceList().values());
+        if(devices.isEmpty()){Toast.makeText(this,"USB OTG printer topilmadi",Toast.LENGTH_LONG).show();return;}
+        String[] names=new String[devices.size()];for(int i=0;i<devices.size();i++){UsbDevice d=devices.get(i);names[i]=(d.getProductName()==null?"USB printer":d.getProductName())+" · "+usbKey(d);}
+        new AlertDialog.Builder(this).setTitle("USB / Serial printer").setItems(names,(dialog,which)->{
+            UsbDevice device=devices.get(which);preferences.edit().putString("usb",usbKey(device)).apply();state.setText("USB: "+names[which]);
+            if(!manager.hasPermission(device)){int flags=PendingIntent.FLAG_UPDATE_CURRENT|(Build.VERSION.SDK_INT>=31?PendingIntent.FLAG_MUTABLE:0);PendingIntent pi=PendingIntent.getBroadcast(this,0,new Intent(USB_PERMISSION).setPackage(getPackageName()),flags);manager.requestPermission(device,pi);}
+        }).show();
     }
     @Override public void onRequestPermissionsResult(int code,String[] perms,int[] res){
         if(code==42 && pendingCamera!=null){
@@ -378,8 +528,11 @@ public final class StationActivity extends Activity {
             pendingCamera=null;
         } else if (code==43) {
             syncDeviceIdentityToWeb();
+        } else if(code==44 && res.length>0 && res[0]==PackageManager.PERMISSION_GRANTED){
+            settings();
         }
     }
     @Override public void onBackPressed(){if(page!=null&&page.canGoBack())page.goBack();else super.onBackPressed();}
-    @Override protected void onDestroy(){try{InnerPrinterManager.getInstance().unBindService(this,connection);}catch(Exception ignored){}worker.shutdownNow();deadlines.shutdownNow();super.onDestroy();}
+    @Override protected void onResume(){super.onResume();if(sunmi==null)bindPrinter();}
+    @Override protected void onDestroy(){try{unregisterReceiver(usbPermissionReceiver);}catch(Exception ignored){}try{InnerPrinterManager.getInstance().unBindService(this,connection);}catch(Exception ignored){}worker.shutdownNow();deadlines.shutdownNow();super.onDestroy();}
 }

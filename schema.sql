@@ -246,7 +246,9 @@ CREATE TABLE IF NOT EXISTS zone_visits (
     daily_rate BIGINT NOT NULL CHECK (daily_rate >= 0),
     station_id UUID REFERENCES devices(id) ON DELETE SET NULL,
     station_local_id BIGINT,
-    queue_no TEXT
+    queue_no TEXT,
+    queue_ready BOOLEAN NOT NULL DEFAULT TRUE,
+    queued_at TIMESTAMPTZ
 );
 
 DO $$ BEGIN
@@ -261,6 +263,10 @@ ALTER TABLE zone_visits ADD COLUMN IF NOT EXISTS entered_at TIMESTAMPTZ;
 ALTER TABLE zone_visits ADD COLUMN IF NOT EXISTS station_id UUID REFERENCES devices(id);
 ALTER TABLE zone_visits ADD COLUMN IF NOT EXISTS station_local_id BIGINT;
 ALTER TABLE zone_visits ADD COLUMN IF NOT EXISTS queue_no TEXT;
+ALTER TABLE zone_visits ADD COLUMN IF NOT EXISTS queue_ready BOOLEAN NOT NULL DEFAULT TRUE;
+ALTER TABLE zone_visits ADD COLUMN IF NOT EXISTS queued_at TIMESTAMPTZ;
+UPDATE zone_visits SET queued_at=COALESCE(queued_at,started)
+ WHERE queue_ready AND queued_at IS NULL;
 
 DO $$ BEGIN
     ALTER TABLE weighings ADD CONSTRAINT weighings_zone_visit_fk
@@ -345,7 +351,9 @@ DO $$ BEGIN
 END $$;
 
 CREATE UNIQUE INDEX IF NOT EXISTS zone_one_active ON zone_visits(plate_key) WHERE location <> 'closed';
-CREATE INDEX IF NOT EXISTS zone_queue ON zone_visits(location,purpose,id);
+CREATE INDEX IF NOT EXISTS zone_queue ON zone_visits(location,purpose,queue_ready,queued_at,id);
+CREATE INDEX IF NOT EXISTS zone_ready_queue ON zone_visits(purpose,queued_at,id)
+    WHERE location='parking' AND queue_ready;
 CREATE INDEX IF NOT EXISTS zone_plate_history ON zone_visits(plate_key,id DESC);
 CREATE UNIQUE INDEX IF NOT EXISTS zone_local_ticket ON zone_visits(station_id,station_local_id);
 CREATE INDEX IF NOT EXISTS zone_event_visit ON zone_events(visit_id,id);
@@ -635,11 +643,15 @@ ALTER TABLE dispatch_log ADD COLUMN IF NOT EXISTS command_id UUID UNIQUE;
 
 CREATE OR REPLACE FUNCTION dispatch_place(vid bigint, purpose text, place text, started_at timestamptz)
 RETURNS void LANGUAGE plpgsql AS $$
-DECLARE cfg dispatch_config%ROWTYPE; business_day date; prefix text; n integer; space integer; old_area text;
+DECLARE cfg dispatch_config%ROWTYPE; business_day date; prefix text; n integer; space integer; old_area text; ready boolean;
 BEGIN
  IF current_setting('xsm.restoring',true)='on' THEN RETURN; END IF;
  SELECT * INTO cfg FROM dispatch_config WHERE id;
  SELECT area INTO old_area FROM dispatch_tickets WHERE visit_id=vid;
+ SELECT queue_ready INTO ready FROM zone_visits WHERE id=vid;
+ -- Ayritom uchun faqat parkovkaga kirgan, lekin hali navbatga qo‘yilmagan
+ -- mashina joy egallaydi, ammo dispetcher navbat raqamini sarflamaydi.
+ IF place='parking' AND NOT COALESCE(ready,FALSE) AND old_area IS NULL THEN RETURN; END IF;
  IF old_area=place OR (old_area IS NULL AND place='closed') THEN RETURN; END IF;
  IF place IN ('parking','inside') THEN
    -- Serialize only the destination area; parking and inside can move concurrently.
@@ -665,7 +677,7 @@ CREATE OR REPLACE FUNCTION dispatch_visit_trigger() RETURNS trigger LANGUAGE plp
 BEGIN PERFORM dispatch_place(NEW.id,NEW.purpose,NEW.location,NEW.started); RETURN NEW; END $$;
 
 DROP TRIGGER IF EXISTS dispatch_on_visit ON zone_visits;
-CREATE TRIGGER dispatch_on_visit AFTER INSERT OR UPDATE OF location ON zone_visits
+CREATE TRIGGER dispatch_on_visit AFTER INSERT OR UPDATE OF location,queue_ready ON zone_visits
  FOR EACH ROW EXECUTE FUNCTION dispatch_visit_trigger();
 
 SELECT dispatch_place(v.id,v.purpose,v.location,v.started) FROM zone_visits v

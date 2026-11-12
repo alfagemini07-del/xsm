@@ -343,7 +343,7 @@ def apply_event(conn, dev, eid, event, clean_plate):
             ),
         )
         return
-    if dev["role"] != "parkovka_tashqi" or kind not in {"parking.in", "parking.out"}:
+    if dev["role"] != "parkovka_tashqi" or kind not in {"parking.in", "parking.out", "parking.queue"}:
         raise ValueError("Nuqta")
     local_id = integer(p, "local_id", 2**63 - 1)
     rate, days = integer(p, "rate"), integer(p, "days", 50000)
@@ -351,14 +351,50 @@ def apply_event(conn, dev, eid, event, clean_plate):
     if purpose not in {"zone", "border"} or (amount and method == "none"):
         raise ValueError("Navbat yoki to‘lov")
     conn.execute("SELECT pg_advisory_xact_lock(hashtextextended(%s,1))", (key,))
+    if kind == "parking.queue":
+        if purpose != "border" or amount != 0 or method != "none":
+            raise ValueError("Navbatga qo‘yish ma’lumoti")
+        visit = conn.execute(
+            "SELECT * FROM zone_visits WHERE station_id=%s AND station_local_id=%s FOR UPDATE",
+            (dev["id"], local_id),
+        ).fetchone()
+        queue_no = str(p.get("queue_no") or "").strip()[:80]
+        if (
+            not visit
+            or visit["plate_key"] != key
+            or visit["purpose"] != "border"
+            or visit["location"] != "parking"
+            or visit["parking_departed_at"] is not None
+            or not queue_no
+        ):
+            raise ValueError("Navbatsiz parkovka tashrifi topilmadi")
+        if visit["queue_no"] and visit["queue_no"] != queue_no:
+            raise ValueError("Navbat raqami avval berilgan")
+        conn.execute(
+            """UPDATE zone_visits SET queue_no=%s,queue_ready=TRUE,
+                      queued_at=COALESCE(queued_at,%s)
+               WHERE id=%s""",
+            (queue_no, at, visit["id"]),
+        )
+        return
     if kind == "parking.in":
         loc = "parking"
         if amount != rate:
             raise ValueError("Birinchi kun to‘lovi")
+        queue_no = str(p.get("queue_no") or "").strip()[:80]
+        queued = p.get("queued")
+        if type(queued) is not bool:
+            queued = bool(queue_no)
+        if purpose == "zone" and not queued:
+            raise ValueError("Free Zone navbati majburiy")
+        if queued != bool(queue_no):
+            raise ValueError("Navbat holati va raqami mos emas")
         vid = conn.execute(
-            """INSERT INTO zone_visits(plate,plate_key,purpose,location,started,daily_rate,station_id,station_local_id,queue_no)
-            VALUES(%s,%s,%s,'parking',%s,%s,%s,%s,%s) RETURNING id""",
-            (plate, key, purpose, at, rate, dev["id"], local_id, str(p.get("queue_no") or p.get("receipt_no") or "")[:80]),
+            """INSERT INTO zone_visits(plate,plate_key,purpose,location,started,daily_rate,
+                       station_id,station_local_id,queue_no,queue_ready,queued_at)
+            VALUES(%s,%s,%s,'parking',%s,%s,%s,%s,%s,%s,%s) RETURNING id""",
+            (plate, key, purpose, at, rate, dev["id"], local_id, queue_no,
+             queued, at if queued else None),
         ).fetchone()["id"]
         previous = 0
     else:

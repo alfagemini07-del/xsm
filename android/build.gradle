@@ -14,8 +14,8 @@ android {
         applicationId 'uz.airitom.kpp'
         minSdk 24
         targetSdk 35
-        versionCode 6
-        versionName '1.5'
+        versionCode 8
+        versionName '1.6.1'
         buildConfigField 'String', 'ORIGIN', groovy.json.JsonOutput.toJson(origin.replaceAll('/$', ''))
     }
     buildFeatures { buildConfig true }
@@ -49,4 +49,4 @@ android {
         }
     }
 }
-dependencies { implementation 'com.sunmi:printerlibrary:1.0.18' }
+dependencies { implementation 'com.sunmi:printerlibrary:1.0.24' }

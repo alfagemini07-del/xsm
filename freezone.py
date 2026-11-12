@@ -67,8 +67,12 @@ def transition(point, action, visit, purpose):
                         "Avtomobilning E-navbat parkovkadan chiqishi qayd etilmagan. Avval parkovka chiqishini rasmiylashtiring."
                     )
                 return "inside", "kpp2", False, True
+            if not visit:
+                # KPP2 xodimi navbatsiz kelgan transportni bevosita Free Zonega
+                # kiritishi mumkin. Bunday tashrif parkovka navbatiga bog‘lanmaydi.
+                return "inside", "kpp2", False, True
             raise ValueError(
-                "O‘zbekiston darvozasidan kirish uchun E-navbat parkovkadan Free Zone navbati kerak."
+                "Avtomobilning boshqa ochiq tashrifi bor. Holatini tekshiring."
             )
         if visit:
             raise ValueError("Avtomobilning ochiq tashrifi bor: " + LABEL[place])
@@ -104,6 +108,12 @@ def quote(conn, point, action, plate, key, purpose, now):
         (key, key),
     ).fetchone()
     visit = snapshot if snapshot["id"] is not None else None
+    from_parking = bool(
+        point == "kpp2"
+        and action == "in"
+        and visit
+        and visit["location"] == "parking"
+    )
     location, entry_gate, mark_departed, mark_entered = transition(
         point, action, visit, purpose
     )
@@ -121,7 +131,13 @@ def quote(conn, point, action, plate, key, purpose, now):
         version = snapshot["visit_version"]
         days, paid = 1, 0
     # A Free Zone visit carries its first parking payment into the zone; settle only at final exit.
-    amount = max(0, days * rate - paid) if not visit or location == "closed" else 0
+    if point == "kpp2" and action == "in":
+        # KPP2 kirishida pul olinmaydi. Bevosita kirgan transportning kunlik
+        # to‘lovi yakuniy chiqishda hisoblanadi; parkovkadan kelgan transport
+        # esa birinchi kunini parkovkada allaqachon to‘lagan.
+        amount = 0
+    else:
+        amount = max(0, days * rate - paid) if not visit or location == "closed" else 0
     return dict(
         point=point,
         action=action,
@@ -129,7 +145,7 @@ def quote(conn, point, action, plate, key, purpose, now):
         key=key,
         purpose=visit["purpose"]
         if visit
-        else ("zone" if point == "ayritom" else purpose),
+        else ("zone" if point in ("ayritom", "kpp2") else purpose),
         visit=visit["id"] if visit else None,
         version=version,
         location=location,
@@ -141,6 +157,8 @@ def quote(conn, point, action, plate, key, purpose, now):
         rate=rate,
         paid=paid,
         amount=amount,
+        from_parking=from_parking,
+        receipt_required=not from_parking,
     )
 
 
@@ -226,7 +244,7 @@ def register_zone(app, pool, roles, clean_plate, qr):
                 )
                 queue_query = conn.execute(
                     """SELECT id,plate,purpose,queue_no FROM zone_visits
-                    WHERE location='parking' AND purpose='zone' AND %s='kpp2' ORDER BY id LIMIT %s OFFSET %s""",
+                    WHERE location='parking' AND purpose='zone' AND queue_ready AND %s='kpp2' ORDER BY queued_at,id LIMIT %s OFFSET %s""",
                     (point,size+1,(number-1)*size),
                 )
             recent = recent_query.fetchall()
@@ -292,9 +310,17 @@ def register_zone(app, pool, roles, clean_plate, qr):
     @roles(*POINTS)
     def zone_commit():
         result = commit_transaction()
-        if not isinstance(result,int):
+        if not isinstance(result,dict):
             return result
-        return zone_receipt(result) if request.is_json else redirect(url_for("zone_receipt",eid=result),303)
+        eid = result["event_id"]
+        if request.is_json and not result["receipt_required"]:
+            return jsonify(
+                success=True,
+                id=eid,
+                receipt_required=False,
+                message="Parkovkadan Free Zonega kirish tasdiqlandi. Kirish cheki talab qilinmaydi.",
+            )
+        return zone_receipt(eid) if request.is_json else redirect(url_for("zone_receipt",eid=eid),303)
 
     def commit_transaction():
         if g.user["role"] == "parkovka_tashqi":
@@ -324,7 +350,7 @@ def register_zone(app, pool, roles, clean_plate, qr):
                 "SELECT id FROM zone_events WHERE request_key=%s", (rid,)
             ).fetchone()
             if existing:
-                return existing["id"]
+                return {"event_id": existing["id"], "receipt_required": bool(expected.get("receipt_required", True))}
             if expired:
                 return problem("Hisob muddati tugadi. Raqamni qayta kiriting.", 409)
             now = datetime.now(TZ)
@@ -414,7 +440,7 @@ def register_zone(app, pool, roles, clean_plate, qr):
                 q["action"],
                 q["amount"],
             )
-            return event["id"]
+            return {"event_id": event["id"], "receipt_required": bool(q["receipt_required"])}
 
     @app.get("/zone/receipt/<int:eid>")
     @roles(*POINTS, *ADMINS)
@@ -440,7 +466,7 @@ def register_zone(app, pool, roles, clean_plate, qr):
         eid = e["id"]
         fields = [
             ("Chek", f"AFZ-{eid}"),
-            ("Navbat / tashrif", e["queue_no"] or str(e["visit_id"])),
+            ("Navbat raqami" if e["queue_no"] else "Tashrif raqami", e["queue_no"] or str(e["visit_id"])),
             ("Avtomobil", e["plate"]),
             ("Maqsad", LABEL[e["purpose"]]),
             ("Nuqta", LABEL[e["point"]]),
@@ -456,6 +482,8 @@ def register_zone(app, pool, roles, clean_plate, qr):
             ("To‘lov turi", LABEL[e["method"]]),
             ("Xodim", e["operator_name"]),
         ]
+        if not e["amount"]:
+            fields.insert(-1, ("To‘lov holati", "To‘lov talab qilinmaydi"))
         if e["entry_gate"]:
             fields.insert(7, ("Free Zone kirish darvozasi", POINTS[e["entry_gate"]]))
         code = qr(
@@ -533,8 +561,8 @@ def register_zone(app, pool, roles, clean_plate, qr):
                         args,
                     )
                     stats_query = conn.execute("""SELECT
-                        COUNT(*) FILTER(WHERE location='parking' AND purpose='border') AS border,
-                        COUNT(*) FILTER(WHERE location='parking' AND purpose='zone') AS zone,
+                        COUNT(*) FILTER(WHERE location='parking' AND purpose='border' AND queue_ready) AS border,
+                        COUNT(*) FILTER(WHERE location='parking' AND purpose='zone' AND queue_ready) AS zone,
                         COUNT(*) FILTER(WHERE location='inside') AS inside,
                         COUNT(*) FILTER(WHERE location='inside' AND entry_gate='kpp2') AS inside_kpp2,
                         COUNT(*) FILTER(WHERE location='inside' AND entry_gate='ayritom') AS inside_ayritom,
@@ -609,8 +637,8 @@ def register_zone(app, pool, roles, clean_plate, qr):
         with pool().connection() as conn:
             today_start = datetime.combine(datetime.now(TZ).date(), time.min, TZ)
             stats = conn.execute("""SELECT
-                COUNT(*) FILTER(WHERE location='parking' AND purpose='border') AS border,
-                COUNT(*) FILTER(WHERE location='parking' AND purpose='zone') AS zone,
+                COUNT(*) FILTER(WHERE location='parking' AND purpose='border' AND queue_ready) AS border,
+                COUNT(*) FILTER(WHERE location='parking' AND purpose='zone' AND queue_ready) AS zone,
                 COUNT(*) FILTER(WHERE location='inside') AS inside,
                 COUNT(*) FILTER(WHERE location='inside' AND entry_gate='kpp2') AS inside_kpp2,
                 COUNT(*) FILTER(WHERE location='inside' AND entry_gate='ayritom') AS inside_ayritom,
